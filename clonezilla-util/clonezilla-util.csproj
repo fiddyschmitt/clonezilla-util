@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <RootNamespace>clonezilla_util</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DebugType>full</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommandLineParser" Version="2.8.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\libClonezilla\libClonezilla.csproj" />
+    <ProjectReference Include="..\libGZip\libGZip.csproj" />
+  </ItemGroup>
+
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <Exec Command="::if not exist &quot;$(ProjectDir)$(OutDir)\ext\DiscUtils\&quot; mkdir &quot;$(ProjectDir)$(OutDir)\ext\DiscUtils\&quot;&#xD;&#xA;&#xD;&#xA;::copy &quot;$(ProjectDir)\..\ext\DiscUtils\Library\DiscUtils.Streams\bin\Debug\netstandard2.0\DiscUtils.Streams.dll&quot; &quot;$(ProjectDir)$(OutDir)\ext\DiscUtils\&quot;&#xD;&#xA;::copy &quot;$(ProjectDir)\..\ext\DiscUtils\Library\DiscUtils.Core\bin\Debug\netstandard2.0\DiscUtils.Core.dll&quot; &quot;$(ProjectDir)$(OutDir)\ext\DiscUtils\&quot;&#xD;&#xA;&#xD;&#xA;::copy &quot;$(ProjectDir)\..\ext\DiscUtils\Library\DiscUtils.Ntfs\bin\Debug\netstandard2.0\DiscUtils.Ntfs.dll&quot; &quot;$(ProjectDir)$(OutDir)\ext\DiscUtils\&quot;&#xD;&#xA;::copy &quot;$(ProjectDir)\..\ext\DiscUtils\Library\DiscUtils.Ext\bin\Debug\netstandard2.0\DiscUtils.Ext.dll&quot; &quot;$(ProjectDir)$(OutDir)\ext\DiscUtils\&quot;&#xD;&#xA;::copy &quot;$(ProjectDir)\..\ext\DiscUtils\Library\DiscUtils.Fat\bin\Debug\netstandard2.0\DiscUtils.Fat.dll&quot; &quot;$(ProjectDir)$(OutDir)\ext\DiscUtils\&quot;&#xD;&#xA;&#xD;&#xA;" />
+  </Target>
+
+</Project>
