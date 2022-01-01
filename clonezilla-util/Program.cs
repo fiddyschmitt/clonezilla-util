@@ -31,7 +31,7 @@ namespace clonezilla_util
             {
                 Log.Logger = new LoggerConfiguration()
                                 .WriteTo.Console()
-                                .WriteTo.File("clonezilla-util-.log", rollingInterval: RollingInterval.Day, shared: true)
+                                .WriteTo.File("clonezilla-util-.log", rollingInterval: RollingInterval.Day)
                                 .CreateLogger();
 
                 Log.Debug("Start");
@@ -123,7 +123,7 @@ namespace clonezilla_util
 
                                         var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
                                         var totalStr = libCommon.Extensions.BytesToString(partition.FullPartitionImage.Length);
-                                        Log.Information($"    Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
+                                        Log.Information($"Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
                                     });
 
                                 Log.Information("");
