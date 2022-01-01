@@ -30,7 +30,7 @@ namespace libClonezilla.Partitions
 
         public static Partition GetPartition(string clonezillaArchiveName, List<string> gzipFilenames, string partitionName, string type, IPartitionCache? partitionCache)
         {
-            Log.Information("Getting partition information...");
+            Log.Information($"Getting partition information for {partitionName}");
 
             var containerStreams = gzipFilenames
                                     .Select(filename => new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))

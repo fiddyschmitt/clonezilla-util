@@ -17,16 +17,20 @@ namespace libPartclone
     {
         public PartcloneImageInfo PartcloneImageInfo { get; }
         long position = 0;
+        readonly ContiguousRange lastRange;
 
         public PartcloneStream(string clonezillaArchiveName, string partitionName, Stream inputStream)
         {
             PartcloneImageInfo = new PartcloneImageInfo(clonezillaArchiveName, partitionName, inputStream);
             ClonezillaArchiveName = clonezillaArchiveName;
             PartitionName = partitionName;
+
+            lastRange = PartcloneImageInfo.PartcloneContentMapping.Last();
         }
 
         public Stream Stream => this;
         public bool LatestReadWasAllNull { get; set; }
+        public bool StopReadingWhenRemainderOfFileIsNull { get; set; } = false;
 
         public override bool CanRead => true;
 
@@ -62,7 +66,25 @@ namespace libPartclone
             if (PartcloneImageInfo.PartcloneContentMapping == null) return 0;
             if (PartcloneImageInfo.ReadStream == null) return 0;
 
-            var startTime = DateTime.Now;
+            if (StopReadingWhenRemainderOfFileIsNull && !lastRange.IsPopulated)
+            {
+                //if the rest of the file has null bytes, the caller isn't interested
+
+                //check if the entire requested section is contained within the last range
+                var readTo = Position + count;
+                var enclosingRange = PartcloneImageInfo.PartcloneContentMapping.FirstOrDefault(r => Position >= r.OutputFileRange.StartByte && readTo <= r.OutputFileRange.EndByte);
+
+                if (enclosingRange != null && enclosingRange == lastRange)
+                {
+                    //the rest of the file is empty, and they're not interested
+
+                    //clear the buffer one last time and call it a day
+                    Array.Clear(buffer, offset, count);
+
+                    position = Length;
+                    return 0;
+                }
+            }
 
             var pos = Position;
             var bufferPos = offset;
@@ -83,7 +105,6 @@ namespace libPartclone
                 }
 
                 var bytesLeftInThisRange = range.OutputFileRange.EndByte - pos + 1;
-                var bytesLeftInFile = Length - pos;
 
                 var bytesToRead = (int)Math.Min(bytesToGo, bytesLeftInThisRange);
 

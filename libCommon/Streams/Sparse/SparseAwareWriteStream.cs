@@ -10,7 +10,7 @@ namespace libCommon.Streams.Sparse
     public class SparseAwareWriteStream : ISparseAwareWriter
     {
         public Stream Stream { get; }
-        public bool ExplicitlyWriteNullBytes { get; set; }
+        public bool ExplicitlyWriteNullBytes { get; set; } = true;
 
         public SparseAwareWriteStream(Stream stream, bool explicitlyWriteNullBytes)
         {

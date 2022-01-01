@@ -11,6 +11,7 @@ namespace libCommon.Streams.Sparse
     {
         public Stream Stream { get; }
         public bool LatestReadWasAllNull { get; set; }
+        public bool StopReadingWhenRemainderOfFileIsNull { get; set; } = false;
 
         public SparseAwareReader(Stream stream, bool latestReadWasAllNull)
         {

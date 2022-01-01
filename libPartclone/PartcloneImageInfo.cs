@@ -35,7 +35,7 @@ namespace libPartclone
 
         //This variable stores a mapping of the output file, to the corresponding section in the partclone content.
         //This way, if we are asked to restore a particular byte, we know where to find it in the partclone content.
-        public List<ContiguousRange>? PartcloneContentMapping;
+        public List<ContiguousRange> PartcloneContentMapping = new();
 
         public PartcloneImageInfo(string clonezillaArchiveName, string partitionName, Stream readStream)
         {
@@ -98,8 +98,6 @@ namespace libPartclone
             if (Bitmap == null) return;
 
             long deviceSizeBytes = (long)(ImageDescV1?.FileSystemInfoV1?.DeviceSizeBytes ?? ImageDescV2?.FileSystemInfoV2?.DeviceSizeBytes ?? 0);
-
-            PartcloneContentMapping = new List<ContiguousRange>();
 
             long blockIndex = 0;
             long populatedBlockIndex = 0;

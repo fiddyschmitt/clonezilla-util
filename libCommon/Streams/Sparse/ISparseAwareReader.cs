@@ -11,5 +11,6 @@ namespace libCommon.Streams
     {
         public Stream Stream { get; }
         public bool LatestReadWasAllNull { get; set; }
+        public bool StopReadingWhenRemainderOfFileIsNull { get; set; }
     }
 }

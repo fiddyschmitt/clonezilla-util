@@ -112,6 +112,8 @@ namespace libCommon
                 callBack.Invoke(totalRead);
             }
 
+            callBack.Invoke(output.Stream.Length);
+
             Buffers.BufferPool.Return(buffer);
 
             return totalRead;

@@ -21,7 +21,22 @@ namespace libClonezilla
                             .ReadAllText(partsFile)
                             .Split(' ')
                             .Select(partitionName => partitionName.Trim())
-                            .Where(partitionName => partitionsToLoad?.Any(p => p.Equals(partitionName, StringComparison.CurrentCultureIgnoreCase)) ?? true)
+                            .Where(partitionName =>
+                            {
+                                if (partitionsToLoad == null || !partitionsToLoad.Any())
+                                {
+                                    //the user did not specify any particular partitions
+                                    return true;
+                                }
+
+                                if (partitionsToLoad.Any(p => p.Equals(partitionName)))
+                                {
+                                    //the user specified some partitions, and this is one of them
+                                    return true;
+                                }
+
+                                return false;
+                            })
                             .SelectMany(partitionName =>
                             {
                                 var partitions = new List<Partition>();

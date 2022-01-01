@@ -102,6 +102,9 @@ namespace clonezilla_util
                                 //a hack to speed things up. Let's make the output file sparse, so that we don't have to write zeroes for all the unpopulated ranges
                                 if (libCommon.Utility.IsOnNTFS(outputFilename) && !extractPartitionImageOptions.NoSparseOutput)
                                 {
+                                    //tell the input stream to not bother with the remainder of the file if it's all null
+                                    inputStream.StopReadingWhenRemainderOfFileIsNull = true;
+
                                     //tell the output stream to create a sparse file
                                     fileStream.SafeFileHandle.MarkAsSparse();
                                     fileStream.SetLength(partition.FullPartitionImage.Length);
@@ -125,8 +128,6 @@ namespace clonezilla_util
                                         var totalStr = libCommon.Extensions.BytesToString(partition.FullPartitionImage.Length);
                                         Log.Information($"Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
                                     });
-
-                                Log.Information("");
                             }
                         });
 
