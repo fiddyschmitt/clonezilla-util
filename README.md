@@ -1,6 +1,9 @@
 # clonezilla-util
 A tool for working with Clonezilla images.
 
+## Where to download
+Releases can be found over in the [releases](https://github.com/fiddyschmitt/clonezilla-util/releases) section.
+
 ## Extract a single file from a Clonezilla Image
 
 Run the following command:
