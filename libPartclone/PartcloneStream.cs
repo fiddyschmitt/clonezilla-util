@@ -17,7 +17,7 @@ namespace libPartclone
     {
         public PartcloneImageInfo PartcloneImageInfo { get; }
         long position = 0;
-        readonly ContiguousRange lastRange;
+        readonly ContiguousRange LastRange;
 
         public PartcloneStream(string clonezillaArchiveName, string partitionName, Stream inputStream)
         {
@@ -25,7 +25,7 @@ namespace libPartclone
             ClonezillaArchiveName = clonezillaArchiveName;
             PartitionName = partitionName;
 
-            lastRange = PartcloneImageInfo.PartcloneContentMapping.Last();
+            LastRange = PartcloneImageInfo.PartcloneContentMapping.Last();
         }
 
         public Stream Stream => this;
@@ -66,7 +66,7 @@ namespace libPartclone
             if (PartcloneImageInfo.PartcloneContentMapping == null) return 0;
             if (PartcloneImageInfo.ReadStream == null) return 0;
 
-            if (StopReadingWhenRemainderOfFileIsNull && !lastRange.IsPopulated)
+            if (StopReadingWhenRemainderOfFileIsNull && !LastRange.IsPopulated)
             {
                 //if the rest of the file has null bytes, the caller isn't interested
 
@@ -74,7 +74,7 @@ namespace libPartclone
                 var readTo = Position + count;
                 var enclosingRange = PartcloneImageInfo.PartcloneContentMapping.FirstOrDefault(r => Position >= r.OutputFileRange.StartByte && readTo <= r.OutputFileRange.EndByte);
 
-                if (enclosingRange != null && enclosingRange == lastRange)
+                if (enclosingRange != null && enclosingRange == LastRange)
                 {
                     //the rest of the file is empty, and they're not interested
 

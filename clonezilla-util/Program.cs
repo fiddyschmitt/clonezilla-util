@@ -109,7 +109,7 @@ namespace clonezilla_util
                                     fileStream.SafeFileHandle.MarkAsSparse();
                                     fileStream.SetLength(partition.FullPartitionImage.Length);
 
-                                    //tell the writer not to bother writing  the null bytes to the file (because it's already sparse)
+                                    //tell the writer not to bother writing the null bytes to the file (because it's already sparse)
                                     outputStream = new SparseAwareWriteStream(fileStream, false);
                                 }
                                 else
