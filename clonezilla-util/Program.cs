@@ -18,6 +18,9 @@ namespace clonezilla_util
 {
     class Program
     {
+        const string PROGRAM_NAME = "clonezilla-util";
+        const string PROGRAM_VERSION = "1.0";
+
         private enum ReturnCode
         {
             Success = 0,
@@ -31,10 +34,11 @@ namespace clonezilla_util
             {
                 Log.Logger = new LoggerConfiguration()
                                 .WriteTo.Console()
-                                .WriteTo.File("clonezilla-util-.log", rollingInterval: RollingInterval.Day)
+                                .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day)
                                 .CreateLogger();
 
                 Log.Debug("Start");
+                PrintProgramVersion();
 
                 var types = LoadVerbs();
 
@@ -50,6 +54,12 @@ namespace clonezilla_util
                 Log.Error($"Unexpected exception: {ex}");
                 return (int)ReturnCode.GeneralException;
             }
+        }
+
+        static void PrintProgramVersion()
+        {
+            string fullProgramName = $"{PROGRAM_NAME} v{PROGRAM_VERSION}";
+            Log.Information(fullProgramName);
         }
 
         //load all types using Reflection
