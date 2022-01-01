@@ -10,6 +10,7 @@ using libGZip;
 using libCommon;
 using libClonezilla.Cache;
 using libClonezilla.Cache.FileSystem;
+using Serilog;
 
 namespace libClonezilla.Partitions
 {
@@ -29,6 +30,8 @@ namespace libClonezilla.Partitions
 
         public static Partition GetPartition(string clonezillaArchiveName, List<string> gzipFilenames, string partitionName, string type, IPartitionCache? partitionCache)
         {
+            Log.Information("Getting partition information...");
+
             var containerStreams = gzipFilenames
                                     .Select(filename => new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                                     .ToList();            

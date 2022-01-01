@@ -1,5 +1,6 @@
 ﻿using libCommon;
 using Microsoft.Win32.SafeHandles;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -61,7 +62,7 @@ namespace libGZip
                 process.StartInfo.CreateNoWindow = true;
             }
 
-            Debug.WriteLine($"{exe} {args}");
+            Log.Debug($"{exe} {args}");
             process.Start();
 
             Task? sendInputTask = null;
@@ -99,12 +100,12 @@ namespace libGZip
 
                 if (bytesRead != bytesToRead)
                 {
-                    Console.WriteLine("Problem");
+                    throw new Exception($"bytesRead != bytesToRead");
                 }
 
                 var duration = DateTime.Now - start;
-                Debug.WriteLine($"Read {result:N0} bytes in {duration.TotalSeconds:N2} seconds");
-                Debug.WriteLine("");
+                Log.Debug($"Read {result:N0} bytes in {duration.TotalSeconds:N2} seconds");
+                Log.Debug("");
 
                 return result;
             }

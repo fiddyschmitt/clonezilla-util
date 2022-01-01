@@ -7,6 +7,7 @@ using System.Threading;
 using System.Linq;
 using libCommon;
 using libCommon.Streams;
+using Serilog;
 
 namespace libGZip
 {
@@ -90,7 +91,7 @@ namespace libGZip
                     var compressedByteToContinueIndexingOn = lastIndexedCompressedByte + 1;
 
                     compressedStream.Seek(0, SeekOrigin.Begin);
-                    Console.WriteLine($"Generating gzip index: {indexFilename}");
+                    Log.Information($"Generating gzip index: {indexFilename}");
 
                     Utility.ExecuteProcess(GZTOOL_EXE, $"-n {compressedByteToContinueIndexingOn} -I \"{indexFilename}\"", compressedStream, null, 0);
 
@@ -159,10 +160,6 @@ namespace libGZip
 
                 var bytesLeftInFile = Length - position;
                 count = (int)Math.Min(bytesLeftInFile, count);
-                if (count == bytesLeftInFile)
-                {
-                    Console.WriteLine();
-                }
 
                 bytesRead = Utility.ExecuteProcess(GZTOOL_EXE, args, instream, outstream, count);
             }

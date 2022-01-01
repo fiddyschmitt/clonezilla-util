@@ -42,7 +42,7 @@ namespace clonezilla_util
             {
                 return text;
             }
-            return text.Substring(0, pos) + replace + text.Substring(pos + search.Length);
+            return string.Concat(text.AsSpan(0, pos), replace, text.AsSpan(pos + search.Length));
         }
     }
 }

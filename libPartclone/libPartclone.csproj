@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Serilog" Version="2.10.0" />
     <PackageReference Include="System.Memory" Version="4.5.4" />
   </ItemGroup>
 

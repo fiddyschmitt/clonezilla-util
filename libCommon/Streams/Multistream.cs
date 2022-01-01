@@ -65,7 +65,6 @@ namespace libCommon.Streams
 
                 if (substream.StreamIndex != currentIndex)
                 {
-                    //Debug.WriteLine($"{DateTime.Now}: now using Stream number {substream.StreamIndex}");
                     currentIndex = substream.StreamIndex;
                 }
 

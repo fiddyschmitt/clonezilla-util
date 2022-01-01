@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "extract-partition-image -i \"E:\\2021-12-28-13-img_PB-DEVOPS1_gz\" -o \"E:\\_img\\7 - restored using new clonezilla-util sparse with gztool\" -p sda1"
+      "commandLineArgs": "extract-partition-image -i \"E:\\2021-12-28-13-img_PB-DEVOPS1_gz\" -o \"E:\\_img\\7 - restored using new clonezilla-util sparse with gztool\" -p sda2"
     }
   }
 }

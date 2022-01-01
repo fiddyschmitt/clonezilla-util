@@ -6,6 +6,7 @@ using libCommon;
 using libCommon.Streams;
 using libCommon.Streams.Sparse;
 using libPartclone;
+using Serilog;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -17,15 +18,38 @@ namespace clonezilla_util
 {
     class Program
     {
-        static void Main(string[] args)
+        private enum ReturnCode
         {
+            Success = 0,
+            InvalidArguments = 1,
+            GeneralException = 2,
+        }
 
+        static int Main(string[] args)
+        {
+            try
+            {
+                Log.Logger = new LoggerConfiguration()
+                                .WriteTo.Console()
+                                .WriteTo.File("clonezilla-util-.log", rollingInterval: RollingInterval.Day, shared: true)
+                                .CreateLogger();
 
-            var types = LoadVerbs();
+                Log.Debug("Start");
 
-            Parser.Default.ParseArguments(args, types)
-                  .WithParsed(Run)
-                  .WithNotParsed(HandleErrors);
+                var types = LoadVerbs();
+
+                Parser.Default.ParseArguments(args, types)
+                      .WithParsed(Run)
+                      .WithNotParsed(HandleErrors);
+
+                Log.Debug("Exit successfully");
+                return (int)ReturnCode.Success;
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Unexpected exception: {ex}");
+                return (int)ReturnCode.GeneralException;
+            }
         }
 
         //load all types using Reflection
@@ -65,6 +89,11 @@ namespace clonezilla_util
                         {
                             var outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{partition.Name}.img");
 
+                            Log.Information($"Extracting partition {partition.Name}");
+                            Log.Information($"    From: {extractPartitionImageOptions.InputFolder}");
+                            Log.Information($"    To: {outputFilename}");
+                            Log.Information("");
+
                             var fileStream = File.Create(outputFilename);
                             ISparseAwareWriter outputStream;
 
@@ -88,14 +117,18 @@ namespace clonezilla_util
 
                                 inputStream
                                     .CopyTo(outputStream, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER,
-                                    total =>
+                                    totalCopied =>
                                     {
-                                        var totalStr = libCommon.Extensions.BytesToString(total);
-                                        Console.WriteLine(totalStr);
+                                        var per = (double)totalCopied / partition.FullPartitionImage.Length * 100;
+
+                                        var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
+                                        var totalStr = libCommon.Extensions.BytesToString(partition.FullPartitionImage.Length);
+                                        Log.Information($"    Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
                                     });
+
+                                Log.Information("");
                             }
                         });
-                    Console.WriteLine();
 
                     break;
 
@@ -143,7 +176,7 @@ namespace clonezilla_util
             var msg = obj
                         .Select(e => e.ToString())
                         .ToString(Environment.NewLine);
-            Console.WriteLine(msg);
+            Log.Error(msg);
         }
 
         public static void TestSeeking(Stream rawPartitionStream, FileStream outputStream)
@@ -192,7 +225,7 @@ namespace clonezilla_util
 
                     totalBytesRead += (ulong)bytesRead;
                     var percentageComplete = totalBytesRead / (double)outputStream.Length * 100;
-                    Console.WriteLine($"{totalBytesRead}    {percentageComplete:N2}%");
+                    Log.Information($"{totalBytesRead}    {percentageComplete:N2}%");
                 });
 
             Buffers.BufferPool.Return(buffer);
@@ -217,12 +250,12 @@ namespace clonezilla_util
 
                     if (bytesRead1 != bytesRead2)
                     {
-                        Console.WriteLine("Different read sizes");
+                        throw new Exception("Different read sizes");
                     }
 
                     if (!buffer1.IsEqualTo(buffer2))
                     {
-                        Console.WriteLine();
+                        throw new Exception("Not equal");
                     }
 
 
@@ -236,7 +269,7 @@ namespace clonezilla_util
 
                     if ((DateTime.Now - lastReport).TotalMilliseconds > 1000)
                     {
-                        Console.WriteLine($"{totalRead.BytesToString()}");
+                        Log.Information($"{totalRead.BytesToString()}");
                         lastReport = DateTime.Now;
                     }
 

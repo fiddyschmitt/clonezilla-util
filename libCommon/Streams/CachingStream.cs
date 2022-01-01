@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using Serilog;
 
 namespace libCommon.Streams
 {
@@ -55,8 +56,6 @@ namespace libCommon.Streams
         //StreamWriter readPositions = null;
         public override int Read(byte[] buffer, int offset, int count)
         {
-            //Debug.WriteLine($"Requested to read from {position:N0} to {position + count:N0}");
-
             /*
             if (readPositions == null)
             {
@@ -78,7 +77,7 @@ namespace libCommon.Streams
 
                 if (cacheEntry == null)
                 {
-                    Debug.WriteLine("\tCache miss");
+                    Log.Debug("\tCache miss");
 
                     (long Start, long End) recommendedRead;
                     if (ReadSegmentSuggestor == null)
@@ -90,7 +89,7 @@ namespace libCommon.Streams
                         recommendedRead = ReadSegmentSuggestor.GetRecommendation(pos, pos + bytesToGo);
                     }
                     var toRead = (int)(recommendedRead.End - recommendedRead.Start);
-                    Debug.WriteLine($"\tRecommended to read {toRead.BytesToString()} from position {recommendedRead.Start:N0}");
+                    Log.Debug($"\tRecommended to read {toRead.BytesToString()} from position {recommendedRead.Start:N0}");
 
                     var buff = new byte[toRead];
 
@@ -104,7 +103,6 @@ namespace libCommon.Streams
                     switch (CacheType)
                     {
                         case EnumCacheType.NoCaching:
-                            Debug.WriteLine($"\tNot caching");
                             addToCache = false;
                             break;
 
@@ -155,8 +153,6 @@ namespace libCommon.Streams
                 }
                 else
                 {
-                    //Debug.WriteLine("\tCache hit");
-
                     //move it to the beginning of the cache, to keep it fresh
                     cache.Remove(cacheEntry);
                     cache.Insert(0, cacheEntry);
@@ -168,10 +164,8 @@ namespace libCommon.Streams
                 var deltaFromBeginningOfRange = pos - cacheEntry.Start;
                 if (deltaFromBeginningOfRange < 0)
                 {
-                    Console.WriteLine("Problem");
+                    throw new Exception("deltaFromBeginningOfRange < 0");
                 }
-
-                //Debug.WriteLine($"\tRetrieving cache from {pos:N0} - {pos + bytesToRead:N0}");
 
                 Array.Copy(cacheEntry.Content, deltaFromBeginningOfRange, buffer, bufferPos, bytesToRead);
 

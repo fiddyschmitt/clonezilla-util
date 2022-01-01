@@ -1,4 +1,5 @@
 ﻿using libPartclone.Metadata;
+using Serilog;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -86,8 +87,8 @@ namespace libPartclone
 
             StartOfContent = binaryReader.BaseStream.Position;
 
-            if (ImageDescV1 != null) Console.WriteLine(ImageDescV1);
-            if (ImageDescV2 != null) Console.WriteLine(ImageDescV2);
+            if (ImageDescV1 != null) Log.Debug(ImageDescV1.ToString());
+            if (ImageDescV2 != null) Log.Debug(ImageDescV2.ToString());
 
             DeduceContiguousRanges();
         }

@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Serilog;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -35,22 +36,14 @@ namespace libCommon.Streams
 
                     using (var stream = StreamFactory.Invoke())
                     {
-                        var startTime = DateTime.Now;
-
                         int bufferSize = 50 * 1024 * 1024;
                         while (true)
                         {
                             var bytesRead = stream.CopyTo(Null, bufferSize, bufferSize);
                             length += bytesRead;
 
-                            Debug.WriteLine($"Read: {length.Value.BytesToString()}");
                             if (bytesRead == 0) break;
                         }
-
-                        var duration = DateTime.Now - startTime;
-                        Debug.WriteLine($"Time taken to read entire stream: {duration.ToPrettyFormat()}");
-                        Debug.WriteLine($"Entire stream length: {length.Value} bytes");
-                        Debug.WriteLine($"Entire stream length: {length.Value.BytesToString()}");
                     }
 
                     //We are now at the end of the stream. Let's go back to the original position
@@ -103,7 +96,7 @@ namespace libCommon.Streams
 
             if (position < oldPosition)
             {
-                Console.WriteLine($"Restarting stream and seeking to correct position");
+                Log.Debug($"Restarting stream and seeking to correct position");
 
                 //The original stream can't go backwards. So we need to start over
                 underlyingStream = StreamFactory.Invoke();
@@ -111,13 +104,9 @@ namespace libCommon.Streams
             }
             else
             {
-                //Console.WriteLine($"Seeking to {offset.BytesToString()}");
-
                 var toSeek = position - oldPosition;
                 underlyingStream.CopyTo(Null, toSeek, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER);
             }
-
-            //Console.WriteLine($"Seek complete");
 
             return Position;
         }
