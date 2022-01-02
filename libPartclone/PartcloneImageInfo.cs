@@ -108,15 +108,16 @@ namespace libPartclone
             ushort checksumSize = ImageDescV2?.ImageOptionsV2?.ChecksumSize ?? 4;   //ImageDescV1 always uses 4 bytes for the checksum. See partclone.h, or search partclone.c for "void set_image_options_v1"
             uint blocksPerChecksum = ImageDescV2?.ImageOptionsV2?.BlocksPerChecksum ?? 1;   //ImageDescV1 always uses 1 block per checksum. Search partclone.c for "void set_image_options_v1"
 
-            BitArray? bmp = null;
+            //BitArray? bmp = null;
+            IEnumerable<bool>? bmp = null;
 
             if (ImageDescV1 != null)
             {
                 //ImageDescV1 uses bitmap_mode = BM_BYTE
-                var boolList = Bitmap.Select(byt => byt != 0x0).ToList();
-                boolList.Add(false);
 
-                bmp = new BitArray(boolList.ToArray());
+                bmp = Bitmap
+                    .Select(byt => byt != 0x0)
+                    .Union(new[] { false });
             }
             if (ImageDescV2 != null)
             {
@@ -124,14 +125,14 @@ namespace libPartclone
                 switch (ImageDescV2.ImageOptionsV2?.BitmapMode)
                 {
                     case BitmapMode.BM_BIT:
-                        bmp = new BitArray(Bitmap.SelectMany(byt => byt.GetBits().Reverse()).ToArray());
+                        bmp = Bitmap.SelectMany(byt => byt.GetBits().Reverse());
                         break;
 
                     case BitmapMode.BM_BYTE:
-                        var boolList = Bitmap.Select(byt => byt != 0x0).ToList();
-                        boolList.Add(false);
 
-                        bmp = new BitArray(boolList.ToArray());
+                        bmp = Bitmap
+                                .Select(byt => byt != 0x0)
+                                .Union(new[] { false });
                         break;
 
                     case BitmapMode.BM_NONE:
@@ -140,8 +141,6 @@ namespace libPartclone
             }
 
             if (bmp == null) return;
-
-            var bmpOutput = bmp.ToByteArray();
 
             ContiguousRange? currentRange = null;
             ContiguousRange? lastPopulatedRange = null;
