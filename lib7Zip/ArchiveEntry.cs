@@ -11,6 +11,12 @@ namespace lib7Zip
         public string ArchiveFilename;
         public string Name;
 
+        public ArchiveEntry(string archiveFilename, string name)
+        {
+            ArchiveFilename = archiveFilename;
+            Name = name;
+        }
+
         public bool IsFolder;
         public long Size;
         public DateTime Modified;

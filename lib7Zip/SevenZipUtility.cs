@@ -30,10 +30,8 @@ namespace lib7Zip
             {
                 if (line.StartsWith($"Path ="))
                 {
-                    currentEntry = new ArchiveEntry
-                    {
-                        Name = line.Replace("Path = ", "")
-                    };
+                    string name = line.Replace("Path = ", "");
+                    currentEntry = new ArchiveEntry(archiveFilename, name);
                 }
 
                 if (string.IsNullOrEmpty(line))
