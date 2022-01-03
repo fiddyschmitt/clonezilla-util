@@ -161,6 +161,8 @@ namespace libCommon
             return totalRead;
         }
 
+#pragma warning disable CS8601 // Possible null reference assignment.
+#pragma warning disable CS8619 // Nullability of reference types in value doesn't match target type.
         public static IEnumerable<(T Previous, T Current, T Next)> Sandwich<T>(this IEnumerable<T> source, T beforeFirst = default, T afterLast = default)
         {
             var sourceList = source.ToList();
@@ -170,6 +172,7 @@ namespace libCommon
 
             foreach (var next in sourceList.Skip(1))
             {
+
                 yield return (previous, current, next);
 
                 previous = current;
@@ -178,6 +181,8 @@ namespace libCommon
 
             yield return (previous, current, afterLast);
         }
+#pragma warning restore CS8601 // Possible null reference assignment.
+#pragma warning restore CS8619 // Nullability of reference types in value doesn't match target type.
 
         [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern bool DeviceIoControl(

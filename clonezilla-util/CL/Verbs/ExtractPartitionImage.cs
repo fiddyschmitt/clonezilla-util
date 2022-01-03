@@ -10,10 +10,10 @@ namespace clonezilla_util.CL.Verbs
     public class ExtractPartitionImage : BaseVerb
     {
         [Option('i', "input", HelpText = "The folder containing the Clonezilla archive", Required = true)]
-        public string InputFolder { get; set; }
+        public string? InputFolder { get; set; }
 
         [Option('o', "output", HelpText = "The folder to extract the partition image to. Highly recommend using NTFS compression, because the partition image is a one-to-one copy of the original, and typically very sparse.", Required = true)]
-        public string OutputFolder { get; set; }
+        public string? OutputFolder { get; set; }
 
         [Option('p', "partitions", HelpText = "The partition(s) to extract. Eg. sda1. If not provided, all partitions will be extracted.", Required = false)]
         public IEnumerable<string> PartitionsToExtract { get; set; } = new List<string>();

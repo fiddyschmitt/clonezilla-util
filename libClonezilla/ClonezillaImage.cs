@@ -17,6 +17,11 @@ namespace libClonezilla
             var clonezillaArchiveName = Path.GetFileName(folder);
             var partsFile = Path.Combine(folder, "parts");
 
+            if (!File.Exists(partsFile))
+            {
+                throw new Exception($"Could not find the partitions list file: {partsFile}");
+            }
+
             Partitions = File
                             .ReadAllText(partsFile)
                             .Split(' ')
@@ -37,28 +42,12 @@ namespace libClonezilla
 
                                 return false;
                             })
-                            .SelectMany(partitionName =>
+                            .Select(partitionName =>
                             {
-                                var partitions = new List<Partition>();
+                                var partitionCache = cacheManager.GetPartitionCache(folder, partitionName);
+                                var result = Partition.GetPartition(clonezillaArchiveName, folder, partitionName, partitionCache, willPerformRandomSeeking);
 
-                                var gzipFilenames = Directory.GetFiles(folder, $"{partitionName}.*-ptcl-img.gz.*")
-                                                    .OrderBy(filename => filename)
-                                                    .ToList();
-
-                                var firstGzip = gzipFilenames.FirstOrDefault();
-
-                                if (firstGzip != null)
-                                {
-                                    var partitionType = Path.GetFileName(firstGzip).Split('.', '-')[1];
-
-                                    var partitionCache = cacheManager.GetPartitionCache(folder, partitionName);
-
-                                    var result = Partition.GetPartition(clonezillaArchiveName, gzipFilenames, partitionName, partitionType, partitionCache, willPerformRandomSeeking);
-
-                                    partitions.Add(result);
-                                }
-
-                                return partitions;
+                                return result;
                             })
                             .ToList();
         }

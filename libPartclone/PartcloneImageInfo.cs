@@ -97,7 +97,7 @@ namespace libPartclone
 
             if (mappingFromCache == null)
             {
-                Log.Information($"Deducing partclone contiguous ranges");
+                Log.Debug($"Deducing partclone contiguous ranges");
                 DeduceContiguousRanges();
                 cache.SetPartcloneContentMapping(PartcloneContentMapping);
             }

@@ -73,7 +73,7 @@ namespace clonezilla_util
 
         private static void Run(object obj)
         {
-            ClonezillaCacheManager clonezillaCacheManager = null;
+            ClonezillaCacheManager? clonezillaCacheManager = null;
 
             var startTime = DateTime.Now;
 
@@ -83,6 +83,9 @@ namespace clonezilla_util
             switch (obj)
             {
                 case ExtractPartitionImage extractPartitionImageOptions:
+
+                    if (extractPartitionImageOptions.InputFolder == null) throw new Exception($"InputFolder not specified.");
+                    if (extractPartitionImageOptions.OutputFolder == null) throw new Exception($"OutputFolder not specified.");
 
                     var czImage = new ClonezillaImage(extractPartitionImageOptions.InputFolder, clonezillaCacheManager, extractPartitionImageOptions.PartitionsToExtract, true);
 
@@ -106,6 +109,8 @@ namespace clonezilla_util
                     break;
 
                 case ListContents lc:
+                    if (lc.InputFolder == null) throw new Exception($"InputFolder not specified.");
+
                     var clonezillaImage = new ClonezillaImage(lc.InputFolder, clonezillaCacheManager, lc.PartitionsToOpen, true);
                     var partitions = clonezillaImage.Partitions;
 
@@ -117,6 +122,8 @@ namespace clonezilla_util
 
                     foreach (var file in allFiles)
                     {
+                        if (file.File.FullPath == null) continue;
+
                         string filenameIncludingPartition;
                         if (file.File.FullPath.StartsWith("."))
                         {
@@ -147,7 +154,7 @@ namespace clonezilla_util
         private static void HandleErrors(IEnumerable<Error> obj)
         {
             var msg = obj
-                        .Select(e => e.ToString())
+                        .Select(e => e.ToString() ?? "")
                         .ToString(Environment.NewLine);
             Log.Error(msg);
         }
