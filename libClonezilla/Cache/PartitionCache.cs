@@ -33,9 +33,22 @@ namespace libClonezilla.Cache
             return result;
         }
 
-        public void SetPartcloneImageInfo(PartcloneImageInfo partcloneImageInfo)
+        public List<ContiguousRange>? GetPartcloneContentMapping()
         {
-            var json = JsonConvert.SerializeObject(partcloneImageInfo, Formatting.Indented);
+            List<ContiguousRange>? result = null;
+
+            if (File.Exists(partcloneImageInfoFilename))
+            {
+                string json = File.ReadAllText(partcloneImageInfoFilename);
+                result = JsonConvert.DeserializeObject<List<ContiguousRange>>(json);
+            }
+
+            return result;
+        }
+
+        public void SetPartcloneContentMapping(List<ContiguousRange> contiguousRanges)
+        {
+            var json = JsonConvert.SerializeObject(contiguousRanges, Formatting.Indented);
             File.WriteAllText(partcloneImageInfoFilename, json);
         }
     }

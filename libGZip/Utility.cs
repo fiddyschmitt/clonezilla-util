@@ -39,9 +39,7 @@ namespace libGZip
             return process;
         }
 
-        public static int ExecuteProcess(string exe, string args, Stream inputStream) => ExecuteProcess(exe, args, inputStream, null, 0);
-
-        public static int ExecuteProcess(string exe, string args, Stream? inputStream, Stream? outputStream, long bytesToRead)
+        public static int ExecuteProcess(string exe, string args, Stream? inputStream, Stream? outputStream, long bytesToRead, Action<long>? inputReadCallback = null)
         {
             var start = DateTime.Now;
 
@@ -72,7 +70,7 @@ namespace libGZip
                 {
                     try
                     {
-                        inputStream.CopyToEnd(process.StandardInput.BaseStream, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER);
+                        inputStream.CopyToEnd(process.StandardInput.BaseStream, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER, inputReadCallback);
                     }
                     catch { }
 
@@ -85,10 +83,11 @@ namespace libGZip
             {
                 bytesRead = (int)process.StandardOutput.BaseStream.CopyTo(outputStream, bytesToRead, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER);
                 process.StandardOutput.Close();
-                process.WaitForExit();
             }
 
             sendInputTask?.Wait();
+
+            process.WaitForExit();
 
             if (outputStream == null)
             {

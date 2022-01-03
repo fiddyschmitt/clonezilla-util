@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\lib7Zip\lib7Zip.csproj" />
     <ProjectReference Include="..\libClonezilla\libClonezilla.csproj" />
     <ProjectReference Include="..\libGZip\libGZip.csproj" />
   </ItemGroup>

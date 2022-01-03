@@ -7,7 +7,7 @@ namespace libCommon
 {
     public static class Buffers
     {
-        public const int SUPER_ARBITARY_MEDIUM_SIZE_BUFFER = 5_000_000;
+        public const int SUPER_ARBITARY_MEDIUM_SIZE_BUFFER = 5 * 1024 * 1024;
         public const int SUPER_ARBITARY_LARGE_SIZE_BUFFER = SUPER_ARBITARY_MEDIUM_SIZE_BUFFER * 10;
         public const int SUPER_ARBITARY_HUGE_SIZE_BUFFER = SUPER_ARBITARY_LARGE_SIZE_BUFFER * 10;
 

@@ -28,23 +28,42 @@ namespace libClonezilla.Partitions
 
         public Stream FullPartitionImage { get; }
 
-        public static Partition GetPartition(string clonezillaArchiveName, List<string> gzipFilenames, string partitionName, string type, IPartitionCache? partitionCache)
+        public static Partition GetPartition(string clonezillaArchiveName, List<string> gzipFilenames, string partitionName, string type, IPartitionCache partitionCache, bool willPerformRandomSeeking)
         {
             Log.Information($"Getting partition information for {partitionName}");
 
             var containerStreams = gzipFilenames
                                     .Select(filename => new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                                    .ToList();            
+                                    .ToList();
 
-            var gztoolIndexFilename = partitionCache?.GetGztoolIndexFilename();
+            var gztoolIndexFilename = partitionCache.GetGztoolIndexFilename();
+            var tempgztoolIndexFilename = gztoolIndexFilename + ".wip";
 
             var compressedStream = new Multistream(containerStreams);
 
             Stream uncompressedStream;
             IReadSegmentSuggestor? suggestor = null;
 
-            if (gztoolIndexFilename == null)
+            PartcloneStream fullPartitionImage;
+            if (willPerformRandomSeeking)
             {
+                //this is faster for random seeks (eg. serving the full image (or file contents) in a Virtual File System)
+                //Uses gztool to create an index for fast seek, plus a cache layer to avoid using gztool for small reads
+
+                var fastSeektable = new GZipStreamSeekable(compressedStream, tempgztoolIndexFilename, gztoolIndexFilename);
+                uncompressedStream = fastSeektable;
+
+                var totalSystemRAMInBytes = libCommon.Utility.GetTotalRamSizeBytes();
+                var totalSystemRAMInMegabytes = (int)(totalSystemRAMInBytes / (double)(1024 * 1024));
+                var maxCacheSizeInMegabytes = (int)(totalSystemRAMInMegabytes / 8d);
+                var cachingStream = new CachingStream(uncompressedStream, suggestor, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
+                fullPartitionImage = new PartcloneStream(clonezillaArchiveName, partitionName, cachingStream, partitionCache);
+
+            }
+            else
+            {
+                //this is faster for sequential reads (eg. extracting the full partition image)
+
                 var slowSeekable = new SeekableStream(() =>
                 {
                     compressedStream.Seek(0, SeekOrigin.Begin);
@@ -53,25 +72,8 @@ namespace libClonezilla.Partitions
                     return newStream;
                 });
 
-                uncompressedStream = slowSeekable;
+                fullPartitionImage = new PartcloneStream(clonezillaArchiveName, partitionName, slowSeekable, partitionCache);
             }
-            else
-            {
-                var fastSeektable = new GZipStreamSeekable(compressedStream, gztoolIndexFilename);
-                uncompressedStream = fastSeektable;
-                suggestor = fastSeektable;
-            }
-
-
-            //todo: only introduce this cache level if it's required.
-            //var totalSystemRAMInBytes = libCommon.Utility.GetTotalRamSizeBytes();
-            //var totalSystemRAMInMegabytes = (int)(totalSystemRAMInBytes / (double)(1024 * 1024));
-            //var maxCacheSizeInMegabytes = (int)(totalSystemRAMInMegabytes / 8d);
-
-            //var cachingStream = new CachingStream(uncompressedStream, suggestor, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
-            //var fullPartitionImage = new PartcloneStream(clonezillaArchiveName, partitionName, cachingStream);
-
-            var fullPartitionImage = new PartcloneStream(clonezillaArchiveName, partitionName, uncompressedStream);
 
 
             Partition result = new BasicPartition(partitionName, type, fullPartitionImage);

@@ -12,7 +12,7 @@ namespace libClonezilla
     {
         public List<Partition> Partitions;
 
-        public ClonezillaImage(string folder, IClonezillaCacheManager? cacheManager, IEnumerable<string>? partitionsToLoad)
+        public ClonezillaImage(string folder, IClonezillaCacheManager cacheManager, IEnumerable<string>? partitionsToLoad, bool willPerformRandomSeeking)
         {
             var clonezillaArchiveName = Path.GetFileName(folder);
             var partsFile = Path.Combine(folder, "parts");
@@ -51,9 +51,9 @@ namespace libClonezilla
                                 {
                                     var partitionType = Path.GetFileName(firstGzip).Split('.', '-')[1];
 
-                                    var partitionCache = cacheManager?.GetPartitionCache(folder, partitionName);
+                                    var partitionCache = cacheManager.GetPartitionCache(folder, partitionName);
 
-                                    var result = Partition.GetPartition(clonezillaArchiveName, gzipFilenames, partitionName, partitionType, partitionCache);
+                                    var result = Partition.GetPartition(clonezillaArchiveName, gzipFilenames, partitionName, partitionType, partitionCache, willPerformRandomSeeking);
 
                                     partitions.Add(result);
                                 }

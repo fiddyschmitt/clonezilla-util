@@ -77,7 +77,7 @@ namespace libCommon.Streams
 
                 if (cacheEntry == null)
                 {
-                    Log.Debug("\tCache miss");
+                    Log.Debug("Cache miss");
 
                     (long Start, long End) recommendedRead;
                     if (ReadSegmentSuggestor == null)
@@ -89,7 +89,7 @@ namespace libCommon.Streams
                         recommendedRead = ReadSegmentSuggestor.GetRecommendation(pos, pos + bytesToGo);
                     }
                     var toRead = (int)(recommendedRead.End - recommendedRead.Start);
-                    Log.Debug($"\tRecommended to read {toRead.BytesToString()} from position {recommendedRead.Start:N0}");
+                    Log.Debug($"Recommended to read {toRead.BytesToString()} from position {recommendedRead.Start:N0}");
 
                     var buff = new byte[toRead];
 

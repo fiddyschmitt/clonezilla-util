@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="ext\7-Zip\win-x64\7z.exe" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="ext\7-Zip\win-x64\7z.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="ext\7-Zip\win-x64\7z.dll" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\libCommon\libCommon.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="ext\7-Zip\win-x64\7z.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="ext\7-Zip\linux-x64\7zz">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

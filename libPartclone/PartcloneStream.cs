@@ -19,9 +19,9 @@ namespace libPartclone
         long position = 0;
         readonly ContiguousRange LastRange;
 
-        public PartcloneStream(string clonezillaArchiveName, string partitionName, Stream inputStream)
+        public PartcloneStream(string clonezillaArchiveName, string partitionName, Stream inputStream, IPartcloneCache cache)
         {
-            PartcloneImageInfo = new PartcloneImageInfo(clonezillaArchiveName, partitionName, inputStream);
+            PartcloneImageInfo = new PartcloneImageInfo(clonezillaArchiveName, partitionName, inputStream, cache);
             ClonezillaArchiveName = clonezillaArchiveName;
             PartitionName = partitionName;
 

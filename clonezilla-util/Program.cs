@@ -1,5 +1,6 @@
 ﻿using clonezilla_util.CL.Verbs;
 using CommandLine;
+using lib7Zip;
 using libClonezilla;
 using libClonezilla.Cache;
 using libCommon;
@@ -19,7 +20,7 @@ namespace clonezilla_util
     class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "1.0";
+        const string PROGRAM_VERSION = "1.1";
 
         private enum ReturnCode
         {
@@ -33,6 +34,7 @@ namespace clonezilla_util
             try
             {
                 Log.Logger = new LoggerConfiguration()
+                                //.MinimumLevel.Debug()
                                 .WriteTo.Console()
                                 .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day)
                                 .CreateLogger();
@@ -75,16 +77,14 @@ namespace clonezilla_util
 
             var startTime = DateTime.Now;
 
-            if (obj is BaseVerb v && v.UseCache)
-            {
-                string cacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
-                clonezillaCacheManager = new ClonezillaCacheManager(cacheFolder);
-            }
+            string cacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
+            clonezillaCacheManager = new ClonezillaCacheManager(cacheFolder);
 
             switch (obj)
             {
                 case ExtractPartitionImage extractPartitionImageOptions:
-                    var czImage = new ClonezillaImage(extractPartitionImageOptions.InputFolder, clonezillaCacheManager, extractPartitionImageOptions.PartitionsToExtract);
+
+                    var czImage = new ClonezillaImage(extractPartitionImageOptions.InputFolder, clonezillaCacheManager, extractPartitionImageOptions.PartitionsToExtract, true);
 
                     var partitionsToExtract = czImage.Partitions;
 
@@ -100,9 +100,8 @@ namespace clonezilla_util
                             var outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{partition.Name}.img");
 
                             Log.Information($"Extracting partition {partition.Name}");
-                            Log.Information($"    From: {extractPartitionImageOptions.InputFolder}");
-                            Log.Information($"    To: {outputFilename}");
-                            Log.Information("");
+                            Log.Information($"From: {extractPartitionImageOptions.InputFolder}");
+                            Log.Information($"To: {outputFilename}");
 
                             var fileStream = File.Create(outputFilename);
                             ISparseAwareWriter outputStream;
@@ -144,7 +143,7 @@ namespace clonezilla_util
                     break;
 
                 case ListContents lc:
-                    var clonezillaImage = new ClonezillaImage(lc.InputFolder, clonezillaCacheManager, lc.PartitionsToOpen);
+                    var clonezillaImage = new ClonezillaImage(lc.InputFolder, clonezillaCacheManager, lc.PartitionsToOpen, true);
                     var partitions = clonezillaImage.Partitions;
 
                     var allFiles = partitions.SelectMany(partition => partition.GetFilesInPartition().Select(file => new

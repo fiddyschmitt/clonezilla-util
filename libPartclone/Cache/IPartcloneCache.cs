@@ -7,8 +7,8 @@ namespace libPartclone.Cache
     public interface IPartcloneCache
     {
         //public PartcloneImageInfo? GetPartcloneImageInfo();
-        //public IEnumerable<ContiguousRange>? GetPartcloneContentMapping();
+        public List<ContiguousRange>? GetPartcloneContentMapping();
         //public void SetPartcloneImageInfo(PartcloneImageInfo partcloneImageInfo);
-        //public void SetPartcloneContentMapping(IEnumerable<ContiguousRange> contiguousRanges);
+        public void SetPartcloneContentMapping(List<ContiguousRange> contiguousRanges);
     }
 }

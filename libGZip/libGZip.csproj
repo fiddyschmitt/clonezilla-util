@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="ext\gztool\gztool-Windows.x86_64.exe">
+    <None Update="ext\gztool\win-x64\gztool-Windows.x86_64.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="ext\gztool\gztool.exe">

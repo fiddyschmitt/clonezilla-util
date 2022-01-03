@@ -16,7 +16,7 @@ namespace libGZip
         readonly long uncompressedTotalLength = 0;
         public List<Mapping> indexContents = new();
 
-        const string GZTOOL_EXE = "ext/gztool/gztool-Windows.x86_64.exe";
+        const string GZTOOL_EXE = "ext/gztool/win-x64/gztool-Windows.x86_64.exe";
 
         public static (long UncompressedTotalLength, List<Mapping> Mapping) GetIndexContent(Stream compressedStream, string indexFilename)
         {
@@ -53,12 +53,10 @@ namespace libGZip
 
                                     if (entry.Next == null)
                                     {
-                                        entry.Current.CompressedEndByte = compressedStream.Length;
                                         entry.Current.UncompressedEndByte = uncompressedTotalLength;
                                     }
                                     else
                                     {
-                                        entry.Current.CompressedEndByte = entry.Next.CompressedStartByte - 1;
                                         entry.Current.UncompressedEndByte = entry.Next.UncompressedStartByte - 1;
                                     }
 
@@ -71,36 +69,66 @@ namespace libGZip
             return (uncompressedTotalLength, indexContents);
         }
 
-        public GZipStreamSeekable(Stream compressedStream, string indexFilename)
+        public GZipStreamSeekable(Stream compressedStream, string tempIndexFilename, string indexFilename)
         {
             CompressedStream = compressedStream;
             IndexFilename = indexFilename;
 
-            if (File.Exists(indexFilename))
+            var indexCreationComplete = false;
+
+            if (File.Exists(tempIndexFilename))
             {
-                (uncompressedTotalLength, indexContents) = GetIndexContent(compressedStream, indexFilename);
+                //resume indexing
 
-                var lastIndexedCompressedByte = indexContents.LastOrDefault()?.CompressedEndByte ?? -1;
+                (uncompressedTotalLength, indexContents) = GetIndexContent(compressedStream, tempIndexFilename);
 
-                if (lastIndexedCompressedByte == compressedStream.Length)
+                var lastIndexedCompressedStartByte = indexContents.LastOrDefault()?.CompressedStartByte;
+
+                if (lastIndexedCompressedStartByte == null)
                 {
-                    //indexing is already complete
+                    throw new Exception($"Could not determine where the previous indexing got up to. Recommend deleting the temporary cache file: {tempIndexFilename}");
                 }
-                else
-                {
-                    var compressedByteToContinueIndexingOn = lastIndexedCompressedByte + 1;
 
-                    compressedStream.Seek(0, SeekOrigin.Begin);
-                    Log.Information($"Generating gzip index: {indexFilename}");
+                compressedStream.Seek(lastIndexedCompressedStartByte.Value - 2, SeekOrigin.Begin);
+                Log.Information($"Resuming gzip index creation.");
 
-                    Utility.ExecuteProcess(GZTOOL_EXE, $"-n {compressedByteToContinueIndexingOn} -I \"{indexFilename}\"", compressedStream, null, 0);
+                Utility.ExecuteProcess(GZTOOL_EXE, $"-n {lastIndexedCompressedStartByte - 1} -I \"{tempIndexFilename}\"", compressedStream, null, 0,
+                    totalInputRead =>
+                    {
+                        var totalCopiedStr = Extensions.BytesToString(compressedStream.Position);
+                        var totalStr = Extensions.BytesToString(compressedStream.Length);
+                        var per = (double)compressedStream.Position / compressedStream.Length * 100;
 
-                    compressedStream.Seek(0, SeekOrigin.Begin);
-                }
+                        Log.Information($"Indexed {totalCopiedStr} / {totalStr} ({per:N0}%)");
+                    });
+
+                indexCreationComplete = true;
+
+                compressedStream.Seek(0, SeekOrigin.Begin);
             }
             else
             {
-                Utility.ExecuteProcess(GZTOOL_EXE, $"-I \"{indexFilename}\"", compressedStream, null, 0);
+                if (!File.Exists(indexFilename))
+                {
+                    Log.Information($"Generating gzip index.");
+                    Utility.ExecuteProcess(GZTOOL_EXE, $"-I \"{tempIndexFilename}\"", compressedStream, null, 0,
+                         totalInputRead =>
+                         {
+                             var totalCopiedStr = Extensions.BytesToString(compressedStream.Position);
+                             var totalStr = Extensions.BytesToString(compressedStream.Length);
+                             var per = (double)compressedStream.Position / compressedStream.Length * 100;
+
+                             Log.Information($"Indexed {totalCopiedStr} / {totalStr} ({per:N0}%)");
+                         });
+
+                    indexCreationComplete = true;
+                }
+            }
+
+            if (indexCreationComplete)
+            {
+                Log.Information($"Finished generating gzip index. Moving to final location: {indexFilename}");
+                File.Move(tempIndexFilename, indexFilename);
             }
 
             (uncompressedTotalLength, indexContents) = GetIndexContent(compressedStream, indexFilename);
@@ -111,9 +139,8 @@ namespace libGZip
             var startIndexPoint = indexContents.Last(ent => ent.UncompressedStartByte <= start);
             var endIndexPoint = indexContents.First(ent => ent.UncompressedStartByte >= end);
 
-            //var recommendedStart = start;
             var recommendedStart = startIndexPoint.UncompressedStartByte;   //measured to be slightly faster than just starting from the requested position
-            var recommendedEnd = (endIndexPoint == null) ? indexContents.Last().UncompressedEndByte : endIndexPoint.UncompressedEndByte;
+            var recommendedEnd = endIndexPoint.UncompressedEndByte;
 
             var result = (recommendedStart, recommendedEnd);
             return result;
@@ -137,22 +164,17 @@ namespace libGZip
         public Stream CompressedStream { get; }
         public string IndexFilename { get; }
 
-        public override void Flush()
-        {
-            throw new NotImplementedException();
-        }
+        public override void Flush() => throw new NotImplementedException();
 
         public override int Read(byte[] buffer, int offset, int count)
         {
             var endPos = position + count;
 
             var startIndexPoint = indexContents.Last(ent => ent.UncompressedStartByte <= position);
-            var endIndexPoint = indexContents.First(ent => ent.UncompressedStartByte >= endPos);
 
             var args = $"-W -I \"{IndexFilename}\" -n {startIndexPoint.CompressedStartByte} -b {position}";
 
             int bytesRead = 0;
-            //using (var instream = new SubStream(CompressedStream, startIndexPoint.CompressedStartByte - 1, startIndexPoint.CompressedEndByte + 1))
             using (var outstream = new MemoryStream(buffer, offset, count))
             {
                 var instream = CompressedStream;
@@ -189,30 +211,20 @@ namespace libGZip
             return position;
         }
 
-        public override void SetLength(long value)
-        {
-            throw new NotImplementedException();
-        }
+        public override void SetLength(long value) => throw new NotImplementedException();
 
-        public override void Write(byte[] buffer, int offset, int count)
-        {
-            throw new NotImplementedException();
-        }
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotImplementedException();
     }
 
     public class Mapping
     {
         public long CompressedStartByte;
-        public long CompressedEndByte;
-        //public long CompressedLength => CompressedEndByte - CompressedStartByte + 1;
 
         public long UncompressedStartByte;
         public long UncompressedEndByte;
-        //public long UncompressedLength => UncompressedEndByte - UncompressedStartByte + 1;
 
         public override string ToString()
         {
-            //string result = $"Compressed {CompressedStartByte:N0}-{CompressedEndByte:N0} == Uncompressed {UncompressedStartByte:N0}-{UncompressedEndByte:N0}";
             string result = $"Compressed {CompressedStartByte:N0} == Uncompressed {UncompressedStartByte:N0}";
             return result;
         }

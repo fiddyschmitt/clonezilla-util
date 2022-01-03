@@ -14,6 +14,12 @@ namespace libCommon
 {
     public static class Extensions
     {
+        public static string ToString(this IEnumerable<string> list, string seperator)
+        {
+            string result = string.Join(seperator, list);
+            return result;
+        }
+
         public static string ToPrettyFormat(this TimeSpan span)
         {
             if (span == TimeSpan.Zero) return "0 minutes";
@@ -26,6 +32,18 @@ namespace libCommon
             if (span.Minutes > 0)
                 sb.AppendFormat("{0} minute{1} ", span.Minutes, span.Minutes > 1 ? "s" : string.Empty);
             return sb.ToString();
+        }
+
+        public static string EnsureEndsInPathSeparator(this string str)
+        {
+            string sepChar = Path.DirectorySeparatorChar.ToString();
+            string altChar = Path.AltDirectorySeparatorChar.ToString();
+
+            if (!str.EndsWith(sepChar) && !str.EndsWith(altChar))
+            {
+                str += sepChar;
+            }
+            return str;
         }
 
         public static bool IsEqualTo(this byte[] buffer1, byte[] otherBuffer)
@@ -66,7 +84,7 @@ namespace libCommon
             return BitConverter.ToString(ba).Replace("-", "");
         }
 
-        public static long CopyToEnd(this Stream input, Stream output, int bufferSize)
+        public static long CopyToEnd(this Stream input, Stream output, int bufferSize, Action<long>? callBack = null)
         {
             byte[] buffer = Buffers.BufferPool.Rent(bufferSize);
             int read;
@@ -76,6 +94,8 @@ namespace libCommon
                 totalRead += read;
 
                 output.Write(buffer, 0, read);
+
+                callBack?.Invoke(totalRead);
             }
 
             Buffers.BufferPool.Return(buffer);

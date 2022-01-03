@@ -24,12 +24,6 @@ namespace libPartclone
             return BitConverter.ToString(ba.ToArray()).Replace("-", "");
         }
 
-        public static string ToString(this IEnumerable<string> list, string separator)
-        {
-            string result = string.Join(separator, list);
-            return result;
-        }
-
         public static string ToString(this IEnumerable<string> list, string linePrefix, string separator)
         {
             string result = string.Join(separator, list.Select(line => $"{linePrefix}{line}"));

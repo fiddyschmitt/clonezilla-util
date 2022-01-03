@@ -1,4 +1,5 @@
-﻿using libPartclone.Metadata;
+﻿using libPartclone.Cache;
+using libPartclone.Metadata;
 using Serilog;
 using System;
 using System.Collections;
@@ -23,6 +24,7 @@ namespace libPartclone
         public string ClonezillaArchiveName { get; }
         public string PartitionName { get; }
         public Stream? ReadStream { get; set; }
+        public IPartcloneCache Cache { get; }
 
         //Partclone images only store blocks from the original file if they were populated. A block is a range of bytes (eg. 4096 bytes)
         //If the original file contains:    <populated block 1><populated block 2><UNPOPULATED><populated block 3>
@@ -37,11 +39,12 @@ namespace libPartclone
         //This way, if we are asked to restore a particular byte, we know where to find it in the partclone content.
         public List<ContiguousRange> PartcloneContentMapping = new();
 
-        public PartcloneImageInfo(string clonezillaArchiveName, string partitionName, Stream readStream)
+        public PartcloneImageInfo(string clonezillaArchiveName, string partitionName, Stream readStream, IPartcloneCache cache)
         {
             ClonezillaArchiveName = clonezillaArchiveName;
             PartitionName = partitionName;
             ReadStream = readStream;
+            Cache = cache;
 
             using var binaryReader = new BinaryReader(readStream, new UTF8Encoding(), true);
 
@@ -90,7 +93,19 @@ namespace libPartclone
             if (ImageDescV1 != null) Log.Debug(ImageDescV1.ToString());
             if (ImageDescV2 != null) Log.Debug(ImageDescV2.ToString());
 
-            DeduceContiguousRanges();
+            var mappingFromCache = cache.GetPartcloneContentMapping();
+
+            if (mappingFromCache == null)
+            {
+                Log.Information($"Deducing partclone contiguous ranges");
+                DeduceContiguousRanges();
+                cache.SetPartcloneContentMapping(PartcloneContentMapping);
+            }
+            else
+            {
+                Log.Debug($"Loading partclone contiguous ranges from cache");
+                PartcloneContentMapping = mappingFromCache;
+            }
         }
 
         void DeduceContiguousRanges()
