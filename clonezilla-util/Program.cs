@@ -99,45 +99,8 @@ namespace clonezilla_util
                         {
                             var outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{partition.Name}.img");
 
-                            Log.Information($"Extracting partition {partition.Name}");
-                            Log.Information($"From: {extractPartitionImageOptions.InputFolder}");
-                            Log.Information($"To: {outputFilename}");
-
-                            var fileStream = File.Create(outputFilename);
-                            ISparseAwareWriter outputStream;
-
-                            if (partition.FullPartitionImage is ISparseAwareReader inputStream)
-                            {
-                                //a hack to speed things up. Let's make the output file sparse, so that we don't have to write zeroes for all the unpopulated ranges
-                                if (libCommon.Utility.IsOnNTFS(outputFilename) && !extractPartitionImageOptions.NoSparseOutput)
-                                {
-                                    //tell the input stream to not bother with the remainder of the file if it's all null
-                                    inputStream.StopReadingWhenRemainderOfFileIsNull = true;
-
-                                    //tell the output stream to create a sparse file
-                                    fileStream.SafeFileHandle.MarkAsSparse();
-                                    fileStream.SetLength(partition.FullPartitionImage.Length);
-
-                                    //tell the writer not to bother writing the null bytes to the file (because it's already sparse)
-                                    outputStream = new SparseAwareWriteStream(fileStream, false);
-                                }
-                                else
-                                {
-                                    inputStream = new SparseAwareReader(partition.FullPartitionImage, true);
-                                    outputStream = new SparseAwareWriteStream(fileStream, true);
-                                }
-
-                                inputStream
-                                    .CopyTo(outputStream, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER,
-                                    totalCopied =>
-                                    {
-                                        var per = (double)totalCopied / partition.FullPartitionImage.Length * 100;
-
-                                        var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
-                                        var totalStr = libCommon.Extensions.BytesToString(partition.FullPartitionImage.Length);
-                                        Log.Information($"Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
-                                    });
-                            }
+                            var makeSparse = !extractPartitionImageOptions.NoSparseOutput;
+                            partition.ExtractToFile(outputFilename, makeSparse);
                         });
 
                     break;

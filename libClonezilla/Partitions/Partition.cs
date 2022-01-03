@@ -11,6 +11,7 @@ using libCommon;
 using libClonezilla.Cache;
 using libClonezilla.Cache.FileSystem;
 using Serilog;
+using libCommon.Streams.Sparse;
 
 namespace libClonezilla.Partitions
 {
@@ -84,5 +85,47 @@ namespace libClonezilla.Partitions
         public abstract IEnumerable<FolderDetails> GetFoldersInPartition();
         public abstract IEnumerable<FileDetails> GetFilesInPartition();
         public abstract Stream? GetFile(string filename);
+
+        public void ExtractToFile(string outputFilename, bool makeSparse)
+        {
+            Log.Information($"Extracting partition {Name}");
+            Log.Information($"To: {outputFilename}");
+
+            var fileStream = File.Create(outputFilename);
+            ISparseAwareWriter outputStream;
+
+            if (FullPartitionImage is ISparseAwareReader inputStream)
+            {
+                //a hack to speed things up. Let's make the output file sparse, so that we don't have to write zeroes for all the unpopulated ranges
+                if (libCommon.Utility.IsOnNTFS(outputFilename) && makeSparse)
+                {
+                    //tell the input stream to not bother with the remainder of the file if it's all null
+                    inputStream.StopReadingWhenRemainderOfFileIsNull = true;
+
+                    //tell the output stream to create a sparse file
+                    fileStream.SafeFileHandle.MarkAsSparse();
+                    fileStream.SetLength(FullPartitionImage.Length);
+
+                    //tell the writer not to bother writing the null bytes to the file (because it's already sparse)
+                    outputStream = new SparseAwareWriteStream(fileStream, false);
+                }
+                else
+                {
+                    inputStream = new SparseAwareReader(FullPartitionImage, true);
+                    outputStream = new SparseAwareWriteStream(fileStream, true);
+                }
+
+                inputStream
+                    .CopyTo(outputStream, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER,
+                    totalCopied =>
+                    {
+                        var per = (double)totalCopied / FullPartitionImage.Length * 100;
+
+                        var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
+                        var totalStr = libCommon.Extensions.BytesToString(FullPartitionImage.Length);
+                        Log.Information($"Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
+                    });
+            }
+        }
     }
 }
