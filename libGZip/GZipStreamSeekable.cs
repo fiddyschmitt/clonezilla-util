@@ -136,8 +136,15 @@ namespace libGZip
 
         public (long Start, long End) GetRecommendation(long start, long end)
         {
+            end = Math.Min(Length, end);
+
             var startIndexPoint = indexContents.Last(ent => ent.UncompressedStartByte <= start);
-            var endIndexPoint = indexContents.First(ent => ent.UncompressedStartByte >= end);
+            var endIndexPoint = indexContents.FirstOrDefault(ent => ent.UncompressedStartByte >= end);
+
+            if (endIndexPoint == null)
+            {
+                endIndexPoint = startIndexPoint;
+            }
 
             var recommendedStart = startIndexPoint.UncompressedStartByte;   //measured to be slightly faster than just starting from the requested position
             var recommendedEnd = endIndexPoint.UncompressedEndByte;
@@ -225,7 +232,8 @@ namespace libGZip
 
         public override string ToString()
         {
-            string result = $"Compressed {CompressedStartByte:N0} == Uncompressed {UncompressedStartByte:N0}";
+            var uncompressedSizeStr = (UncompressedEndByte - UncompressedStartByte).BytesToString();
+            string result = $"Compressed {CompressedStartByte:N0} == Uncompressed {UncompressedStartByte:N0} ({uncompressedSizeStr} uncompressed data)";
             return result;
         }
     }

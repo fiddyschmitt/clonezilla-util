@@ -10,19 +10,26 @@ namespace libCommon.Streams.Sparse
     public class SparseAwareReader : ISparseAwareReader
     {
         public Stream Stream { get; }
-        public bool LatestReadWasAllNull { get; set; }
+        public bool LatestReadWasAllNull { get; set; } = false;
         public bool StopReadingWhenRemainderOfFileIsNull { get; set; } = false;
+        public long Length { get; }
 
-        public SparseAwareReader(Stream stream, bool latestReadWasAllNull)
+        public SparseAwareReader(Stream stream, long length)
         {
             Stream = stream;
-            LatestReadWasAllNull = latestReadWasAllNull;
+            Length = length;
         }
 
         public int Read(byte[] buffer, int offset, int count)
         {
-            var result = Stream.Read(buffer, offset, count);
-            return result;
+            var bytesRead = Stream.Read(buffer, offset, count);
+
+            LatestReadWasAllNull = buffer
+                            .Skip(offset)
+                            .Take(bytesRead)
+                            .All(b => b == 0x0);
+
+            return bytesRead;
         }
     }
 }

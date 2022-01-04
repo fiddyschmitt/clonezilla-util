@@ -21,10 +21,9 @@ namespace libPartclone
         readonly byte[]? Bitmap;
 
         public long StartOfContent { get; }
-        public string ClonezillaArchiveName { get; }
         public string PartitionName { get; }
         public Stream? ReadStream { get; set; }
-        public IPartcloneCache Cache { get; }
+        public IPartcloneCache? Cache { get; }
 
         //Partclone images only store blocks from the original file if they were populated. A block is a range of bytes (eg. 4096 bytes)
         //If the original file contains:    <populated block 1><populated block 2><UNPOPULATED><populated block 3>
@@ -39,9 +38,8 @@ namespace libPartclone
         //This way, if we are asked to restore a particular byte, we know where to find it in the partclone content.
         public List<ContiguousRange> PartcloneContentMapping = new();
 
-        public PartcloneImageInfo(string clonezillaArchiveName, string partitionName, Stream readStream, IPartcloneCache cache)
+        public PartcloneImageInfo(string partitionName, Stream readStream, IPartcloneCache? cache)
         {
-            ClonezillaArchiveName = clonezillaArchiveName;
             PartitionName = partitionName;
             ReadStream = readStream;
             Cache = cache;
@@ -93,17 +91,17 @@ namespace libPartclone
             if (ImageDescV1 != null) Log.Debug(ImageDescV1.ToString());
             if (ImageDescV2 != null) Log.Debug(ImageDescV2.ToString());
 
-            var mappingFromCache = cache.GetPartcloneContentMapping();
+            var mappingFromCache = cache?.GetPartcloneContentMapping();
 
             if (mappingFromCache == null)
             {
-                Log.Debug($"Deducing partclone contiguous ranges");
+                Log.Information($"Reading partclone content map for {partitionName}");
                 DeduceContiguousRanges();
-                cache.SetPartcloneContentMapping(PartcloneContentMapping);
+                cache?.SetPartcloneContentMapping(PartcloneContentMapping);
             }
             else
             {
-                Log.Debug($"Loading partclone contiguous ranges from cache");
+                Log.Debug($"Loading partclone content map from cache for {partitionName}");
                 PartcloneContentMapping = mappingFromCache;
             }
         }
@@ -222,5 +220,12 @@ namespace libPartclone
 
             //File.WriteAllText(@"C:\Temp\ranges.txt", PartcloneContentMapping.Select(r => $"{r.OutputFileRange.StartByte},{r.OutputFileRange.EndByte}").ToString(Environment.NewLine));
         }
+    }
+
+    public enum Compression
+    {
+        Gzip,
+        Zstandard,
+        None
     }
 }

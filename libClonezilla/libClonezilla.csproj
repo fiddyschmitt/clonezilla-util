@@ -21,8 +21,4 @@
     <ProjectReference Include="..\libPartclone\libPartclone.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="FileSystems\" />
-  </ItemGroup>
-
 </Project>

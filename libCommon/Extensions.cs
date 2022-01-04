@@ -84,7 +84,7 @@ namespace libCommon
             return BitConverter.ToString(ba).Replace("-", "");
         }
 
-        public static long CopyToEnd(this Stream input, Stream output, int bufferSize, Action<long>? callBack = null)
+        public static long CopyTo(this Stream input, Stream output, int bufferSize, Action<long>? callBack = null)
         {
             byte[] buffer = Buffers.BufferPool.Rent(bufferSize);
             int read;
@@ -97,13 +97,14 @@ namespace libCommon
 
                 callBack?.Invoke(totalRead);
             }
+            callBack?.Invoke(totalRead);
 
             Buffers.BufferPool.Return(buffer);
 
             return totalRead;
         }
 
-        public static long CopyTo(this ISparseAwareReader input, ISparseAwareWriter output, int bufferSize, Action<long> callBack)
+        public static long CopyTo(this ISparseAwareReader input, ISparseAwareWriter output, int bufferSize, Action<long>? callBack)
         {
             byte[] buffer = Buffers.BufferPool.Rent(bufferSize);
             long totalRead = 0;
@@ -129,14 +130,33 @@ namespace libCommon
                     output.Stream.Write(buffer, 0, read);
                 }
 
-                callBack.Invoke(totalRead);
+                callBack?.Invoke(totalRead);
             }
 
-            callBack.Invoke(output.Stream.Length);
+            callBack?.Invoke(output.Stream.Length);
 
             Buffers.BufferPool.Return(buffer);
 
             return totalRead;
+        }
+
+        //Forward seeking in Streams that don't support seeking
+        public static void SkipTo(this Stream input, Stream output, long count, int bufferSize)
+        {
+            while (true)
+            {
+                var bytesRead = input.CopyTo(Stream.Null, bufferSize, bufferSize);
+
+                if (bytesRead == 0) break;
+            }
+        }
+
+        public static void ForEach<T>(this IEnumerable<T> enumeration, Action<T> action)
+        {
+            foreach (T item in enumeration)
+            {
+                action(item);
+            }
         }
 
         public static long CopyTo(this Stream input, Stream output, long count, int bufferSize)

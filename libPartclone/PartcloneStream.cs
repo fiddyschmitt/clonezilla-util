@@ -15,14 +15,15 @@ namespace libPartclone
 {
     public class PartcloneStream : Stream, ISparseAwareReader
     {
-        public PartcloneImageInfo PartcloneImageInfo { get; }
+        public PartcloneImageInfo? PartcloneImageInfo { get; }
         long position = 0;
         readonly ContiguousRange LastRange;
 
-        public PartcloneStream(string clonezillaArchiveName, string partitionName, Stream inputStream, IPartcloneCache cache)
+        public PartcloneStream(string partitionName, Stream inputStream, IPartcloneCache? cache)
         {
-            PartcloneImageInfo = new PartcloneImageInfo(clonezillaArchiveName, partitionName, inputStream, cache);
-            ClonezillaArchiveName = clonezillaArchiveName;
+            inputStream.Seek(0, SeekOrigin.Begin);
+
+            PartcloneImageInfo = new PartcloneImageInfo(partitionName, inputStream, cache);
             PartitionName = partitionName;
 
             LastRange = PartcloneImageInfo.PartcloneContentMapping.Last();
@@ -42,7 +43,7 @@ namespace libPartclone
         {
             get
             {
-                long deviceSizeBytes = (long)(PartcloneImageInfo.ImageDescV1?.FileSystemInfoV1?.DeviceSizeBytes ?? PartcloneImageInfo?.ImageDescV2?.FileSystemInfoV2?.DeviceSizeBytes ?? 0);
+                long deviceSizeBytes = (long)(PartcloneImageInfo?.ImageDescV1?.FileSystemInfoV1?.DeviceSizeBytes ?? PartcloneImageInfo?.ImageDescV2?.FileSystemInfoV2?.DeviceSizeBytes ?? 0);
                 return deviceSizeBytes;
             }
         }
@@ -52,7 +53,6 @@ namespace libPartclone
             get => position;
             set => Seek(value, SeekOrigin.Begin);
         }
-        public string ClonezillaArchiveName { get; }
         public string PartitionName { get; }
 
         public override void Flush()

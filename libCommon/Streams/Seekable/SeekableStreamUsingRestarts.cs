@@ -5,18 +5,18 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 
-namespace libCommon.Streams
+namespace libCommon.Streams.Seekable
 {
-    public class SeekableStream : Stream
+    public class SeekableStreamUsingRestarts : Stream
     {
         long position = 0;
         long? length = null;
         Stream underlyingStream;
 
-        public SeekableStream(Func<Stream> streamFactory)
+        public SeekableStreamUsingRestarts(Func<Stream> resetStream)
         {
-            underlyingStream = streamFactory.Invoke();
-            StreamFactory = streamFactory;
+            underlyingStream = resetStream.Invoke();
+            StreamFactory = resetStream;
         }
 
         public override bool CanRead => true;
@@ -31,20 +31,11 @@ namespace libCommon.Streams
             {
                 if (!length.HasValue)
                 {
-                    length = 0;
                     var originalPosition = Position;
 
-                    using (var stream = StreamFactory.Invoke())
-                    {
-                        int bufferSize = 50 * 1024 * 1024;
-                        while (true)
-                        {
-                            var bytesRead = stream.CopyTo(Null, bufferSize, bufferSize);
-                            length += bytesRead;
+                    Extensions.CopyTo(underlyingStream, Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
 
-                            if (bytesRead == 0) break;
-                        }
-                    }
+                    length = Position;
 
                     //We are now at the end of the stream. Let's go back to the original position
                     underlyingStream = StreamFactory.Invoke();
@@ -100,12 +91,12 @@ namespace libCommon.Streams
 
                 //The original stream can't go backwards. So we need to start over
                 underlyingStream = StreamFactory.Invoke();
-                underlyingStream.CopyTo(Null, position, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER);
+                underlyingStream.CopyTo(Null, position, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
             }
             else
             {
                 var toSeek = position - oldPosition;
-                underlyingStream.CopyTo(Null, toSeek, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER);
+                underlyingStream.CopyTo(Null, toSeek, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
             }
 
             return Position;

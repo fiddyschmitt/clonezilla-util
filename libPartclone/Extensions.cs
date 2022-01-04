@@ -30,12 +30,6 @@ namespace libPartclone
             return result;
         }
 
-        public static string BytesToString(this long byteCount)
-        {
-            string result = BytesToString((ulong)byteCount);
-            return result;
-        }
-
         public static string BytesToString(this ulong byteCount)
         {
             string[] suf = { "B", "KB", "MB", "GB", "TB", "PB", "EB" }; //Longs run out around EB

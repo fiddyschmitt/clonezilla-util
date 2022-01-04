@@ -1,5 +1,6 @@
 ﻿using libClonezilla.Cache;
 using libClonezilla.Cache.FileSystem;
+using libPartclone;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -9,7 +10,7 @@ namespace libClonezilla.Partitions
 {
     public class BasicPartition : Partition
     {
-        public BasicPartition(string name, string type, Stream fullPartitionImage) : base(name, type, fullPartitionImage)
+        public BasicPartition(string name, PartcloneStream fullPartitionImage) : base(name, fullPartitionImage)
         {
         }
 

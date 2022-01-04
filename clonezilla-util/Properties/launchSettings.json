@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "extract-partition-image -i \"E:\\2021-12-28-13-img_PB-DEVOPS1_zst\" -o \"E:\\_img\\3 - restored using clonezilla-util\" -p sda2"
+      "commandLineArgs": "mount-as-image --input \"E:\\2021-12-28-13-img_PB-DEVOPS1_zst\" --mount L:\\ -p sda1 sdb1"
     }
   }
 }

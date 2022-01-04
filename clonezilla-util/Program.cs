@@ -1,26 +1,31 @@
 ﻿using clonezilla_util.CL.Verbs;
 using CommandLine;
+using DokanNet;
 using lib7Zip;
 using libClonezilla;
 using libClonezilla.Cache;
+using libClonezilla.PartitionContainers;
 using libCommon;
 using libCommon.Streams;
 using libCommon.Streams.Sparse;
+using libDokan;
 using libPartclone;
 using Serilog;
+using Serilog.Core;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 
 namespace clonezilla_util
 {
     class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "1.1";
+        const string PROGRAM_VERSION = "1.2";
 
         private enum ReturnCode
         {
@@ -31,7 +36,7 @@ namespace clonezilla_util
 
         static int Main(string[] args)
         {
-            try
+            //try
             {
                 Log.Logger = new LoggerConfiguration()
                                 //.MinimumLevel.Debug()
@@ -51,11 +56,13 @@ namespace clonezilla_util
                 Log.Debug("Exit successfully");
                 return (int)ReturnCode.Success;
             }
+            /*
             catch (Exception ex)
             {
                 Log.Error($"Unexpected exception: {ex}");
                 return (int)ReturnCode.GeneralException;
             }
+            */
         }
 
         static void PrintProgramVersion()
@@ -84,12 +91,19 @@ namespace clonezilla_util
             {
                 case ExtractPartitionImage extractPartitionImageOptions:
 
-                    if (extractPartitionImageOptions.InputFolder == null) throw new Exception($"InputFolder not specified.");
-                    if (extractPartitionImageOptions.OutputFolder == null) throw new Exception($"OutputFolder not specified.");
+                    if (extractPartitionImageOptions.InputPath == null) throw new Exception($"{nameof(extractPartitionImageOptions.InputPath)} not specified.");
+                    if (extractPartitionImageOptions.OutputFolder == null) throw new Exception($"{nameof(extractPartitionImageOptions.OutputFolder)} not specified.");
 
-                    var czImage = new ClonezillaImage(extractPartitionImageOptions.InputFolder, clonezillaCacheManager, extractPartitionImageOptions.PartitionsToExtract, true);
+                    var partitionContainerType = IPartitionContainer.FromPath(extractPartitionImageOptions.InputPath);
 
-                    var partitionsToExtract = czImage.Partitions;
+                    IPartitionContainer partitionContainer = partitionContainerType switch
+                    {
+                        PartitionContainerType.ClonezillaFolder => new ClonezillaImage(extractPartitionImageOptions.InputPath, clonezillaCacheManager, extractPartitionImageOptions.PartitionsToExtract, false),
+                        PartitionContainerType.PartcloneFile => new PartcloneFile(extractPartitionImageOptions.InputPath, false),
+                        _ => throw new NotImplementedException()
+                    };
+
+                    var partitionsToExtract = partitionContainer.Partitions;
 
                     if (!Directory.Exists(extractPartitionImageOptions.OutputFolder))
                     {
@@ -97,14 +111,49 @@ namespace clonezilla_util
                     }
 
                     partitionsToExtract
-                        .AsParallel().WithDegreeOfParallelism(4)
-                        .ForAll(partition =>
+                        .ForEach(partition =>
                         {
                             var outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{partition.Name}.img");
 
                             var makeSparse = !extractPartitionImageOptions.NoSparseOutput;
                             partition.ExtractToFile(outputFilename, makeSparse);
                         });
+
+                    break;
+
+                case MountAsImageFiles mountAsImageOptions:
+
+                    if (mountAsImageOptions.InputPath == null) throw new Exception($"{nameof(mountAsImageOptions.InputPath)} not specified.");
+                    if (mountAsImageOptions.MountPoint == null) throw new Exception($"{nameof(mountAsImageOptions.MountPoint)} not specified.");
+
+                    partitionContainerType = IPartitionContainer.FromPath(mountAsImageOptions.InputPath);
+
+                    partitionContainer = partitionContainerType switch
+                    {
+                        PartitionContainerType.ClonezillaFolder => new ClonezillaImage(mountAsImageOptions.InputPath, clonezillaCacheManager, mountAsImageOptions.PartitionsToExtract, true),
+                        PartitionContainerType.PartcloneFile => new PartcloneFile(mountAsImageOptions.InputPath, true),
+                        _ => throw new NotImplementedException()
+                    };
+
+                    var virtualFileEntries = partitionContainer
+                                                .Partitions
+                                                .Select(partition => new FileEntry($"{partition.Name}.img", () => partition.FullPartitionImage)
+                                                {
+                                                    Created = DateTime.Now,
+                                                    Modified = DateTime.Now,
+                                                    Accessed = DateTime.Now,
+                                                    Length = partition.FullPartitionImage.Length
+                                                })
+                                                .ToList();
+
+                    var root = new Folder("");
+                    root.Children.AddRange(virtualFileEntries);
+
+                    Log.Information($"Mounting partition images to: {mountAsImageOptions.MountPoint}");
+
+                    var vfs = new DokanVFS(root, PROGRAM_NAME);
+
+                    vfs.Mount(mountAsImageOptions.MountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger());
 
                     break;
 
@@ -220,7 +269,7 @@ namespace clonezilla_util
             var lastReport = DateTime.MinValue;
             var totalRead = 0UL;
 
-            using (var compareStream = File.Open(@"E:\3_raw_cz.img", FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var compareStream = File.Open(@"E:\3_raw_cz.img", FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite))
             {
                 while (true)
                 {

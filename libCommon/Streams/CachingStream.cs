@@ -88,7 +88,7 @@ namespace libCommon.Streams
                     {
                         recommendedRead = ReadSegmentSuggestor.GetRecommendation(pos, pos + bytesToGo);
                     }
-                    var toRead = (int)(recommendedRead.End - recommendedRead.Start);
+                    var toRead = (int)Math.Min(recommendedRead.End - recommendedRead.Start, int.MaxValue);
                     Log.Debug($"Recommended to read {toRead.BytesToString()} from position {recommendedRead.Start:N0}");
 
                     var buff = new byte[toRead];
@@ -120,7 +120,7 @@ namespace libCommon.Streams
 
                             while (true)
                             {
-                                var currentCacheSizeInBytes = cache.Sum(c => (long)cacheEntry.Length);
+                                var currentCacheSizeInBytes = cache.Sum(c => cacheEntry.Length);
                                 var currentCacheSizeInMegabytes = (int)(currentCacheSizeInBytes / (double)(1024 * 1024));
 
                                 if (newEntrySizeInMegabytes > CacheLimitValue)

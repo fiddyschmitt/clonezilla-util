@@ -70,7 +70,7 @@ namespace libGZip
                 {
                     try
                     {
-                        inputStream.CopyToEnd(process.StandardInput.BaseStream, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER, inputReadCallback);
+                        inputStream.CopyTo(process.StandardInput.BaseStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER, inputReadCallback);
                     }
                     catch { }
 
@@ -81,7 +81,7 @@ namespace libGZip
             int bytesRead = 0;
             if (outputStream != null)
             {
-                bytesRead = (int)process.StandardOutput.BaseStream.CopyTo(outputStream, bytesToRead, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER);
+                bytesRead = (int)process.StandardOutput.BaseStream.CopyTo(outputStream, bytesToRead, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
                 process.StandardOutput.Close();
             }
 

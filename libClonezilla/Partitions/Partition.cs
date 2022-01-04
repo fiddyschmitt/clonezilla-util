@@ -13,114 +13,197 @@ using libClonezilla.Cache.FileSystem;
 using Serilog;
 using libCommon.Streams.Sparse;
 using ZstdNet;
+using libCommon.Streams.Seekable;
 
 namespace libClonezilla.Partitions
 {
     public abstract class Partition
     {
         public string Name;
-        public string Type;
 
-        public Partition(string name, string type, Stream fullPartitionImage)
+        public Partition(string name, PartcloneStream fullPartitionImage)
         {
             Name = name;
-            Type = type;
             FullPartitionImage = fullPartitionImage;
         }
 
-        public Stream FullPartitionImage { get; }
+        public PartcloneStream FullPartitionImage { get; }
 
-        public static (Compression compression, List<string> containerFilenames) GetCompressionInUse(string clonezillaArchiveFolder, string partitionName)
-        {
-            var compressionPatterns = new (Compression Compression, string FilenamePattern)[]
-            {
-                (Compression.Gzip, $"{partitionName}.*-ptcl-img.gz.*"),
-                (Compression.Zstandard, $"{partitionName}.*-ptcl-img.zst.*"),
-            };
-
-            foreach (var pattern in compressionPatterns)
-            {
-                var files = Directory
-                                .GetFiles(clonezillaArchiveFolder, pattern.FilenamePattern)
-                                .OrderBy(filename => filename)
-                                .ToList();
-
-                if (files.Count > 0)
-                {
-                    var result = (pattern.Compression, files);
-                    return result;
-                }
-            }
-
-            throw new Exception($"Could not determine compression used by partition {partitionName} in: {clonezillaArchiveFolder}");
-        }
-
-        public static Partition GetPartition(string clonezillaArchiveName, string clonezillaArchiveFolder, string partitionName, IPartitionCache partitionCache, bool willPerformRandomSeeking)
+        public static Partition GetPartition(Stream compressedPartcloneStream, Compression compressionInUse, string partitionName, IPartitionCache? partitionCache, bool willPerformRandomSeeking)
         {
             Log.Information($"Getting partition information for {partitionName}");
 
-            //determine the type of compression in use
-            (var compressionInUse, var containerFilenames) = GetCompressionInUse(clonezillaArchiveFolder, partitionName);
+            (Stream Stream, bool UseCacheLayer)? uncompressedPartcloneStream = null;
 
-            var firstContainerFilename = containerFilenames.First();
-
-            var partitionType = Path.GetFileName(firstContainerFilename).Split('.', '-')[1];
-
-            var containerStreams = containerFilenames
-                                    .Select(filename => new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                                    .ToList();
-            var compressedStream = new Multistream(containerStreams);
-
-            PartcloneStream? fullPartitionImage = null;
-            if (willPerformRandomSeeking && compressionInUse != Compression.Zstandard)
+            if (willPerformRandomSeeking)
             {
-                if (compressionInUse == Compression.Gzip)
+                if (compressionInUse == Compression.None)
+                {
+                    uncompressedPartcloneStream = (compressedPartcloneStream, false);
+                }
+                else
+                {
+                    //do a speed test. If the entire file can be read quickly then let's not bother using any indexing
+
+                    var testDurationSeconds = 10;
+                    Log.Debug($"Running a {testDurationSeconds:N0} second speed test on {partitionName}, to determine the optimal way to serve it.");
+
+                    Stream speedTestStream = compressionInUse switch
+                    {
+                        Compression.Gzip => new GZipStream(compressedPartcloneStream, CompressionMode.Decompress),
+                        Compression.Zstandard => new DecompressionStream(compressedPartcloneStream),
+                        _ => throw new Exception($"Did not initialize a stream for partition {partitionName}"),
+                    };
+
+                    var startTime = DateTime.Now;
+                    while (true)
+                    {
+                        var bytesRead = speedTestStream.CopyTo(Stream.Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+                        if (bytesRead == 0) break;
+                        var duration = DateTime.Now - startTime;
+                        if (duration.TotalSeconds > testDurationSeconds) break;
+                    }
+
+                    var progressThroughFile = compressedPartcloneStream.Position / (double)compressedPartcloneStream.Length;  //the compressed stream is more accurate than the uncompressed stream, for determining how far we got through the stream
+                    var testDuration = DateTime.Now - startTime;
+                    Log.Debug($"Processed {compressedPartcloneStream.Position.BytesToString()} ({progressThroughFile * 100:N1}%) of the compressed data in {testDuration.TotalSeconds:N1} seconds.");
+
+                    var predictedSecondsToReadEntireFile = testDuration.TotalSeconds / progressThroughFile;
+                    Log.Debug($"At that rate, it would take {predictedSecondsToReadEntireFile:N1} seconds to read the entire file.");
+
+                    compressedPartcloneStream.Seek(0, SeekOrigin.Begin);
+
+                    if (predictedSecondsToReadEntireFile < 20)
+                    {
+                        Log.Debug($"Using a standard decompressor ({speedTestStream}) for this data.");
+
+                        var seekableStreamUsingRestarts = new SeekableStreamUsingRestarts(() =>
+                        {
+                            compressedPartcloneStream.Seek(0, SeekOrigin.Begin);
+
+                            Stream newStream = compressionInUse switch
+                            {
+                                Compression.Gzip => new GZipStream(compressedPartcloneStream, CompressionMode.Decompress),
+                                Compression.Zstandard => new DecompressionStream(compressedPartcloneStream),
+                                _ => throw new Exception($"Did not initialize a stream for partition {partitionName}"),
+                            };
+
+                            return newStream;
+                        });
+
+                        uncompressedPartcloneStream = (seekableStreamUsingRestarts, true);
+                    }
+                    else
+                    {
+                        Log.Debug($"Will need to use a specialised approach for this {compressionInUse} data.");
+                    }
+                }
+
+                if (uncompressedPartcloneStream == null && compressionInUse == Compression.Gzip)
                 {
                     //this is faster for random seeks (eg. serving the full image (or file contents) in a Virtual File System)
                     //Uses gztool to create an index for fast seek, plus a cache layer to avoid using gztool for small reads
 
+                    if (partitionCache == null)
+                    {
+                        throw new Exception($"partitionCache required to index Gzip content, but not provided.");
+                    }
+
                     var gztoolIndexFilename = partitionCache.GetGztoolIndexFilename();
+
                     var tempgztoolIndexFilename = gztoolIndexFilename + ".wip";
 
-                    var fastSeektable = new GZipStreamSeekable(compressedStream, tempgztoolIndexFilename, gztoolIndexFilename);
-                    IReadSegmentSuggestor suggestor = fastSeektable;
+                    var gzipStreamSeekable = new GZipStreamSeekable(compressedPartcloneStream, tempgztoolIndexFilename, gztoolIndexFilename);
+                    uncompressedPartcloneStream = (gzipStreamSeekable, true);
+                }
 
-                    var totalSystemRAMInBytes = libCommon.Utility.GetTotalRamSizeBytes();
-                    var totalSystemRAMInMegabytes = (int)(totalSystemRAMInBytes / (double)(1024 * 1024));
-                    var maxCacheSizeInMegabytes = (int)(totalSystemRAMInMegabytes / 8d);
-                    var cachingStream = new CachingStream(fastSeektable, suggestor, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
-                    fullPartitionImage = new PartcloneStream(clonezillaArchiveName, partitionName, cachingStream, partitionCache);
+                if (uncompressedPartcloneStream == null && compressionInUse == Compression.Zstandard)
+                {
+                    //For now, let's extract it to a file so that we can have fast seeking
+
+                    Log.Information($"Zstandard doesn't support random seeking. Extracting to a temporary file.");
+
+                    var decompressor = new DecompressionStream(compressedPartcloneStream);
+                    var tempFilename = Path.GetTempFileName();
+                    var tempFileStream = new FileStream(tempFilename, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
+
+                    decompressor.CopyTo(tempFileStream, Buffers.ARBITARY_HUGE_SIZE_BUFFER,
+                        totalCopied =>
+                        {
+                            var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
+                            Log.Information($"Extracted {totalCopiedStr} of partclone file.");
+                        });
+
+                    uncompressedPartcloneStream = (tempFileStream, false);
+
+
+                    //FPS 04/01/2021: An experiment to park partially processed streams all over the file. Unfortunately this was still too slow
+                    /*
+                    var zstdDecompressorGenerator = new Func<Stream>(() =>
+                    {
+                        var compressedStream = compressedStreamGenerator();
+                        var zstdDecompressorStream = new DecompressionStream(compressedStream);
+
+                        //the Zstandard decompressor doesn't track position in stream, so we have to do it for them
+                        var positionTrackerStream = new PositionTrackerStream(zstdDecompressorStream);
+
+                        return positionTrackerStream;
+                    });
+
+                    uncompressedPartcloneStream = new SeekableStreamUsingNearestActioner(zstdDecompressorGenerator, totalLength, 1 * 1024 * 1024);   //stations should be within one second of an actioner.
+                    */
                 }
             }
             else
             {
-                //this is faster for sequential reads (eg. extracting the full partition image) because it doesn't first have to generate an index, and doesn't need to run gztool for read operations.
-                //Also, haven't yet implemented a way of efficiently seeking Zstandard, so we'll have to use the slow way for sequential & random for Zstandard for now.
-
-                var slowSeekable = new SeekableStream(() =>
+                if (compressionInUse == Compression.None)
                 {
-                    compressedStream.Seek(0, SeekOrigin.Begin);
-                    Stream newStream = compressionInUse switch
+                    uncompressedPartcloneStream = (compressedPartcloneStream, false);
+                }
+                else
+                {
+                    //this is faster for sequential reads (eg. extracting the full partition image) because it doesn't first have to generate an index, and doesn't need to run gztool for read operations.
+                    var seekableStreamUsingRestarts = new SeekableStreamUsingRestarts(() =>
                     {
-                        Compression.Gzip => new GZipStream(compressedStream, CompressionMode.Decompress),
-                        Compression.Zstandard => new DecompressionStream(compressedStream),
-                        _ => throw new Exception($"Did not initialize a stream for partition {partitionName} in: {clonezillaArchiveFolder}"),
-                    };
-                    return newStream;
-                });
+                        Stream newStream = compressionInUse switch
+                        {
+                            Compression.Gzip => new GZipStream(compressedPartcloneStream, CompressionMode.Decompress),
+                            Compression.Zstandard => new DecompressionStream(compressedPartcloneStream),
+                            _ => throw new Exception($"Did not initialize a stream for partition {partitionName}"),
+                        };
 
-                fullPartitionImage = new PartcloneStream(clonezillaArchiveName, partitionName, slowSeekable, partitionCache);
+                        return newStream;
+                    });
+
+                    uncompressedPartcloneStream = (seekableStreamUsingRestarts, false); //no cache layer required, as this is a sequential read
+                }
             }
 
-            if (fullPartitionImage == null)
+            if (uncompressedPartcloneStream != null && uncompressedPartcloneStream.Value.UseCacheLayer)
             {
-                throw new Exception($"Did not initialize a stream for partition {partitionName} in: {clonezillaArchiveFolder}");
+                //add a cache layer
+                var readSuggestor = uncompressedPartcloneStream.Value.Stream as IReadSegmentSuggestor;
+
+                var totalSystemRAMInBytes = libCommon.Utility.GetTotalRamSizeBytes();
+                var totalSystemRAMInMegabytes = (int)(totalSystemRAMInBytes / (double)(1024 * 1024));
+                var maxCacheSizeInMegabytes = totalSystemRAMInMegabytes / Environment.ProcessorCount;
+                var cachingStream = new CachingStream(uncompressedPartcloneStream.Value.Stream, readSuggestor, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
+
+                uncompressedPartcloneStream = (cachingStream, false);
             }
 
-            Partition result = new BasicPartition(partitionName, partitionType, fullPartitionImage);
+            if (uncompressedPartcloneStream == null)
+            {
+                throw new Exception($"Did not initialize a stream for partition {partitionName}");
+            }
+
+            var fullPartitionImage = new PartcloneStream(partitionName, uncompressedPartcloneStream.Value.Stream, partitionCache);
+
+            Partition result = new BasicPartition(partitionName, fullPartitionImage);
 
             return result;
         }
+
 
         public abstract IEnumerable<FolderDetails> GetFoldersInPartition();
         public abstract IEnumerable<FileDetails> GetFilesInPartition();
@@ -128,49 +211,59 @@ namespace libClonezilla.Partitions
 
         public void ExtractToFile(string outputFilename, bool makeSparse)
         {
-            Log.Information($"Extracting partition {Name} to: {outputFilename}");
+            ExtractToFile(Name, FullPartitionImage, outputFilename, makeSparse);
+        }
 
+        public static void ExtractToFile(string partitionName, ISparseAwareReader sparseAwareInput, string outputFilename, bool makeSparse)
+        {
             var fileStream = File.Create(outputFilename);
-            ISparseAwareWriter outputStream;
+            ExtractToFile(partitionName, sparseAwareInput, fileStream, makeSparse);
+        }
 
-            if (FullPartitionImage is ISparseAwareReader inputStream)
+        public static void ExtractToFile(string partitionName, ISparseAwareReader sparseAwareInput, FileStream fileStream, bool makeSparse)
+        {
+            Log.Information($"Extracting partition {partitionName} to: {fileStream.Name}");
+
+            if (libCommon.Utility.IsOnNTFS(fileStream.Name) && makeSparse)
             {
                 //a hack to speed things up. Let's make the output file sparse, so that we don't have to write zeroes for all the unpopulated ranges
-                if (libCommon.Utility.IsOnNTFS(outputFilename) && makeSparse)
-                {
-                    //tell the input stream to not bother with the remainder of the file if it's all null
-                    inputStream.StopReadingWhenRemainderOfFileIsNull = true;
 
-                    //tell the output stream to create a sparse file
-                    fileStream.SafeFileHandle.MarkAsSparse();
-                    fileStream.SetLength(FullPartitionImage.Length);
+                //tell the input stream to not bother with the remainder of the file if it's all null
+                sparseAwareInput.StopReadingWhenRemainderOfFileIsNull = true;
 
-                    //tell the writer not to bother writing the null bytes to the file (because it's already sparse)
-                    outputStream = new SparseAwareWriteStream(fileStream, false);
-                }
-                else
-                {
-                    inputStream = new SparseAwareReader(FullPartitionImage, true);
-                    outputStream = new SparseAwareWriteStream(fileStream, true);
-                }
+                //tell the output stream to create a sparse file
+                fileStream.SafeFileHandle.MarkAsSparse();
+                fileStream.SetLength(sparseAwareInput.Length);
 
-                inputStream
-                    .CopyTo(outputStream, Buffers.SUPER_ARBITARY_LARGE_SIZE_BUFFER,
+                //tell the writer not to bother writing the null bytes to the file (because it's already sparse)
+                var outputStream = new SparseAwareWriteStream(fileStream, false);
+
+                sparseAwareInput
+                    .CopyTo(outputStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER,
                     totalCopied =>
                     {
-                        var per = (double)totalCopied / FullPartitionImage.Length * 100;
+                        var per = (double)totalCopied / sparseAwareInput.Length * 100;
 
                         var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
-                        var totalStr = libCommon.Extensions.BytesToString(FullPartitionImage.Length);
+                        var totalStr = libCommon.Extensions.BytesToString(sparseAwareInput.Length);
                         Log.Information($"Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
                     });
             }
-        }
+            else
+            {
+                //just a regular file, with null bytes and all
+                sparseAwareInput
+                    .Stream
+                    .CopyTo(fileStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER,
+                    totalCopied =>
+                    {
+                        var per = (double)totalCopied / sparseAwareInput.Length * 100;
 
-        public enum Compression
-        {
-            Gzip,
-            Zstandard
+                        var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
+                        var totalStr = libCommon.Extensions.BytesToString(sparseAwareInput.Length);
+                        Log.Information($"Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
+                    });
+            }
         }
     }
 }
