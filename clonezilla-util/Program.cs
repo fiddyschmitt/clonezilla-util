@@ -204,7 +204,7 @@ namespace clonezilla_util
                 Thread.Sleep(100);
             }
 
-            Log.Information($"Mounted to: {mountAsFilesOptions.MountPoint}");
+            Log.Information($"Retrieving a list of files.");
 
             //use 7z to get a list of files
             var realImagesFolder = Path.Combine(mountAsFilesOptions.MountPoint, imagesRootFolder);
@@ -296,6 +296,7 @@ namespace clonezilla_util
                     };
                 });
 
+            Log.Information($"Mounting complete. Mounted to: {mountAsFilesOptions.MountPoint}");
             Console.WriteLine("Running. Press any key to exit.");
             Console.ReadKey();
         }

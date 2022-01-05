@@ -270,7 +270,8 @@ namespace libDokan
                     {
                         stream.Position = offset;
                         bytesRead = stream.Read(buffer, 0, buffer.Length);
-                    } else
+                    }
+                    else
                     {
                         bytesRead = 0;
                     }
@@ -447,9 +448,31 @@ namespace libDokan
 
         public NtStatus GetDiskFreeSpace(out long freeBytesAvailable, out long totalNumberOfBytes, out long totalNumberOfFreeBytes, IDokanFileInfo info)
         {
-            freeBytesAvailable = (long)(8 * Math.Pow(1024, 4));
-            totalNumberOfBytes = freeBytesAvailable;
-            totalNumberOfFreeBytes = freeBytesAvailable;
+            long totalInUse = 0;
+            new[] { Root }
+                .Recurse(folder =>
+                {
+                    var totalFileSizes = folder
+                                            .Children
+                                            .OfType<FileEntry>()
+                                            .Sum(f => f.Length);
+
+                    totalInUse += totalFileSizes;
+
+                    var subfolders = folder
+                                        .Children
+                                        .OfType<Folder>()
+                                        .ToList();
+
+                    return subfolders;
+                })
+                .ToList();
+
+            totalNumberOfBytes = totalInUse * 10;
+
+            totalNumberOfFreeBytes = totalNumberOfBytes - totalInUse;
+            freeBytesAvailable = totalNumberOfFreeBytes;
+
             return Trace(nameof(GetDiskFreeSpace), null, info, DokanResult.Success, "out " + freeBytesAvailable.ToString(),
                 "out " + totalNumberOfBytes.ToString(), "out " + totalNumberOfFreeBytes.ToString());
         }
