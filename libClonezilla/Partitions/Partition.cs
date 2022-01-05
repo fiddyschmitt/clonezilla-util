@@ -124,7 +124,10 @@ namespace libClonezilla.Partitions
                     Log.Information($"Zstandard doesn't support random seeking. Extracting to a temporary file.");
 
                     var decompressor = new DecompressionStream(compressedPartcloneStream);
+
                     var tempFilename = Path.GetTempFileName();
+                    File.Create(tempFilename).Close();
+                    File.SetAttributes(tempFilename, FileAttributes.Temporary); //not sure if this is needed, given that we use DeleteOnClose in the next call. But according to its doco, it gives a hint to the OS to mainly keep it in memory.
                     var tempFileStream = new FileStream(tempFilename, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
 
                     decompressor.CopyTo(tempFileStream, Buffers.ARBITARY_HUGE_SIZE_BUFFER,

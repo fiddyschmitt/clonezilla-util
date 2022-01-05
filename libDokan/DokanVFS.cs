@@ -1,9 +1,11 @@
 ﻿using DokanNet;
+using rextractor;
 using Serilog;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using static DokanNet.FormatProviders;
+using static libDokan.Folder;
 using FileAccess = DokanNet.FileAccess;
 
 namespace libDokan
@@ -29,11 +31,7 @@ namespace libDokan
                         {
                             var fi = new FileInfo(filename);
 
-                            var file = new FileEntry(fi.Name, () =>
-                            {
-                                var stream = File.OpenRead(filename);
-                                return stream;
-                            })
+                            var file = new FileEntry(fi.Name, () => File.OpenRead(fi.FullName))
                             {
                                 Length = fi.Length,
                                 Created = fi.CreationTime,
@@ -104,6 +102,8 @@ namespace libDokan
         public NtStatus CreateFile(string fileName, FileAccess access, FileShare share, FileMode mode,
             FileOptions options, FileAttributes attributes, IDokanFileInfo info)
         {
+            //Console.WriteLine($"CreateFile: {fileName}");
+
             var result = DokanResult.Success;
             var filePath = GetPath(fileName);
 
@@ -114,7 +114,7 @@ namespace libDokan
                     switch (mode)
                     {
                         case FileMode.Open:
-                            if (PathToEntry(filePath) is not Folder fileSystemEntry)
+                            if (Root.GetEntryFromPath(filePath) is not Folder fileSystemEntry)
                             {
                                 return Trace(nameof(CreateFile), fileName, info, access, share, mode, options,
                                     attributes, DokanResult.PathNotFound);
@@ -141,7 +141,7 @@ namespace libDokan
                 var readWriteAttributes = (access & DataAccess) == 0;
                 var readAccess = (access & DataWriteAccess) == 0;
 
-                var fileSystemEntry = PathToEntry(filePath);
+                var fileSystemEntry = Root.GetEntryFromPath(filePath);
 
                 pathExists = fileSystemEntry != null;
                 pathIsDirectory = fileSystemEntry is Folder;
@@ -193,8 +193,7 @@ namespace libDokan
                 {
                     if (fileSystemEntry is FileEntry file)
                     {
-                        var stream = file.StreamGenerator();
-                        info.Context = stream;
+                        info.Context = file.StreamFactory();
                     }
                 }
                 catch (UnauthorizedAccessException) // don't have access rights
@@ -259,21 +258,27 @@ namespace libDokan
 
         public NtStatus ReadFile(string fileName, byte[] buffer, out int bytesRead, long offset, IDokanFileInfo info)
         {
+            //Console.WriteLine($"ReadFile: {fileName}");
+
             if (info.Context == null) // memory mapped read
             {
-                var fileSystemEntry = PathToEntry(fileName);
+                var fileSystemEntry = Root.GetEntryFromPath(fileName);
                 if (fileSystemEntry is FileEntry file)
                 {
-                    using var stream = file.StreamGenerator();
-                    stream.Position = offset;
-                    bytesRead = stream.Read(buffer, 0, buffer.Length);
+                    using var stream = file.StreamFactory();
+                    if (stream != null)
+                    {
+                        stream.Position = offset;
+                        bytesRead = stream.Read(buffer, 0, buffer.Length);
+                    } else
+                    {
+                        bytesRead = 0;
+                    }
                 }
                 else
                 {
                     throw new Exception($"Could not create stream for: {fileName}");
                 }
-
-                bytesRead = 0;
             }
             else // normal read
             {
@@ -310,90 +315,20 @@ namespace libDokan
             }
         }
 
-        public FileSystemEntry? PathToEntry(string path)
-        {
-            var pathComponents = path.Split(@"\", StringSplitOptions.RemoveEmptyEntries);
-
-            Folder? currentFolder = Root;
-            FileEntry? file = null;
-
-            for (int i = 0; i < pathComponents.Length; i++)
-            {
-                var component = pathComponents[i];
-
-                if (currentFolder == null) break;
-
-                var subFolder = currentFolder
-                                    .Children
-                                    .OfType<Folder>()
-                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.CurrentCultureIgnoreCase));
-
-                if (subFolder == null)
-                {
-                    if (i == pathComponents.Length - 1)
-                    {
-                        //this is the last item. Perhaps it's a file
-
-                        file = currentFolder
-                                    .Children
-                                    .OfType<FileEntry>()
-                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.CurrentCultureIgnoreCase));
-                    }
-                    else
-                    {
-                        //not at the end, and this particular folder was not found. Stop searching
-                        currentFolder = null;
-                        break;
-                    }
-                }
-
-                currentFolder = subFolder;
-            }
-
-            FileSystemEntry? result;
-            if (file == null)
-            {
-                result = currentFolder;
-            }
-            else
-            {
-                result = file;
-            }
-
-            return result;
-        }
-
         public NtStatus GetFileInformation(string fileName, out FileInformation fileInfo, IDokanFileInfo info)
         {
+            //Console.WriteLine($"GetFileInformation: {fileName}");
+
             // may be called with info.Context == null, but usually it isn't
 
-            var fileSystemEntry = PathToEntry(fileName);
+            var fileSystemEntry = Root.GetEntryFromPath(fileName);
 
-            if (fileSystemEntry is Folder folder)
-            {
-                fileInfo = new FileInformation
-                {
-                    FileName = folder.Name,
-                    CreationTime = folder.Created,
-                    LastAccessTime = folder.Accessed,
-                    LastWriteTime = folder.Modified,
-                };
-            }
-            else if (fileSystemEntry is FileEntry file)
-            {
-                fileInfo = new FileInformation
-                {
-                    FileName = file.Name,
-                    CreationTime = file.Created,
-                    LastAccessTime = file.Accessed,
-                    LastWriteTime = file.Modified,
-                    Length = file.Length
-                };
-            }
-            else
+            if (fileSystemEntry == null)
             {
                 throw new Exception($"Could not traverse to: {fileName}");
             }
+
+            fileInfo = fileSystemEntry.ToFileInformation();
 
             return Trace(nameof(GetFileInformation), fileName, info, DokanResult.Success);
         }
@@ -574,34 +509,24 @@ namespace libDokan
 
         public IList<FileInformation> FindFilesHelper(string fileName, string searchPattern)
         {
-            var fileSystemEntry = PathToEntry(fileName);
+            //Console.WriteLine($"FindFilesHelper: {fileName}                     {searchPattern}");
+
+            var fileSystemEntry = Root.GetEntryFromPath(fileName);
+
+            var wildcardMatcher = new FindFilesPatternToRegex();
 
             List<FileInformation> result = new();
             if (fileSystemEntry is Folder folder)
             {
                 result = folder
                             .Children
-                            .Select(entry => new FileInformation()
-                            {
-                                FileName = entry.Name,
-                                Attributes = entry is Folder ? FileAttributes.Directory : FileAttributes.Normal,
-                                CreationTime = entry.Created,
-                                LastAccessTime = entry.Accessed,
-                                LastWriteTime = entry.Modified,
-                                Length = entry is FileEntry fileEntry ? fileEntry.Length : 0,
-                            })
+                            .Where(child => wildcardMatcher.FindFilesEmulator(searchPattern, new[] { child.Name }).Any())
+                            .Select(entry => entry.ToFileInformation())
                             .ToList();
             }
             else if (fileSystemEntry is FileEntry file)
             {
-                var fileInfo = new FileInformation
-                {
-                    FileName = file.Name,
-                    CreationTime = file.Created,
-                    LastAccessTime = file.Accessed,
-                    LastWriteTime = file.Modified,
-                    Length = file.Length
-                };
+                var fileInfo = file.ToFileInformation();
 
                 result.Add(fileInfo);
             }
@@ -618,9 +543,12 @@ namespace libDokan
         }
     }
 
-    public class FileSystemEntry
+    public abstract class FileSystemEntry
     {
         public string Name { get; set; }
+
+        public bool Hidden { get; set; } = false;
+        public bool System { get; set; } = false;
 
         public FileSystemEntry(string name)
         {
@@ -630,25 +558,152 @@ namespace libDokan
         public DateTime Modified;
         public DateTime Created;
         public DateTime Accessed;
+
+        protected abstract FileInformation ToFileInfo();
+
+        public FileInformation ToFileInformation()
+        {
+            var result = ToFileInfo();
+
+            if (Hidden) result.Attributes |= FileAttributes.Hidden;
+            if (System) result.Attributes |= FileAttributes.System;
+
+            result.FileName = Name;
+            result.CreationTime = Created;
+            result.LastAccessTime = Accessed;
+            result.LastWriteTime = Modified;
+
+            return result;
+        }
+
+        public override string ToString()
+        {
+            var result = Name;
+            return result;
+        }
     }
 
     public class Folder : FileSystemEntry
     {
         public List<FileSystemEntry> Children = new();
 
+        public Folder CreateOrRetrieve(string path)
+        {
+            var folderEntry = GetEntryFromPath(path, true);
+
+            if (folderEntry == null) throw new Exception($"Could not created folder: {path}");
+            if (folderEntry is not Folder folder) throw new Exception($"Retrieved entry is not a folder for path: {path}");
+
+            return folder;
+        }
+
         public Folder(string name) : base(name)
         {
+        }
+
+        protected override FileInformation ToFileInfo()
+        {
+            var result = new FileInformation();
+
+            result.Attributes |= FileAttributes.Directory;
+
+            return result;
+        }
+
+        public FileSystemEntry? GetEntryFromPath(string path, bool createFolderStructure = false)
+        {
+            var pathComponents = path.Split(@"\", StringSplitOptions.RemoveEmptyEntries);
+
+            Folder? currentFolder = this;
+            FileEntry? file = null;
+
+            for (int i = 0; i < pathComponents.Length; i++)
+            {
+                var component = pathComponents[i];
+
+                if (currentFolder == null) break;
+
+                var subFolder = currentFolder
+                                    .Children
+                                    .OfType<Folder>()
+                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.CurrentCultureIgnoreCase));
+
+                if (subFolder == null)
+                {
+                    if (i == pathComponents.Length - 1 && !createFolderStructure)
+                    {
+                        //this is the last item. Perhaps it's a file
+
+                        file = currentFolder
+                                    .Children
+                                    .OfType<FileEntry>()
+                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.CurrentCultureIgnoreCase));
+                    }
+                    else
+                    {
+                        //not at the end, and this particular folder was not found
+
+                        if (createFolderStructure)
+                        {
+                            subFolder = new Folder(component);
+                            currentFolder?.Children.Add(subFolder);
+                        }
+                        else
+                        {
+                            currentFolder = null;
+                            break;
+                        }
+                    }
+                }
+
+                currentFolder = subFolder;
+            }
+
+            FileSystemEntry? result;
+            if (file == null)
+            {
+                result = currentFolder;
+            }
+            else
+            {
+                result = file;
+            }
+
+            return result;
+        }
+
+        public override string ToString()
+        {
+            var result = $"{Name}";
+            return result;
         }
     }
 
     public class FileEntry : FileSystemEntry
     {
         public long Length { get; set; }
-        public Func<Stream> StreamGenerator;
 
-        public FileEntry(string name, Func<Stream> streamGenerator) : base(name)
+        public Func<Stream> StreamFactory { get; protected set; }
+
+        public FileEntry(string name, Func<Stream> streamFactory) : base(name)
         {
-            StreamGenerator = streamGenerator;
+            StreamFactory = streamFactory;
+        }
+
+        protected override FileInformation ToFileInfo()
+        {
+            var result = new FileInformation
+            {
+                Length = Length,
+            };
+
+            return result;
+        }
+
+        public override string ToString()
+        {
+            var result = $"{Name}";
+            return result;
         }
     }
 }

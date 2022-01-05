@@ -96,6 +96,11 @@ namespace libCommon.Streams
                     BaseStream.Seek(recommendedRead.Start, SeekOrigin.Begin);
                     var bytesRead = BaseStream.Read(buff, 0, toRead);
 
+                    if (bytesRead == 0)
+                    {
+                        break;
+                    }
+
                     cacheEntry = new CacheEntry(recommendedRead.Start, recommendedRead.Start + bytesRead, buff);
 
                     //clear the cache until there's enough room

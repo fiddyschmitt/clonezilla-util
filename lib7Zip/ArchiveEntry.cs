@@ -9,12 +9,12 @@ namespace lib7Zip
     public class ArchiveEntry
     {
         public string ArchiveFilename;
-        public string Name;
+        public string Path;
 
-        public ArchiveEntry(string archiveFilename, string name)
+        public ArchiveEntry(string archiveFilename, string path)
         {
             ArchiveFilename = archiveFilename;
-            Name = name;
+            Path = path;
         }
 
         public bool IsFolder;

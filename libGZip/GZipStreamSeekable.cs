@@ -92,7 +92,7 @@ namespace libGZip
                 compressedStream.Seek(lastIndexedCompressedStartByte.Value - 2, SeekOrigin.Begin);
                 Log.Information($"Resuming gzip index creation.");
 
-                Utility.ExecuteProcess(GZTOOL_EXE, $"-n {lastIndexedCompressedStartByte - 1} -I \"{tempIndexFilename}\"", compressedStream, null, 0,
+                ProcessUtility.ExecuteProcess(GZTOOL_EXE, $"-n {lastIndexedCompressedStartByte - 1} -I \"{tempIndexFilename}\"", compressedStream, null, 0,
                     totalInputRead =>
                     {
                         var totalCopiedStr = Extensions.BytesToString(compressedStream.Position);
@@ -111,7 +111,7 @@ namespace libGZip
                 if (!File.Exists(indexFilename))
                 {
                     Log.Information($"Generating gzip index.");
-                    Utility.ExecuteProcess(GZTOOL_EXE, $"-I \"{tempIndexFilename}\"", compressedStream, null, 0,
+                    ProcessUtility.ExecuteProcess(GZTOOL_EXE, $"-I \"{tempIndexFilename}\"", compressedStream, null, 0,
                          totalInputRead =>
                          {
                              var totalCopiedStr = Extensions.BytesToString(compressedStream.Position);
@@ -190,7 +190,7 @@ namespace libGZip
                 var bytesLeftInFile = Length - position;
                 count = (int)Math.Min(bytesLeftInFile, count);
 
-                bytesRead = Utility.ExecuteProcess(GZTOOL_EXE, args, instream, outstream, count);
+                bytesRead = ProcessUtility.ExecuteProcess(GZTOOL_EXE, args, instream, outstream, count);
             }
 
             position += bytesRead;

@@ -5,7 +5,7 @@ using System.Text;
 
 namespace clonezilla_util.CL.Verbs
 {
-    [Verb("l", HelpText = "List contents of archive")]
+    //[Verb("l", HelpText = "List contents of archive")]
     public class ListContents// : BaseVerb  //todo: Listing contents isn't supported yet. Likely will package 7z.exe to inspect the contents
     {
         [Option('i', "input", HelpText = "The folder containing the Clonezilla archive. Or, a partclone filename.", Required = true)]

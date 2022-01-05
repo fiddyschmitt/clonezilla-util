@@ -13,12 +13,18 @@ namespace lib7Zip
             throw new Exception("OS not supported yet.");
         }
 
-        public static void ExtractFile(string inputFilename, string outputFolder, bool verbose)
+        public static void ExtractFileToFolder(string inputFilename, string outputFolder, bool verbose)
         {
             var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), new[] { $"x \"{inputFilename}\" -p\"blah\" -r -y -o\"{outputFolder}\"" }, verbose);
 
             //iteration will finish when the program has exited
             _ = sevenZipOutput.ToList();
+        }
+
+        public static void ExtractFileFromArchive(string archiveFilename, string fileInArchive, Stream outputStream)
+        {
+            var args = $"e \"{archiveFilename}\" \"{fileInArchive}\" -so";
+            ProcessUtility.ExecuteProcess(SevenZipExe(), args, null, outputStream);
         }
 
         public static IEnumerable<ArchiveEntry> GetArchiveEntries(string archiveFilename, bool verbose)
@@ -31,6 +37,8 @@ namespace lib7Zip
                 if (line.StartsWith($"Path ="))
                 {
                     string name = line.Replace("Path = ", "");
+
+                    if (name.Equals(archiveFilename)) continue;
                     currentEntry = new ArchiveEntry(archiveFilename, name);
                 }
 

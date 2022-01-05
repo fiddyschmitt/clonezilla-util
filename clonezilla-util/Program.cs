@@ -7,6 +7,7 @@ using libClonezilla.Cache;
 using libClonezilla.PartitionContainers;
 using libCommon;
 using libCommon.Streams;
+using libCommon.Streams.Seekable;
 using libCommon.Streams.Sparse;
 using libDokan;
 using libPartclone;
@@ -18,6 +19,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace clonezilla_util
@@ -80,124 +82,288 @@ namespace clonezilla_util
 
         private static void Run(object obj)
         {
-            ClonezillaCacheManager? clonezillaCacheManager = null;
-
-            var startTime = DateTime.Now;
-
             string cacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
-            clonezillaCacheManager = new ClonezillaCacheManager(cacheFolder);
+            ClonezillaCacheManager? clonezillaCacheManager = new(cacheFolder);
 
             switch (obj)
             {
                 case ExtractPartitionImage extractPartitionImageOptions:
 
-                    if (extractPartitionImageOptions.InputPath == null) throw new Exception($"{nameof(extractPartitionImageOptions.InputPath)} not specified.");
-                    if (extractPartitionImageOptions.OutputFolder == null) throw new Exception($"{nameof(extractPartitionImageOptions.OutputFolder)} not specified.");
-
-                    var partitionContainerType = IPartitionContainer.FromPath(extractPartitionImageOptions.InputPath);
-
-                    IPartitionContainer partitionContainer = partitionContainerType switch
-                    {
-                        PartitionContainerType.ClonezillaFolder => new ClonezillaImage(extractPartitionImageOptions.InputPath, clonezillaCacheManager, extractPartitionImageOptions.PartitionsToExtract, false),
-                        PartitionContainerType.PartcloneFile => new PartcloneFile(extractPartitionImageOptions.InputPath, false),
-                        _ => throw new NotImplementedException()
-                    };
-
-                    var partitionsToExtract = partitionContainer.Partitions;
-
-                    if (!Directory.Exists(extractPartitionImageOptions.OutputFolder))
-                    {
-                        Directory.CreateDirectory(extractPartitionImageOptions.OutputFolder);
-                    }
-
-                    partitionsToExtract
-                        .ForEach(partition =>
-                        {
-                            var outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{partition.Name}.img");
-
-                            var makeSparse = !extractPartitionImageOptions.NoSparseOutput;
-                            partition.ExtractToFile(outputFilename, makeSparse);
-                        });
-
+                    ExtractPartitionImage(extractPartitionImageOptions, clonezillaCacheManager);
                     break;
 
-                case MountAsImageFiles mountAsImageOptions:
+                case MountAsImage mountAsImageOptions:
 
-                    if (mountAsImageOptions.InputPath == null) throw new Exception($"{nameof(mountAsImageOptions.InputPath)} not specified.");
-                    if (mountAsImageOptions.MountPoint == null) throw new Exception($"{nameof(mountAsImageOptions.MountPoint)} not specified.");
-
-                    partitionContainerType = IPartitionContainer.FromPath(mountAsImageOptions.InputPath);
-
-                    partitionContainer = partitionContainerType switch
-                    {
-                        PartitionContainerType.ClonezillaFolder => new ClonezillaImage(mountAsImageOptions.InputPath, clonezillaCacheManager, mountAsImageOptions.PartitionsToExtract, true),
-                        PartitionContainerType.PartcloneFile => new PartcloneFile(mountAsImageOptions.InputPath, true),
-                        _ => throw new NotImplementedException()
-                    };
-
-                    var virtualFileEntries = partitionContainer
-                                                .Partitions
-                                                .Select(partition => new FileEntry($"{partition.Name}.img", () => partition.FullPartitionImage)
-                                                {
-                                                    Created = DateTime.Now,
-                                                    Modified = DateTime.Now,
-                                                    Accessed = DateTime.Now,
-                                                    Length = partition.FullPartitionImage.Length
-                                                })
-                                                .ToList();
-
-                    var root = new Folder("");
-                    root.Children.AddRange(virtualFileEntries);
-
-                    Log.Information($"Mounting partition images to: {mountAsImageOptions.MountPoint}");
-
-                    var vfs = new DokanVFS(root, PROGRAM_NAME);
-
-                    vfs.Mount(mountAsImageOptions.MountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger());
-
+                    MountAsImage(mountAsImageOptions, clonezillaCacheManager);
                     break;
 
-                case ListContents lc:
-                    if (lc.InputPath == null) throw new Exception($"{nameof(lc.InputPath)} not specified.");
+                case MountAsFiles mountAtFilesOptions:
 
-                    var clonezillaImage = new ClonezillaImage(lc.InputPath, clonezillaCacheManager, lc.PartitionsToOpen, true);
-                    var partitions = clonezillaImage.Partitions;
+                    MountAsFiles(mountAtFilesOptions, clonezillaCacheManager);
+                    break;
 
-                    var allFiles = partitions.SelectMany(partition => partition.GetFilesInPartition().Select(file => new
-                    {
-                        Partition = partition,
-                        File = file
-                    }));
+                case ListContents listContentsOptions:
 
-                    foreach (var file in allFiles)
-                    {
-                        if (file.File.FullPath == null) continue;
-
-                        string filenameIncludingPartition;
-                        if (file.File.FullPath.StartsWith("."))
-                        {
-                            filenameIncludingPartition = file.File.FullPath.ReplaceFirst(".", file.Partition.Name);
-                        }
-                        else
-                        {
-                            filenameIncludingPartition = $"{file.Partition.Name}\\{file.File.FullPath}";
-                        }
-
-                        Console.Write(filenameIncludingPartition);
-                        if (lc.UseNullSeparator)
-                        {
-                            Console.Write(char.MinValue);
-                        }
-                        else
-                        {
-                            Console.Write(lc.OutputSeparator);
-                        }
-                    }
-
+                    ListContents(listContentsOptions, clonezillaCacheManager);
                     break;
             }
+        }
 
-            var duration = DateTime.Now - startTime;
+        private static void ListContents(ListContents listContentsOptions, ClonezillaCacheManager clonezillaCacheManager)
+        {
+            if (listContentsOptions.InputPath == null) throw new Exception($"{nameof(listContentsOptions.InputPath)} not specified.");
+
+            var clonezillaImage = new ClonezillaImage(listContentsOptions.InputPath, clonezillaCacheManager, listContentsOptions.PartitionsToOpen, true);
+            var partitions = clonezillaImage.Partitions;
+
+            var allFiles = partitions.SelectMany(partition => partition.GetFilesInPartition().Select(file => new
+            {
+                Partition = partition,
+                File = file
+            }));
+
+            foreach (var file in allFiles)
+            {
+                if (file.File.FullPath == null) continue;
+
+                string filenameIncludingPartition;
+                if (file.File.FullPath.StartsWith("."))
+                {
+                    filenameIncludingPartition = file.File.FullPath.ReplaceFirst(".", file.Partition.Name);
+                }
+                else
+                {
+                    filenameIncludingPartition = $"{file.Partition.Name}\\{file.File.FullPath}";
+                }
+
+                Console.Write(filenameIncludingPartition);
+                if (listContentsOptions.UseNullSeparator)
+                {
+                    Console.Write(char.MinValue);
+                }
+                else
+                {
+                    Console.Write(listContentsOptions.OutputSeparator);
+                }
+            }
+        }
+
+        private static void MountAsFiles(MountAsFiles mountAsFilesOptions, ClonezillaCacheManager clonezillaCacheManager)
+        {
+            if (mountAsFilesOptions.InputPath == null) throw new Exception($"{nameof(mountAsFilesOptions.InputPath)} not specified.");
+            if (mountAsFilesOptions.MountPoint == null) throw new Exception($"{nameof(mountAsFilesOptions.MountPoint)} not specified.");
+
+            var partitionContainerType = IPartitionContainer.FromPath(mountAsFilesOptions.InputPath);
+
+            IPartitionContainer partitionContainer = partitionContainerType switch
+            {
+                PartitionContainerType.ClonezillaFolder => new ClonezillaImage(mountAsFilesOptions.InputPath, clonezillaCacheManager, mountAsFilesOptions.PartitionsToExtract, true),
+                PartitionContainerType.PartcloneFile => new PartcloneFile(mountAsFilesOptions.InputPath, true),
+                _ => throw new NotImplementedException()
+            };
+
+            var root = new Folder("");
+
+            //create a hidden folder for the images, so that we can interogate them using 7z.exe
+            var imagesRootFolder = $"images {Guid.NewGuid()}";
+            var imagesRoot = root.CreateOrRetrieve(imagesRootFolder);
+            imagesRoot.Hidden = true;
+
+            partitionContainer
+                .Partitions
+                .ForEach(partition =>
+                {
+                    var virtualImageFilename = Path.Combine(imagesRootFolder, $"{partition.Name}.img");
+
+                    var virtualFileName = Path.GetFileName(virtualImageFilename);
+                    var virtualFolderPath = Path.GetDirectoryName(virtualImageFilename) ?? throw new Exception($"Could not retrieve folder for: {virtualImageFilename}");
+
+                    var virtualFolder = root.CreateOrRetrieve(virtualFolderPath);
+
+                    var fileEntry = new FileEntry(virtualFileName, () => partition.FullPartitionImage)
+                    {
+                        Created = DateTime.Now,
+                        Accessed = DateTime.Now,
+                        Modified = DateTime.Now,
+                        Length = partition.FullPartitionImage.Length,
+                    };
+
+                    virtualFolder.Children.Add(fileEntry);
+                });
+
+            var vfs = new DokanVFS(root, PROGRAM_NAME);
+            Task.Factory.StartNew(() => vfs.Mount(mountAsFilesOptions.MountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger()));
+
+            Log.Information($"Waiting for {mountAsFilesOptions.MountPoint} to be available.");
+            while (true)
+            {
+                if (Directory.Exists(mountAsFilesOptions.MountPoint))
+                {
+                    break;
+                }
+                Thread.Sleep(100);
+            }
+
+            Log.Information($"Mounted to: {mountAsFilesOptions.MountPoint}");
+
+            //use 7z to get a list of files
+            var realImagesFolder = Path.Combine(mountAsFilesOptions.MountPoint, imagesRootFolder);
+            var imageFiles = Directory.GetFiles(realImagesFolder, "*", SearchOption.AllDirectories).ToList();
+
+            imageFiles
+                .ForEach(realImageFile =>
+                {
+                    var archiveFiles = SevenZipUtility.GetArchiveEntries(realImageFile, false);
+
+                    var imageName = Path.GetFileNameWithoutExtension(realImageFile);
+
+                    var extractedLookup = new Dictionary<string, string>();
+
+                    foreach (var archiveEntry in archiveFiles)
+                    {
+                        FileSystemEntry vfsEntry;
+                        if (archiveEntry.IsFolder)
+                        {
+                            var virtualFolderPath = archiveEntry.Path.Replace(@"\.", "");
+                            virtualFolderPath = Path.Combine(imageName, virtualFolderPath);
+
+                            vfsEntry = root.CreateOrRetrieve(virtualFolderPath);
+                        }
+                        else
+                        {
+                            var virtualFilePath = Path.Combine(imageName, archiveEntry.Path);
+
+                            var virtualFileName = Path.GetFileName(virtualFilePath);
+                            var virtualFolderPath = Path.GetDirectoryName(virtualFilePath) ?? throw new Exception($"Could not retrieve folder for: {virtualFilePath}");
+
+                            var virtualFolder = root.CreateOrRetrieve(virtualFolderPath);
+
+                            vfsEntry = new FileEntry(
+                                virtualFileName,
+                                () =>
+                                {
+                                    /*
+                                    //Doesn't quite work yet. eg. when comparing sdb1 folders
+                                    if (!extractedLookup.ContainsKey(archiveEntry.Path))
+                                    {
+                                        var tempFilename = Path.GetRandomFileName();
+                                        tempFilename = Path.Combine(clonezillaCacheManager.TempFolder, tempFilename);
+                                        File.Create(tempFilename).Close();
+                                        File.SetAttributes(tempFilename, FileAttributes.Temporary); //not sure if this is needed, given that we use DeleteOnClose in the next call. But according to its doco, it gives a hint to the OS to mainly keep it in memory.
+                                        //var tempFileStream = new FileStream(tempFilename, FileMode.Open, System.IO.FileAccess.ReadWrite, FileShare.Read, 4096, FileOptions.DeleteOnClose); //DeleteOnClose doesn't play nicely with the subsequent read.
+                                        var tempFileStream = new FileStream(tempFilename, FileMode.Open, System.IO.FileAccess.ReadWrite, FileShare.ReadWrite);
+
+                                        lock (vfs)
+                                        {
+                                            Log.Debug($"Extracting {archiveEntry.Path} from {realImageFile}");
+                                            SevenZipUtility.ExtractFileFromArchive(realImageFile, archiveEntry.Path, tempFileStream);
+                                            Log.Debug($"Finished extracting {archiveEntry.Path} from {realImageFile}");
+                                        }
+
+                                        extractedLookup.Add(archiveEntry.Path, tempFilename);
+                                    }
+
+                                    var tempFilenameStr = extractedLookup[archiveEntry.Path];
+                                    var stream = File.Open(tempFilenameStr, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite);
+                                    */
+
+
+                                    var stream = new MemoryStream();
+                                    //lock (vfs)
+                                    {
+                                        Log.Debug($"Extracting {archiveEntry.Path} from {realImageFile}");
+                                        SevenZipUtility.ExtractFileFromArchive(realImageFile, archiveEntry.Path, stream);
+                                        Log.Debug($"Finished extracting {archiveEntry.Path} from {realImageFile}");
+                                    }
+                                    stream.Seek(0, SeekOrigin.Begin);
+
+
+                                    return stream;
+                                })
+                            {
+                                Created = archiveEntry.Created,
+                                Accessed = archiveEntry.Accessed,
+                                Modified = archiveEntry.Modified,
+                                Length = archiveEntry.Size
+                            };
+
+                            virtualFolder.Children.Add(vfsEntry);
+                        }
+
+                        vfsEntry.Created = archiveEntry.Created;
+                        vfsEntry.Modified = archiveEntry.Modified;
+                        vfsEntry.Accessed = archiveEntry.Accessed;
+                    };
+                });
+
+            Console.WriteLine("Running. Press any key to exit.");
+            Console.ReadKey();
+        }
+
+        private static void MountAsImage(MountAsImage mountAsImageOptions, ClonezillaCacheManager clonezillaCacheManager)
+        {
+            if (mountAsImageOptions.InputPath == null) throw new Exception($"{nameof(mountAsImageOptions.InputPath)} not specified.");
+            if (mountAsImageOptions.MountPoint == null) throw new Exception($"{nameof(mountAsImageOptions.MountPoint)} not specified.");
+
+            var partitionContainerType = IPartitionContainer.FromPath(mountAsImageOptions.InputPath);
+
+            IPartitionContainer partitionContainer = partitionContainerType switch
+            {
+                PartitionContainerType.ClonezillaFolder => new ClonezillaImage(mountAsImageOptions.InputPath, clonezillaCacheManager, mountAsImageOptions.PartitionsToExtract, true),
+                PartitionContainerType.PartcloneFile => new PartcloneFile(mountAsImageOptions.InputPath, true),
+                _ => throw new NotImplementedException()
+            };
+
+            var virtualFileEntries = partitionContainer
+                                        .Partitions
+                                        .Select(partition => new FileEntry($"{partition.Name}.img", () => partition.FullPartitionImage)
+                                        {
+                                            Created = DateTime.Now,
+                                            Modified = DateTime.Now,
+                                            Accessed = DateTime.Now,
+                                            Length = partition.FullPartitionImage.Length,
+                                        })
+                                        .ToList();
+
+            var root = new Folder("");
+            root.Children.AddRange(virtualFileEntries);
+
+            Log.Information($"Mounting partition images to: {mountAsImageOptions.MountPoint}");
+
+            var vfs = new DokanVFS(root, PROGRAM_NAME);
+
+            vfs.Mount(mountAsImageOptions.MountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger());
+        }
+
+        private static void ExtractPartitionImage(ExtractPartitionImage extractPartitionImageOptions, ClonezillaCacheManager clonezillaCacheManager)
+        {
+            if (extractPartitionImageOptions.InputPath == null) throw new Exception($"{nameof(extractPartitionImageOptions.InputPath)} not specified.");
+            if (extractPartitionImageOptions.OutputFolder == null) throw new Exception($"{nameof(extractPartitionImageOptions.OutputFolder)} not specified.");
+
+            var partitionContainerType = IPartitionContainer.FromPath(extractPartitionImageOptions.InputPath);
+
+            IPartitionContainer partitionContainer = partitionContainerType switch
+            {
+                PartitionContainerType.ClonezillaFolder => new ClonezillaImage(extractPartitionImageOptions.InputPath, clonezillaCacheManager, extractPartitionImageOptions.PartitionsToExtract, false),
+                PartitionContainerType.PartcloneFile => new PartcloneFile(extractPartitionImageOptions.InputPath, false),
+                _ => throw new NotImplementedException()
+            };
+
+            var partitionsToExtract = partitionContainer.Partitions;
+
+            if (!Directory.Exists(extractPartitionImageOptions.OutputFolder))
+            {
+                Directory.CreateDirectory(extractPartitionImageOptions.OutputFolder);
+            }
+
+            partitionsToExtract
+                .ForEach(partition =>
+                {
+                    var outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{partition.Name}.img");
+
+                    var makeSparse = !extractPartitionImageOptions.NoSparseOutput;
+                    partition.ExtractToFile(outputFilename, makeSparse);
+                });
         }
 
         private static void HandleErrors(IEnumerable<Error> obj)
