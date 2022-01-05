@@ -8,9 +8,8 @@ namespace clonezilla_util.CL.Verbs
     [Verb("l", HelpText = "List contents of archive")]
     public class ListContents// : BaseVerb  //todo: Listing contents isn't supported yet. Likely will package 7z.exe to inspect the contents
     {
-        //[Value(0, HelpText = "The folder containing the Clonezilla archive.", Required = true)]
-        [Option('i', "input", HelpText = "The folder containing the Clonezilla archive", Required = true)]
-        public string? InputFolder { get; set; }
+        [Option('i', "input", HelpText = "The folder containing the Clonezilla archive. Or, a partclone filename.", Required = true)]
+        public string? InputPath { get; set; }
 
         [Option('s', "separator", HelpText = "The seperator to use between results in the output", Default = "\n", Required = false)]
         public string OutputSeparator { get; set; } = Environment.NewLine;

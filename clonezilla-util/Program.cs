@@ -158,9 +158,9 @@ namespace clonezilla_util
                     break;
 
                 case ListContents lc:
-                    if (lc.InputFolder == null) throw new Exception($"InputFolder not specified.");
+                    if (lc.InputPath == null) throw new Exception($"{nameof(lc.InputPath)} not specified.");
 
-                    var clonezillaImage = new ClonezillaImage(lc.InputFolder, clonezillaCacheManager, lc.PartitionsToOpen, true);
+                    var clonezillaImage = new ClonezillaImage(lc.InputPath, clonezillaCacheManager, lc.PartitionsToOpen, true);
                     var partitions = clonezillaImage.Partitions;
 
                     var allFiles = partitions.SelectMany(partition => partition.GetFilesInPartition().Select(file => new

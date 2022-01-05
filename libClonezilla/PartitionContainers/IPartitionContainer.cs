@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 
 namespace libClonezilla.PartitionContainers
 {
@@ -25,7 +26,18 @@ namespace libClonezilla.PartitionContainers
             {
                 if (File.Exists(path))
                 {
-                    result = PartitionContainerType.PartcloneFile;
+                    try
+                    {
+                        using var fileStream = File.OpenRead(path);
+                        using var binaryReader = new BinaryReader(fileStream);
+                        var magic = Encoding.ASCII.GetString(binaryReader.ReadBytes(16)).TrimEnd('\0');
+
+                        if (magic.Equals("partclone-image"))
+                        {
+                            result = PartitionContainerType.PartcloneFile;
+                        }
+                    }
+                    catch { }
                 }
             }
 

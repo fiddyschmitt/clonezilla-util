@@ -31,7 +31,7 @@ namespace libClonezilla.Partitions
 
         public static Partition GetPartition(Stream compressedPartcloneStream, Compression compressionInUse, string partitionName, IPartitionCache? partitionCache, bool willPerformRandomSeeking)
         {
-            Log.Information($"Getting partition information for {partitionName}");
+            Log.Information($"Loading partition information for {partitionName}");
 
             (Stream Stream, bool UseCacheLayer)? uncompressedPartcloneStream = null;
 

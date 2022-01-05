@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "mount-as-image --input \"E:\\2021-12-28-13-img_PB-DEVOPS1_zst\" --mount L:\\ -p sda1 sdb1"
+      "commandLineArgs": "mount-as-image --input \"E:\\_img\\1.1 - partclone file\\sdb1.ntfs-ptcl-img\" --mount L:\\"
     }
   }
 }
