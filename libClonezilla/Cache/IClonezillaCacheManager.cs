@@ -6,6 +6,6 @@ namespace libClonezilla.Cache
 {
     public interface IClonezillaCacheManager
     {
-        public IPartitionCache GetPartitionCache(string clonezillaFolder, string partitionName);
+        public IPartitionCache GetPartitionCache(string partitionName);
     }
 }

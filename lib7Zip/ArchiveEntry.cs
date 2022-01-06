@@ -8,12 +8,10 @@ namespace lib7Zip
 {
     public class ArchiveEntry
     {
-        public string ArchiveFilename;
         public string Path;
 
-        public ArchiveEntry(string archiveFilename, string path)
+        public ArchiveEntry(string path)
         {
-            ArchiveFilename = archiveFilename;
             Path = path;
         }
 

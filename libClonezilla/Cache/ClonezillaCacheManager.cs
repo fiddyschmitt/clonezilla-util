@@ -8,8 +8,9 @@ namespace libClonezilla.Cache
 {
     public class ClonezillaCacheManager : IClonezillaCacheManager
     {
-        public ClonezillaCacheManager(string cacheRootFolder)
+        public ClonezillaCacheManager(string clonezillaFolder, string cacheRootFolder)
         {
+            ClonezillaFolder = clonezillaFolder;
             CacheRootFolder = cacheRootFolder;
 
             TempFolder = Path.Combine(CacheRootFolder, "Temp");
@@ -19,12 +20,13 @@ namespace libClonezilla.Cache
             }
         }
 
+        public string ClonezillaFolder { get; }
         public string CacheRootFolder { get; }
         public string TempFolder { get; }
 
-        public IPartitionCache GetPartitionCache(string clonezillaFolder, string partitionName)
+        public IPartitionCache GetPartitionCache(string partitionName)
         {
-            string imgIdFilename = Path.Combine(clonezillaFolder, "Info-img-id.txt");
+            string imgIdFilename = Path.Combine(ClonezillaFolder, "Info-img-id.txt");
             string imgId = File.ReadAllLines(imgIdFilename)
                                .First(line => line.StartsWith("IMG_ID="))
                                .Split("=", StringSplitOptions.None)[1][..16];

@@ -3,6 +3,7 @@ using libClonezilla.Cache.FileSystem;
 using libClonezilla.Partitions;
 using libCommon.Streams;
 using libPartclone;
+using libPartclone.Cache;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -76,7 +77,8 @@ namespace libClonezilla.PartitionContainers
                                 */
 
 
-                                var partitionCache = cacheManager.GetPartitionCache(clonezillaArchiveFolder, partitionName);
+                                var partitionCache = cacheManager.GetPartitionCache(partitionName);
+                                var partcloneCache = partitionCache as IPartcloneCache;
 
                                 //determine the type of compression in use
                                 (var compressionInUse, var containerFilenames) = GetCompressionInUse(clonezillaArchiveFolder, partitionName);
@@ -91,7 +93,7 @@ namespace libClonezilla.PartitionContainers
 
                                 var compressedPartcloneStream = new Multistream(containerStreams);
 
-                                var result = Partition.GetPartition(compressedPartcloneStream, compressionInUse, partitionName, partitionCache, willPerformRandomSeeking);
+                                var result = new Partition(compressedPartcloneStream, compressionInUse, partitionName, partitionCache, partcloneCache, willPerformRandomSeeking);
 
                                 return result;
                             })

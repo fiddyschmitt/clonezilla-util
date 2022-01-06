@@ -14,22 +14,16 @@ using Serilog;
 using libCommon.Streams.Sparse;
 using ZstdNet;
 using libCommon.Streams.Seekable;
+using libPartclone.Cache;
 
 namespace libClonezilla.Partitions
 {
-    public abstract class Partition
+    public class Partition
     {
-        public string Name;
-
-        public Partition(string name, PartcloneStream fullPartitionImage)
-        {
-            Name = name;
-            FullPartitionImage = fullPartitionImage;
-        }
-
         public PartcloneStream FullPartitionImage { get; }
+        public string Name { get; }
 
-        public static Partition GetPartition(Stream compressedPartcloneStream, Compression compressionInUse, string partitionName, IPartitionCache? partitionCache, bool willPerformRandomSeeking)
+        public Partition(Stream compressedPartcloneStream, Compression compressionInUse, string partitionName, IPartitionCache? partitionCache, IPartcloneCache? partcloneCache, bool willPerformRandomSeeking)
         {
             Log.Information($"Loading partition information for {partitionName}");
 
@@ -200,17 +194,9 @@ namespace libClonezilla.Partitions
                 throw new Exception($"Did not initialize a stream for partition {partitionName}");
             }
 
-            var fullPartitionImage = new PartcloneStream(partitionName, uncompressedPartcloneStream.Value.Stream, partitionCache);
-
-            Partition result = new BasicPartition(partitionName, fullPartitionImage);
-
-            return result;
+            FullPartitionImage = new PartcloneStream(partitionName, uncompressedPartcloneStream.Value.Stream, partcloneCache);
+            Name = partitionName;
         }
-
-
-        public abstract IEnumerable<FolderDetails> GetFoldersInPartition();
-        public abstract IEnumerable<FileDetails> GetFilesInPartition();
-        public abstract Stream? GetFile(string filename);
 
         public void ExtractToFile(string outputFilename, bool makeSparse)
         {
@@ -219,13 +205,14 @@ namespace libClonezilla.Partitions
 
         public static void ExtractToFile(string partitionName, ISparseAwareReader sparseAwareInput, string outputFilename, bool makeSparse)
         {
+            Log.Information($"Extracting partition {partitionName} to: {outputFilename}");
+
             var fileStream = File.Create(outputFilename);
-            ExtractToFile(partitionName, sparseAwareInput, fileStream, makeSparse);
+            ExtractToFile(sparseAwareInput, fileStream, makeSparse);
         }
 
-        public static void ExtractToFile(string partitionName, ISparseAwareReader sparseAwareInput, FileStream fileStream, bool makeSparse)
+        public static void ExtractToFile(ISparseAwareReader sparseAwareInput, FileStream fileStream, bool makeSparse)
         {
-            Log.Information($"Extracting partition {partitionName} to: {fileStream.Name}");
 
             if (libCommon.Utility.IsOnNTFS(fileStream.Name) && makeSparse)
             {

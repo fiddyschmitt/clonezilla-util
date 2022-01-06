@@ -9,6 +9,8 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using libCommon.Streams;
 using libCommon.Streams.Sparse;
+using System.Collections.Concurrent;
+using System.Threading.Tasks;
 
 namespace libCommon
 {
@@ -18,6 +20,27 @@ namespace libCommon
         {
             string result = string.Join(seperator, list);
             return result;
+        }
+
+        public static IEnumerable<T> Buffer<T>(this IEnumerable<T> input)
+        {
+            var blockingCollection = new BlockingCollection<T>();
+
+            //read from the input
+            Task.Factory.StartNew(() =>
+            {
+                foreach (var item in input)
+                {
+                    blockingCollection.Add(item);
+                }
+
+                blockingCollection.CompleteAdding();
+            });
+
+            foreach (var item in blockingCollection.GetConsumingEnumerable())
+            {
+                yield return item;
+            }
         }
 
         public static string ToPrettyFormat(this TimeSpan span)

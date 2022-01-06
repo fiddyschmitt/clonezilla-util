@@ -97,12 +97,17 @@ namespace libPartclone
                 var bytesRead = bufferPos - offset;
                 var bytesToGo = count - bytesRead;
 
-                var range = PartcloneImageInfo.PartcloneContentMapping.FirstOrDefault(r => pos >= r.OutputFileRange.StartByte && pos <= r.OutputFileRange.EndByte);
-
-                if (bytesToGo == 0 || pos == Length || range == null)
+                if (bytesToGo == 0 || pos == Length)
                 {
                     break;
                 }
+
+                var range = PartcloneImageInfo.PartcloneContentMapping.FirstOrDefault(r => pos >= r.OutputFileRange.StartByte && pos <= r.OutputFileRange.EndByte);
+
+                if (range == null)
+                {
+                    break;
+                }    
 
                 var bytesLeftInThisRange = range.OutputFileRange.EndByte - pos + 1;
 

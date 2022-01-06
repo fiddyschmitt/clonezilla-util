@@ -9,9 +9,6 @@ namespace clonezilla_util.CL.Verbs
     [Verb("extract-partition-image", HelpText = "Extract the uncompressed, original copy of the partition.")]
     public class ExtractPartitionImage : BaseVerb
     {
-        [Option('i', "input", HelpText = "The folder containing the Clonezilla archive. Or, a partclone filename.", Required = true)]
-        public string? InputPath { get; set; }
-
         [Option('o', "output", HelpText = "The folder to extract the partition image to.", Required = true)]
         public string? OutputFolder { get; set; }
 

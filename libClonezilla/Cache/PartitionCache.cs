@@ -10,26 +10,31 @@ using libPartclone;
 using libGZip;
 using libCommon.Streams;
 using System.Collections.ObjectModel;
+using libPartclone.Cache;
+using lib7Zip;
 
 namespace libClonezilla.Cache
 {
-    public class PartitionCache : IPartitionCache
+    public class PartitionCache : IPartcloneCache, IPartitionCache
     {
         public string ClonezillaCacheFolder { get; }
         public string PartitionName { get; }
 
-        private readonly string partcloneImageInfoFilename;
+        private readonly string PartcloneContentMappingFilename;
+        private readonly string FileListFilename;
 
         public PartitionCache(string clonezillaCacheFolder, string partitionName)
         {
             ClonezillaCacheFolder = clonezillaCacheFolder;
             PartitionName = partitionName;
-            partcloneImageInfoFilename = Path.Combine(ClonezillaCacheFolder, partitionName + ".PartcloneContentMapping.json");
+
+            PartcloneContentMappingFilename = Path.Combine(ClonezillaCacheFolder, $"{partitionName}.PartcloneContentMapping.json");
+            FileListFilename = Path.Combine(ClonezillaCacheFolder, $"{partitionName}.Files.json");
         }
 
         public string GetGztoolIndexFilename()
         {
-            string result = Path.Combine(ClonezillaCacheFolder, PartitionName + ".gzi");
+            string result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.gztool_index.gzi");
             return result;
         }
 
@@ -37,9 +42,9 @@ namespace libClonezilla.Cache
         {
             List<ContiguousRange>? result = null;
 
-            if (File.Exists(partcloneImageInfoFilename))
+            if (File.Exists(PartcloneContentMappingFilename))
             {
-                string json = File.ReadAllText(partcloneImageInfoFilename);
+                string json = File.ReadAllText(PartcloneContentMappingFilename);
                 result = JsonConvert.DeserializeObject<List<ContiguousRange>>(json);
             }
 
@@ -49,7 +54,26 @@ namespace libClonezilla.Cache
         public void SetPartcloneContentMapping(List<ContiguousRange> contiguousRanges)
         {
             var json = JsonConvert.SerializeObject(contiguousRanges, Formatting.Indented);
-            File.WriteAllText(partcloneImageInfoFilename, json);
+            File.WriteAllText(PartcloneContentMappingFilename, json);
+        }
+
+        public List<ArchiveEntry>? GetFileList()
+        {
+            List<ArchiveEntry>? result = null;
+
+            if (File.Exists(FileListFilename))
+            {
+                string json = File.ReadAllText(FileListFilename);
+                result = JsonConvert.DeserializeObject<List<ArchiveEntry>>(json);
+            }
+
+            return result;
+        }
+
+        public void SetFileList(List<ArchiveEntry> filenames)
+        {
+            var json = JsonConvert.SerializeObject(filenames, Formatting.Indented);
+            File.WriteAllText(FileListFilename, json);
         }
     }
 }

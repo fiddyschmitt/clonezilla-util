@@ -258,7 +258,7 @@ namespace libDokan
 
         public NtStatus ReadFile(string fileName, byte[] buffer, out int bytesRead, long offset, IDokanFileInfo info)
         {
-            //Console.WriteLine($"ReadFile: {fileName}");
+            //Console.WriteLine($"ReadFile {buffer.Length:N0} bytes: {fileName}");
 
             if (info.Context == null) // memory mapped read
             {
@@ -449,7 +449,7 @@ namespace libDokan
         public NtStatus GetDiskFreeSpace(out long freeBytesAvailable, out long totalNumberOfBytes, out long totalNumberOfFreeBytes, IDokanFileInfo info)
         {
             long totalInUse = 0;
-            new[] { Root }
+            _ = new[] { Root }
                 .Recurse(folder =>
                 {
                     var totalFileSizes = folder

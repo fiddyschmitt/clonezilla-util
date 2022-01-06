@@ -39,7 +39,7 @@ namespace lib7Zip
                     string name = line.Replace("Path = ", "");
 
                     if (name.Equals(archiveFilename)) continue;
-                    currentEntry = new ArchiveEntry(archiveFilename, name);
+                    currentEntry = new ArchiveEntry(name);
                 }
 
                 if (string.IsNullOrEmpty(line))
