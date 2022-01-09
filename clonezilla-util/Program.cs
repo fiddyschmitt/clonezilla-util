@@ -1,4 +1,5 @@
 ﻿using clonezilla_util.CL.Verbs;
+using clonezilla_util.VFS;
 using CommandLine;
 using DokanNet;
 using lib7Zip;
@@ -11,6 +12,9 @@ using libCommon.Streams;
 using libCommon.Streams.Seekable;
 using libCommon.Streams.Sparse;
 using libDokan;
+using libDokan.VFS;
+using libDokan.VFS.Files;
+using libDokan.VFS.Folders;
 using libPartclone;
 using Serilog;
 using Serilog.Core;
@@ -155,12 +159,12 @@ namespace clonezilla_util
                 _ => throw new NotImplementedException()
             };
 
-            var root = new Folder("");
-            AddPartitionImagesToVirtualFolder(partitionContainer.Partitions, root, "");
-
             var mountPoint = libDokan.Utility.GetAvailableDriveLetter();
+            var root = new Folder("");
 
-            var vfs = new DokanVFS(root, PROGRAM_NAME);
+            AddPartitionImagesToVirtualFolder(partitionContainer.Partitions, mountPoint, root, "");
+
+            var vfs = new DokanVFS(PROGRAM_NAME, root);
             Task.Factory.StartNew(() => vfs.Mount(mountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger()));
             WaitForMountPointToBeAvailable(mountPoint);
 
@@ -209,11 +213,11 @@ namespace clonezilla_util
             };
 
             var root = new Folder("");
-            AddPartitionImagesToVirtualFolder(partitionContainer.Partitions, root, "");
+            AddPartitionImagesToVirtualFolder(partitionContainer.Partitions, mountAsImageOptions.MountPoint, root, "");
 
             Log.Information($"Mounting partition images to: {mountAsImageOptions.MountPoint}");
 
-            var vfs = new DokanVFS(root, PROGRAM_NAME);
+            var vfs = new DokanVFS(PROGRAM_NAME, root);
             vfs.Mount(mountAsImageOptions.MountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger());
         }
 
@@ -236,18 +240,18 @@ namespace clonezilla_util
             //create a hidden folder for the images, so that we can interogate them using 7z.exe
             var imagesRootFolder = $"images {Guid.NewGuid()}";
 
-            AddPartitionImagesToVirtualFolder(partitionContainer.Partitions, root, imagesRootFolder);
+            AddPartitionImagesToVirtualFolder(partitionContainer.Partitions, mountAsFilesOptions.MountPoint, root, imagesRootFolder);
 
             var imagesRoot = root.CreateOrRetrieve(imagesRootFolder);
             imagesRoot.Hidden = true;
 
-            var vfs = new DokanVFS(root, PROGRAM_NAME);
+            var vfs = new DokanVFS(PROGRAM_NAME, root);
             Task.Factory.StartNew(() => vfs.Mount(mountAsFilesOptions.MountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger()));
             WaitForMountPointToBeAvailable(mountAsFilesOptions.MountPoint);
 
             Log.Information($"Retrieving a list of files.");
 
-            //use 7z to get a list of files
+            //use 7z to get a list of files (or load them from cache)
             var realImagesFolder = Path.Combine(mountAsFilesOptions.MountPoint, imagesRootFolder);
             var imageFiles = Directory.GetFiles(realImagesFolder, "*", SearchOption.AllDirectories).ToList();
 
@@ -258,9 +262,6 @@ namespace clonezilla_util
                     var partitionCache = clonezillaCacheManager.GetPartitionCache(partitionName);
 
                     var archiveFiles = GetFilesInPartition(realImageFile, partitionCache);
-
-
-                    //var extractedLookup = new Dictionary<string, string>();
 
                     foreach (var archiveEntry in archiveFiles)
                     {
@@ -283,54 +284,15 @@ namespace clonezilla_util
 
                             var virtualFolder = root.CreateOrRetrieve(virtualFolderPath);
 
-                            vfsEntry = new FileEntry(
-                                virtualFileName,
-                                () =>
-                                {
-                                    /*
-                                    //Works, but not to think about how to clean up temp files reliably, particularly given that multiple instances of the program can be running
-                                    if (!extractedLookup.ContainsKey(archiveEntry.Path))
-                                    {
-                                        var tempFilename = Path.GetRandomFileName();
-                                        tempFilename = Path.Combine(clonezillaCacheManager.TempFolder, tempFilename);
-                                        File.Create(tempFilename).Close();
-                                        File.SetAttributes(tempFilename, FileAttributes.Temporary); //not sure if this is needed, given that we use DeleteOnClose in the next call. But according to its doco, it gives a hint to the OS to mainly keep it in memory.
-                                        //var tempFileStream = new FileStream(tempFilename, FileMode.Open, System.IO.FileAccess.ReadWrite, FileShare.Read, 4096, FileOptions.DeleteOnClose); //DeleteOnClose doesn't play nicely with the subsequent read.
-                                        var tempFileStream = new FileStream(tempFilename, FileMode.Open, System.IO.FileAccess.ReadWrite, FileShare.ReadWrite);
-
-                                        lock (vfs)
-                                        {
-                                            Log.Debug($"Extracting {archiveEntry.Path} from {realImageFile}");
-                                            SevenZipUtility.ExtractFileFromArchive(realImageFile, archiveEntry.Path, tempFileStream);
-                                            Log.Debug($"Finished extracting {archiveEntry.Path} from {realImageFile}");
-                                        }
-
-                                        extractedLookup.Add(archiveEntry.Path, tempFilename);
-                                    }
-
-                                    var tempFilenameStr = extractedLookup[archiveEntry.Path];
-                                    var stream = File.Open(tempFilenameStr, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite);
-                                    */
-
-
-                                    var stream = new MemoryStream();
-                                    //lock (vfs)
-                                    {
-                                        Log.Debug($"Extracting {archiveEntry.Path} from {realImageFile}");
-                                        SevenZipUtility.ExtractFileFromArchive(realImageFile, archiveEntry.Path, stream);
-                                        Log.Debug($"Finished extracting {archiveEntry.Path} from {realImageFile}");
-                                    }
-                                    stream.Seek(0, SeekOrigin.Begin);
-
-
-                                    return stream;
-                                })
+                            var fileEntry = new SevenZipBackedFileEntry(realImageFile, archiveEntry)
                             {
                                 Created = archiveEntry.Created,
                                 Accessed = archiveEntry.Accessed,
                                 Modified = archiveEntry.Modified,
                                 Length = archiveEntry.Size
                             };
+
+                            vfsEntry = fileEntry;
 
                             virtualFolder.Children.Add(vfsEntry);
                         }
@@ -359,30 +321,34 @@ namespace clonezilla_util
             }
         }
 
-        static void AddPartitionImagesToVirtualFolder(List<Partition> partitions, Folder root, string virtualFolderPath)
+        static void AddPartitionImagesToVirtualFolder(List<Partition> partitions, string mountPoint, Folder root, string virtualFolderPath)
         {
-            var virtualFileEntries = partitions
-                                        .Select(partition =>
-                                        {
-                                            var virtualImageFilename = Path.Combine(virtualFolderPath, $"{partition.Name}.img");
+            partitions
+                .ForEach(partition =>
+                {
+                    var virtualImageFilename = Path.Combine(virtualFolderPath, $"{partition.Name}.img");
+                    var physicalImageFilename = Path.Combine(mountPoint, virtualImageFilename);
 
-                                            var virtualFileName = Path.GetFileName(virtualImageFilename);
+                    var virtualFileName = Path.GetFileName(virtualImageFilename);
 
-                                            var virtualFolder = root.CreateOrRetrieve(virtualFolderPath);
+                    var virtualFolder = root.CreateOrRetrieve(virtualFolderPath);
 
-                                            var fileEntry = new FileEntry(virtualFileName, () => partition.FullPartitionImage)
-                                            {
-                                                Created = DateTime.Now,
-                                                Accessed = DateTime.Now,
-                                                Modified = DateTime.Now,
-                                                Length = partition.FullPartitionImage.Length,
-                                            };
+                    var fileEntry = new StreamBackedFileEntry(
+                        virtualFileName,
+                        () =>
+                        {
+                            var stream = partition.FullPartitionImage;
+                            return stream;
+                        })
+                    {
+                        Created = DateTime.Now,
+                        Accessed = DateTime.Now,
+                        Modified = DateTime.Now,
+                        Length = partition.FullPartitionImage.Length,
+                    };
 
-                                            virtualFolder.Children.Add(fileEntry);
-
-                                            return fileEntry;
-                                        })
-                                        .ToList();
+                    virtualFolder.Children.Add(fileEntry);
+                });
         }
 
         private static void ExtractPartitionImage(ExtractPartitionImage extractPartitionImageOptions, ClonezillaCacheManager clonezillaCacheManager)

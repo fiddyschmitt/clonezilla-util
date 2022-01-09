@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "mount --input \"E:\\2021-12-28-13-img_PB-DEVOPS1_gz\" --mount L:\\ -p sda1 sda2 sdb1"
+      "commandLineArgs": "mount --input \"E:\\2021-12-28-13-img_PB-DEVOPS1_gz\" --mount L:\\ -p sda1 sdb1"
     }
   }
 }

@@ -1,11 +1,14 @@
 ﻿using DokanNet;
+using libDokan.VFS;
+using libDokan.VFS.Files;
+using libDokan.VFS.Folders;
 using rextractor;
 using Serilog;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using static DokanNet.FormatProviders;
-using static libDokan.Folder;
+using static libDokan.VFS.Folders.Folder;
 using FileAccess = DokanNet.FileAccess;
 
 namespace libDokan
@@ -15,7 +18,7 @@ namespace libDokan
         readonly Folder Root;
         private readonly string VolumeLabel;
 
-        public DokanVFS(Folder root, string volumeLabel)
+        public DokanVFS(string volumeLabel, Folder root)
         {
             Root = root;
             VolumeLabel = volumeLabel;
@@ -31,7 +34,14 @@ namespace libDokan
                         {
                             var fi = new FileInfo(filename);
 
-                            var file = new FileEntry(fi.Name, () => File.OpenRead(fi.FullName))
+                            var file = new StreamBackedFileEntry(
+                                fi.Name,
+                                () =>
+                                {
+                                    var stream = File.OpenRead(filename);
+                                    return stream;
+                                }
+                                )
                             {
                                 Length = fi.Length,
                                 Created = fi.CreationTime,
@@ -51,7 +61,7 @@ namespace libDokan
 
             rootFolder.Children.Add(subfolder1);
 
-            var testFS = new DokanVFS(rootFolder, "DokanVFS");
+            var testFS = new DokanVFS("DokanVFS", rootFolder);
 
             testFS.Mount(@"X:\");
         }
@@ -193,7 +203,7 @@ namespace libDokan
                 {
                     if (fileSystemEntry is FileEntry file)
                     {
-                        info.Context = file.StreamFactory();
+                        info.Context = file.GetStream();
                     }
                 }
                 catch (UnauthorizedAccessException) // don't have access rights
@@ -265,7 +275,7 @@ namespace libDokan
                 var fileSystemEntry = Root.GetEntryFromPath(fileName);
                 if (fileSystemEntry is FileEntry file)
                 {
-                    using var stream = file.StreamFactory();
+                    using var stream = file.GetStream();
                     if (stream != null)
                     {
                         stream.Position = offset;
@@ -563,170 +573,6 @@ namespace libDokan
             files = FindFilesHelper(fileName, searchPattern);
 
             return Trace(nameof(FindFilesWithPattern), fileName, info, DokanResult.Success);
-        }
-    }
-
-    public abstract class FileSystemEntry
-    {
-        public string Name { get; set; }
-
-        public bool Hidden { get; set; } = false;
-        public bool System { get; set; } = false;
-
-        public FileSystemEntry(string name)
-        {
-            Name = name;
-        }
-
-        public DateTime Modified;
-        public DateTime Created;
-        public DateTime Accessed;
-
-        protected abstract FileInformation ToFileInfo();
-
-        public FileInformation ToFileInformation()
-        {
-            var result = ToFileInfo();
-
-            if (Hidden) result.Attributes |= FileAttributes.Hidden;
-            if (System) result.Attributes |= FileAttributes.System;
-
-            result.FileName = Name;
-            result.CreationTime = Created;
-            result.LastAccessTime = Accessed;
-            result.LastWriteTime = Modified;
-
-            return result;
-        }
-
-        public override string ToString()
-        {
-            var result = Name;
-            return result;
-        }
-    }
-
-    public class Folder : FileSystemEntry
-    {
-        public List<FileSystemEntry> Children = new();
-
-        public Folder CreateOrRetrieve(string path)
-        {
-            var folderEntry = GetEntryFromPath(path, true);
-
-            if (folderEntry == null) throw new Exception($"Could not created folder: {path}");
-            if (folderEntry is not Folder folder) throw new Exception($"Retrieved entry is not a folder for path: {path}");
-
-            return folder;
-        }
-
-        public Folder(string name) : base(name)
-        {
-        }
-
-        protected override FileInformation ToFileInfo()
-        {
-            var result = new FileInformation();
-
-            result.Attributes |= FileAttributes.Directory;
-
-            return result;
-        }
-
-        public FileSystemEntry? GetEntryFromPath(string path, bool createFolderStructure = false)
-        {
-            var pathComponents = path.Split(@"\", StringSplitOptions.RemoveEmptyEntries);
-
-            Folder? currentFolder = this;
-            FileEntry? file = null;
-
-            for (int i = 0; i < pathComponents.Length; i++)
-            {
-                var component = pathComponents[i];
-
-                if (currentFolder == null) break;
-
-                var subFolder = currentFolder
-                                    .Children
-                                    .OfType<Folder>()
-                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.CurrentCultureIgnoreCase));
-
-                if (subFolder == null)
-                {
-                    if (i == pathComponents.Length - 1 && !createFolderStructure)
-                    {
-                        //this is the last item. Perhaps it's a file
-
-                        file = currentFolder
-                                    .Children
-                                    .OfType<FileEntry>()
-                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.CurrentCultureIgnoreCase));
-                    }
-                    else
-                    {
-                        //not at the end, and this particular folder was not found
-
-                        if (createFolderStructure)
-                        {
-                            subFolder = new Folder(component);
-                            currentFolder?.Children.Add(subFolder);
-                        }
-                        else
-                        {
-                            currentFolder = null;
-                            break;
-                        }
-                    }
-                }
-
-                currentFolder = subFolder;
-            }
-
-            FileSystemEntry? result;
-            if (file == null)
-            {
-                result = currentFolder;
-            }
-            else
-            {
-                result = file;
-            }
-
-            return result;
-        }
-
-        public override string ToString()
-        {
-            var result = $"{Name}";
-            return result;
-        }
-    }
-
-    public class FileEntry : FileSystemEntry
-    {
-        public long Length { get; set; }
-
-        public Func<Stream> StreamFactory { get; protected set; }
-
-        public FileEntry(string name, Func<Stream> streamFactory) : base(name)
-        {
-            StreamFactory = streamFactory;
-        }
-
-        protected override FileInformation ToFileInfo()
-        {
-            var result = new FileInformation
-            {
-                Length = Length,
-            };
-
-            return result;
-        }
-
-        public override string ToString()
-        {
-            var result = $"{Name}";
-            return result;
         }
     }
 }
