@@ -22,6 +22,52 @@ namespace libCommon
             return result;
         }
 
+        public static IEnumerable<T> Recurse<T>(this IEnumerable<T> source, Func<T, IEnumerable<T>> childSelector, bool depthFirst = false)
+        {
+            List<T> queue = new(source); ;
+
+            while (queue.Count > 0)
+            {
+                var item = queue[0];
+                queue.RemoveAt(0);
+
+                var children = childSelector(item);
+
+                if (depthFirst)
+                {
+                    queue.InsertRange(0, children);
+                }
+                else
+                {
+                    queue.AddRange(children);
+                }
+
+                yield return item;
+            }
+        }
+
+        public static IEnumerable<T> Recurse<T>(this T source, Func<T, T?> childSelector, bool depthFirst = false)
+        {
+            var list = new List<T>() { source };
+            var childListSelector = new Func<T, IEnumerable<T>>(item =>
+            {
+                var child = childSelector(item);
+                if (child == null)
+                {
+                    return new List<T>();
+                }
+                else
+                {
+                    return new List<T>() { child };
+                }
+            });
+
+            foreach (var result in Recurse(list, childListSelector, depthFirst))
+            {
+                yield return result;
+            }
+        }
+
         public static IEnumerable<T> Buffer<T>(this IEnumerable<T> input)
         {
             var blockingCollection = new BlockingCollection<T>();
@@ -206,11 +252,13 @@ namespace libCommon
 
 #pragma warning disable CS8601 // Possible null reference assignment.
 #pragma warning disable CS8619 // Nullability of reference types in value doesn't match target type.
+#pragma warning disable CS8600 // Converting null literal or possible null value to non-nullable type.
         public static IEnumerable<(T Previous, T Current, T Next)> Sandwich<T>(this IEnumerable<T> source, T beforeFirst = default, T afterLast = default)
         {
             var sourceList = source.ToList();
 
             T previous = beforeFirst;
+
             T current = sourceList.FirstOrDefault();
 
             foreach (var next in sourceList.Skip(1))
@@ -226,6 +274,7 @@ namespace libCommon
         }
 #pragma warning restore CS8601 // Possible null reference assignment.
 #pragma warning restore CS8619 // Nullability of reference types in value doesn't match target type.
+#pragma warning restore CS8600 // Converting null literal or possible null value to non-nullable type.
 
         [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern bool DeviceIoControl(
@@ -241,7 +290,7 @@ namespace libCommon
         public static void MarkAsSparse(this SafeFileHandle fileHandle)
         {
             int bytesReturned = 0;
-            NativeOverlapped lpOverlapped = new NativeOverlapped();
+            NativeOverlapped lpOverlapped = new();
             bool result =
                 DeviceIoControl(
                     fileHandle,

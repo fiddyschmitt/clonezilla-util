@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\lib7Zip\lib7Zip.csproj" />
     <ProjectReference Include="..\libClonezilla\libClonezilla.csproj" />
+    <ProjectReference Include="..\libCommon\libCommon.csproj" />
     <ProjectReference Include="..\libDokan\libDokan.csproj" />
     <ProjectReference Include="..\libGZip\libGZip.csproj" />
   </ItemGroup>

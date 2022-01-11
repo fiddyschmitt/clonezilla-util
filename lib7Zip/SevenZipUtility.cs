@@ -13,6 +13,13 @@ namespace lib7Zip
             throw new Exception("OS not supported yet.");
         }
 
+        public static string SevenZipDll()
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return @"ext\7-Zip\win-x64\7z.dll";
+
+            throw new Exception("OS not supported yet.");
+        }
+
         public static void ExtractFileToFolder(string inputFilename, string outputFolder, bool verbose)
         {
             var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), new[] { $"x \"{inputFilename}\" -p\"blah\" -r -y -o\"{outputFolder}\"" }, verbose);

@@ -130,7 +130,7 @@ namespace clonezilla_util
             {
                 archiveFiles = SevenZipUtility.GetArchiveEntries(realImageFile, false);
                 saveToCache = true;
-            }
+            };
 
             var fullListOfFiles = new List<ArchiveEntry>();
 
@@ -242,7 +242,7 @@ namespace clonezilla_util
 
             AddPartitionImagesToVirtualFolder(partitionContainer.Partitions, mountAsFilesOptions.MountPoint, root, imagesRootFolder);
 
-            var imagesRoot = root.CreateOrRetrieve(imagesRootFolder);
+            var imagesRoot = root.CreateOrRetrieveFolder(imagesRootFolder);
             imagesRoot.Hidden = true;
 
             var vfs = new DokanVFS(PROGRAM_NAME, root);
@@ -255,53 +255,178 @@ namespace clonezilla_util
             var realImagesFolder = Path.Combine(mountAsFilesOptions.MountPoint, imagesRootFolder);
             var imageFiles = Directory.GetFiles(realImagesFolder, "*", SearchOption.AllDirectories).ToList();
 
+            //not adding the files directly to root, because we want to present them all at once at the very end
+            var filesRoot = new Folder("");
+
             imageFiles
                 .ForEach(realImageFile =>
                 {
                     var partitionName = Path.GetFileNameWithoutExtension(realImageFile);
                     var partitionCache = clonezillaCacheManager.GetPartitionCache(partitionName);
 
-                    var archiveFiles = GetFilesInPartition(realImageFile, partitionCache);
+                    var filesInArchive = GetFilesInPartition(realImageFile, partitionCache);
 
-                    foreach (var archiveEntry in archiveFiles)
+                    var partitionRoot = partitionCache.GetVFSFolder();
+
+
+                    //Extractor which uses 7z.exe
+                    //Works fine, except it's too slow when extracting from a large archive, causing explorer.exe to assume the file isn't available.
+                    /*
+                    var extractor = new Func<ArchiveEntry, Stream>(archiveEntry =>
                     {
-                        //Log.Information($"Found file in archive: {archiveEntry.Path}");
-
-                        FileSystemEntry vfsEntry;
-                        if (archiveEntry.IsFolder)
+                        Stream stream;
+                        //lock (vfs)
                         {
-                            var virtualFolderPath = archiveEntry.Path.Replace(@"\.", "");
-                            virtualFolderPath = Path.Combine(partitionName, virtualFolderPath);
-
-                            vfsEntry = root.CreateOrRetrieve(virtualFolderPath);
+                            stream = new MemoryStream();
+                            Log.Debug($"Extracting {archiveEntry.Path} from {realImageFile}");
+                            SevenZipUtility.ExtractFileFromArchive(realImageFile, archiveEntry.Path, stream);
+                            Log.Debug($"Finished extracting {archiveEntry.Path} from {realImageFile}");
                         }
-                        else
+                        stream.Seek(0, SeekOrigin.Begin);
+                        return stream;
+                    });
+                    */
+
+                    //Extractor which uses the 7-Zip File Manager
+                    //Opening the archive is slow, and is done here upfront. Subsequent extracts are quick
+                    var fileManagerExtractor = new SevenZipExtractorUsing7zFM(realImageFile);
+
+                    var extractor = new Func<ArchiveEntry, Stream>(archiveEntry =>
+                    {
+                        var tempFolder = Utility.GetTemporaryDirectory();
+
+                        Stream stream;
+                        lock (fileManagerExtractor)
                         {
-                            var virtualFilePath = Path.Combine(partitionName, archiveEntry.Path);
+                            fileManagerExtractor.ExtractFile(archiveEntry.Path, tempFolder);
 
-                            var virtualFileName = Path.GetFileName(virtualFilePath);
-                            var virtualFolderPath = Path.GetDirectoryName(virtualFilePath) ?? throw new Exception($"Could not retrieve folder for: {virtualFilePath}");
+                            var extractedFile = Directory.GetFiles(tempFolder).First();
 
-                            var virtualFolder = root.CreateOrRetrieve(virtualFolderPath);
+                            stream = File.OpenRead(extractedFile);
+                        }
 
-                            var fileEntry = new SevenZipBackedFileEntry(realImageFile, archiveEntry)
+                        return stream;
+                    });
+
+
+
+                    //Extractor based on SevenZipExtractor
+                    //Was hoping that we could get SevenZipExtractor to load the archive (which takes time) in the constructor, so that it would be more responsive when asked to extract a file from it. But it still takes too long, causing an explorer.exe timeout.
+                    /*
+                    var partitionDetails = partitionContainer
+                                        .Partitions
+                                        .FirstOrDefault(partition => partition.Name.Equals(partitionName));
+
+                    if (partitionDetails == null) throw new Exception($"Could not load details for {partitionName}.");
+
+                    var sevenZipExtractorEx = new SevenZipExtractorEx(partitionDetails.FullPartitionImage);
+
+                    var extractor = new Func<ArchiveEntry, Stream>(archiveEntry =>
+                    {
+                        var stream = new MemoryStream();
+                        sevenZipExtractorEx.ExtractFile(archiveEntry.Path, stream);
+                        stream.Seek(0, SeekOrigin.Begin);
+                        return stream;
+                    });
+                    */
+
+
+
+
+
+
+
+
+                    if (partitionRoot == null)
+                    {
+                        var processed = 0;
+                        partitionRoot = new Folder("");
+
+                        foreach (var archiveEntry in filesInArchive)
+                        {
+                            FileSystemEntry vfsEntry;
+                            if (archiveEntry.IsFolder)
                             {
-                                Created = archiveEntry.Created,
-                                Accessed = archiveEntry.Accessed,
-                                Modified = archiveEntry.Modified,
-                                Length = archiveEntry.Size
-                            };
+                                var virtualFolderPath = archiveEntry.Path;
 
-                            vfsEntry = fileEntry;
+                                if (virtualFolderPath.EndsWith(@"\."))
+                                {
+                                    virtualFolderPath = virtualFolderPath.Replace(@"\.", "");
+                                }
 
-                            virtualFolder.Children.Add(vfsEntry);
-                        }
+                                virtualFolderPath = Path.Combine(partitionName, virtualFolderPath);
 
-                        vfsEntry.Created = archiveEntry.Created;
-                        vfsEntry.Modified = archiveEntry.Modified;
-                        vfsEntry.Accessed = archiveEntry.Accessed;
-                    };
+                                vfsEntry = partitionRoot.CreateOrRetrieveFolder(virtualFolderPath);
+                            }
+                            else
+                            {
+                                var virtualFilePath = Path.Combine(partitionName, archiveEntry.Path);
+
+                                var virtualFileName = Path.GetFileName(virtualFilePath);
+                                var virtualFolderPath = Path.GetDirectoryName(virtualFilePath) ?? throw new Exception($"Could not retrieve folder for: {virtualFilePath}");
+
+                                var virtualFolder = partitionRoot.CreateOrRetrieveFolder(virtualFolderPath);
+
+                                var fileEntry = new SevenZipBackedFileEntry(archiveEntry, extractor)
+                                {
+                                    Created = archiveEntry.Created,
+                                    Accessed = archiveEntry.Accessed,
+                                    Modified = archiveEntry.Modified,
+                                    Length = archiveEntry.Size
+                                };
+
+                                vfsEntry = fileEntry;
+
+                                virtualFolder.Children.Add(vfsEntry);
+                            }
+
+                            vfsEntry.Created = archiveEntry.Created;
+                            vfsEntry.Modified = archiveEntry.Modified;
+                            vfsEntry.Accessed = archiveEntry.Accessed;
+
+                            processed++;
+
+                            if (processed % 1000 == 0)
+                            {
+                                Log.Information($"[{partitionName}] Processed {processed:N0} files");
+                            }
+                        };
+
+                        partitionCache.SetVFSFolder(partitionRoot);
+
+                        Log.Information($"[{partitionName}] Processed {processed:N0} files");
+                    }
+                    else
+                    {
+                        Log.Debug($"[{partitionName}] Loaded VFS entries from cache.");
+
+                        libCommon.Extensions.Recurse(
+                            new[] { partitionRoot },
+                            folder =>
+                                {
+                                    folder
+                                        .Children
+                                        .OfType<SevenZipBackedFileEntry>()
+                                        .ForEach(fileEntry =>
+                                        {
+                                            fileEntry.Extractor = extractor;
+                                        });
+
+                                    var subfolders = folder
+                                                        .Children
+                                                        .OfType<Folder>()
+                                                        .ToList();
+
+                                    return subfolders;
+                                })
+                                .ForEach(_ => { });
+                    }
+
+                    filesRoot.Children.AddRange(partitionRoot.Children);
                 });
+
+            //now that the file list is complete, we can add it to the root.
+            root.Children.AddRange(filesRoot.Children);
 
             Log.Information($"Mounting complete. Mounted to: {mountAsFilesOptions.MountPoint}");
             Console.WriteLine("Running. Press any key to exit.");
@@ -331,7 +456,7 @@ namespace clonezilla_util
 
                     var virtualFileName = Path.GetFileName(virtualImageFilename);
 
-                    var virtualFolder = root.CreateOrRetrieve(virtualFolderPath);
+                    var virtualFolder = root.CreateOrRetrieveFolder(virtualFolderPath);
 
                     var fileEntry = new StreamBackedFileEntry(
                         virtualFileName,

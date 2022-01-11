@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PlatformTarget>AnyCPU</PlatformTarget>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -29,9 +30,18 @@
     <None Update="ext\7-Zip\win-x64\7z.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="ext\7-Zip\linux-x64\7zz">
+    <None Update="ext\7-Zip\win-x64\7zFM.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="ext\7-Zip\linux-x64\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PInvoke.User32" Version="0.7.104" />
+    <PackageReference Include="Squid-Box.SevenZipSharp" Version="1.5.0.366" />
   </ItemGroup>
 
 </Project>

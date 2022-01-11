@@ -3,37 +3,70 @@ using libDokan;
 using libDokan.VFS;
 using libDokan.VFS.Files;
 using Serilog;
+using SevenZip;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace clonezilla_util.VFS
 {
     public class SevenZipBackedFileEntry : FileEntry
     {
-        public SevenZipBackedFileEntry(string realArchiveFilename, ArchiveEntry archiveEntry) : base(Path.GetFileName(archiveEntry.Path))
+        public SevenZipBackedFileEntry(ArchiveEntry archiveEntry, Func<ArchiveEntry, Stream> extractor) : base(Path.GetFileName(archiveEntry.Path))
         {
-            RealArchiveFilename = realArchiveFilename;
             ArchiveEntry = archiveEntry;
+            Extractor = extractor;
         }
 
-        public string RealArchiveFilename { get; }
         public ArchiveEntry ArchiveEntry { get; }
+
+        [JsonIgnore]
+        public Func<ArchiveEntry, Stream>? Extractor { get; set; }
 
         public override Stream GetStream()
         {
-            Stream stream;
-            //lock (vfs)
+            if (Extractor == null) throw new Exception($"{nameof(SevenZipBackedFileEntry)}: Extractor not initialized.");
+
+            var stream = Extractor(ArchiveEntry);
+            return stream;
+
+
+
+
+
+
+            //Uses SevenZipExtractorEx.cs, which is a wrapper for Squid-Box.SevenZipSharp.
+            //Was hoping that we could get SevenZipExtractor to load the archive (which takes time) in the constructor, so that it would be more responsive when asked to extract a file from it. But it still takes too long, causing an explorer.exe timeout.
+            /*
+            lock (Extractor)
             {
-                stream = new MemoryStream();
-                Log.Debug($"Extracting {ArchiveEntry.Path} from {RealArchiveFilename}");
-                SevenZipUtility.ExtractFileFromArchive(RealArchiveFilename, ArchiveEntry.Path, stream);
-                Log.Debug($"Finished extracting {ArchiveEntry.Path} from {RealArchiveFilename}");
+                var stream = new MemoryStream();
+                try
+                {
+                    Extractor.ExtractFile(ArchiveEntry.Path, stream);
+                    stream.Seek(0, SeekOrigin.Begin);
+                } catch (Exception ex)
+                {
+                    Log.Error($"{ex}");
+                }
+                return stream;
             }
-            stream.Seek(0, SeekOrigin.Begin);
+            */
+
+
+
+
+
+
+
+
+
+
+
 
             //Works, but not to think about how to clean up temp files reliably, particularly given that multiple instances of the program can be running
             //var tempFilename = Path.GetRandomFileName();
@@ -52,8 +85,13 @@ namespace clonezilla_util.VFS
 
             //var tempFilenameStr = extractedLookup[archiveEntry.Path];
             //var stream = File.Open(tempFilenameStr, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite);
+            //return stream;
+        }
 
-            return stream;
+        public override string ToString()
+        {
+            var result = $"{Name}";
+            return result;
         }
     }
 }

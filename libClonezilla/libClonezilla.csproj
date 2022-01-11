@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\lib7Zip\lib7Zip.csproj" />
     <ProjectReference Include="..\libCommon\libCommon.csproj" />
+    <ProjectReference Include="..\libDokan\libDokan.csproj" />
     <ProjectReference Include="..\libGZip\libGZip.csproj" />
     <ProjectReference Include="..\libPartclone\libPartclone.csproj" />
   </ItemGroup>

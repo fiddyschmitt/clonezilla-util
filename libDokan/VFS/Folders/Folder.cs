@@ -13,14 +13,18 @@ namespace libDokan.VFS.Folders
     {
         public List<FileSystemEntry> Children = new();
 
-        public Folder CreateOrRetrieve(string path)
+        public Folder CreateOrRetrieveFolder(string folderPath)
         {
-            var folderEntry = GetEntryFromPath(path, true);
+            Folder result;
 
-            if (folderEntry == null) throw new Exception($"Could not created folder: {path}");
-            if (folderEntry is not Folder folder) throw new Exception($"Retrieved entry is not a folder for path: {path}");
+            var entry = GetEntryFromPath(folderPath, true);
 
-            return folder;
+            if (entry == null) throw new Exception($"Could not create folder: {folderPath}");
+            if (entry is not Folder folder) throw new Exception($"Retrieved entry is not a folder for path: {folderPath}");
+
+            result = folder;
+
+            return result;
         }
 
         public Folder(string name) : base(name)
@@ -40,14 +44,17 @@ namespace libDokan.VFS.Folders
         {
             var pathComponents = path.Split(@"\", StringSplitOptions.RemoveEmptyEntries);
 
-            Folder? currentFolder = this;
-            FileEntry? file = null;
+            if (pathComponents.Length == 0)
+            {
+                return this;
+            }
+
+            Folder currentFolder = this;
 
             for (int i = 0; i < pathComponents.Length; i++)
             {
                 var component = pathComponents[i];
-
-                if (currentFolder == null) break;
+                var isLatestItem = i == pathComponents.Length - 1;
 
                 var subFolder = currentFolder
                                     .Children
@@ -56,14 +63,17 @@ namespace libDokan.VFS.Folders
 
                 if (subFolder == null)
                 {
-                    if (i == pathComponents.Length - 1 && !createFolderStructure)
+                    if (isLatestItem && !createFolderStructure)
                     {
                         //this is the last item. Perhaps it's a file
 
-                        file = currentFolder
+                        var file = currentFolder
                                     .Children
                                     .OfType<FileEntry>()
+                                    .Where(fileEntry => !fileEntry.Name.Equals("desktop.ini")) //a micro-optimisation to stop Windows from requesting this file and causing a lot of unecessary IO
                                     .FirstOrDefault(child => child.Name.Equals(component, StringComparison.CurrentCultureIgnoreCase));
+
+                        return file;
                     }
                     else
                     {
@@ -72,30 +82,26 @@ namespace libDokan.VFS.Folders
                         if (createFolderStructure)
                         {
                             subFolder = new Folder(component);
-                            currentFolder?.Children.Add(subFolder);
+                            currentFolder.Children.Add(subFolder);
                         }
                         else
                         {
-                            currentFolder = null;
-                            break;
+                            //folder not found
+                            return null;
                         }
                     }
+                }
+
+                if (isLatestItem)
+                {
+                    //we found the subfolder they requested
+                    return subFolder;
                 }
 
                 currentFolder = subFolder;
             }
 
-            FileSystemEntry? result;
-            if (file == null)
-            {
-                result = currentFolder;
-            }
-            else
-            {
-                result = file;
-            }
-
-            return result;
+            return null;
         }
 
         public override string ToString()

@@ -2,6 +2,8 @@
 using libClonezilla.Cache.FileSystem;
 using libClonezilla.Partitions;
 using libCommon.Streams;
+using libDokan.VFS.Files;
+using libDokan.VFS.Folders;
 using libPartclone;
 using libPartclone.Cache;
 using System;
@@ -15,5 +17,8 @@ namespace libClonezilla.Cache
         public string GetGztoolIndexFilename();
         public List<ArchiveEntry>? GetFileList();
         public void SetFileList(List<ArchiveEntry> filenames);
+
+        public Folder? GetVFSFolder();
+        public void SetVFSFolder(Folder folder);
     }
 }
