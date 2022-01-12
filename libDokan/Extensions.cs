@@ -10,7 +10,7 @@ namespace libDokan
     {
         public static IEnumerable<T> Recurse<T>(this IEnumerable<T> source, Func<T, IEnumerable<T>> childSelector, bool depthFirst = false)
         {
-            List<T> queue = new(source); ;
+            List<T> queue = new(source);
 
             while (queue.Count > 0)
             {

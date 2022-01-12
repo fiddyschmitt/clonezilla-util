@@ -17,8 +17,5 @@ namespace libClonezilla.Cache
         public string GetGztoolIndexFilename();
         public List<ArchiveEntry>? GetFileList();
         public void SetFileList(List<ArchiveEntry> filenames);
-
-        public Folder? GetVFSFolder();
-        public void SetVFSFolder(Folder folder);
     }
 }

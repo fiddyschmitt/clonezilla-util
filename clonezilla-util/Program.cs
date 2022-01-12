@@ -24,6 +24,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -41,35 +42,33 @@ namespace clonezilla_util
             GeneralException = 2,
         }
 
+
         static int Main(string[] args)
         {
-            //try
+            AppDomain.CurrentDomain.ProcessExit += (sender, args) =>
             {
-                Log.Logger = new LoggerConfiguration()
-                                //.MinimumLevel.Debug()
-                                .WriteTo.Console()
-                                .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day)
-                                .CreateLogger();
+                TempUtility.Cleanup();
+                DesktopUtility.Cleanup();
+            };
 
-                Log.Debug("Start");
-                PrintProgramVersion();
+            Log.Logger = new LoggerConfiguration()
+                            //.MinimumLevel.Debug()
+                            .WriteTo.Console()
+                            .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day)
+                            .CreateLogger();
 
-                var types = LoadVerbs();
+            Log.Debug("Start");
+            PrintProgramVersion();
 
-                Parser.Default.ParseArguments(args, types)
-                      .WithParsed(Run)
-                      .WithNotParsed(HandleErrors);
+            var types = LoadVerbs();
 
-                Log.Debug("Exit successfully");
-                return (int)ReturnCode.Success;
-            }
-            /*
-            catch (Exception ex)
-            {
-                Log.Error($"Unexpected exception: {ex}");
-                return (int)ReturnCode.GeneralException;
-            }
-            */
+            Parser.Default.ParseArguments(args, types)
+                  .WithParsed(Run)
+                  .WithNotParsed(HandleErrors);
+
+            Log.Debug("Exit successfully");
+            return (int)ReturnCode.Success;
+
         }
 
         static void PrintProgramVersion()
@@ -168,8 +167,6 @@ namespace clonezilla_util
             Task.Factory.StartNew(() => vfs.Mount(mountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger()));
             WaitForMountPointToBeAvailable(mountPoint);
 
-            Log.Information($"Retrieving a list of files.");
-
             //use 7z to get a list of files
             var imageFiles = Directory.GetFiles(mountPoint, "*", SearchOption.AllDirectories).ToList();
 
@@ -177,6 +174,8 @@ namespace clonezilla_util
                 .ForEach(realImageFile =>
                 {
                     var partitionName = Path.GetFileNameWithoutExtension(realImageFile);
+                    Log.Information($"[{partitionName}] Retrieving a list of files.");
+
                     var partitionCache = clonezillaCacheManager.GetPartitionCache(partitionName);
 
                     var filesInArchive = GetFilesInPartition(realImageFile, partitionCache);
@@ -246,10 +245,11 @@ namespace clonezilla_util
             imagesRoot.Hidden = true;
 
             var vfs = new DokanVFS(PROGRAM_NAME, root);
-            Task.Factory.StartNew(() => vfs.Mount(mountAsFilesOptions.MountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger()));
+            Task.Factory.StartNew(() =>
+            {
+                vfs.Mount(mountAsFilesOptions.MountPoint, DokanOptions.WriteProtection, 64, new DokanNet.Logging.NullLogger());
+            });
             WaitForMountPointToBeAvailable(mountAsFilesOptions.MountPoint);
-
-            Log.Information($"Retrieving a list of files.");
 
             //use 7z to get a list of files (or load them from cache)
             var realImagesFolder = Path.Combine(mountAsFilesOptions.MountPoint, imagesRootFolder);
@@ -262,11 +262,12 @@ namespace clonezilla_util
                 .ForEach(realImageFile =>
                 {
                     var partitionName = Path.GetFileNameWithoutExtension(realImageFile);
+                    Log.Information($"[{partitionName}] Retrieving a list of files.");
+
                     var partitionCache = clonezillaCacheManager.GetPartitionCache(partitionName);
 
-                    var filesInArchive = GetFilesInPartition(realImageFile, partitionCache);
+                    var filesInArchive = GetFilesInPartition(realImageFile, partitionCache).ToList();
 
-                    var partitionRoot = partitionCache.GetVFSFolder();
 
 
                     //Extractor which uses 7z.exe
@@ -274,10 +275,9 @@ namespace clonezilla_util
                     /*
                     var extractor = new Func<ArchiveEntry, Stream>(archiveEntry =>
                     {
-                        Stream stream;
-                        //lock (vfs)
+                        var stream = new MemoryStream();
+                        lock (realImageFile)    //By serializing access, it stops a number of non-deterministic errors when multiple threads access this. eg. When searching with FLP. Todo: address each crash.
                         {
-                            stream = new MemoryStream();
                             Log.Debug($"Extracting {archiveEntry.Path} from {realImageFile}");
                             SevenZipUtility.ExtractFileFromArchive(realImageFile, archiveEntry.Path, stream);
                             Log.Debug($"Finished extracting {archiveEntry.Path} from {realImageFile}");
@@ -287,26 +287,34 @@ namespace clonezilla_util
                     });
                     */
 
+
                     //Extractor which uses the 7-Zip File Manager
                     //Opening the archive is slow, and is done here upfront. Subsequent extracts are quick
                     var fileManagerExtractor = new SevenZipExtractorUsing7zFM(realImageFile);
+                    var alreadyExtracted = new Dictionary<string, string>();
 
-                    var extractor = new Func<ArchiveEntry, Stream>(archiveEntry =>
+                    var extractor = new Func<string, Stream>(pathInArchive =>
                     {
-                        var tempFolder = Utility.GetTemporaryDirectory();
-
-                        Stream stream;
-                        lock (fileManagerExtractor)
+                        if (!alreadyExtracted.ContainsKey(pathInArchive))
                         {
-                            fileManagerExtractor.ExtractFile(archiveEntry.Path, tempFolder);
+                            var tempFolder = TempUtility.GetTemporaryDirectory();
 
-                            var extractedFile = Directory.GetFiles(tempFolder).First();
+                            lock (fileManagerExtractor)
+                            {
+                                fileManagerExtractor.ExtractFile(pathInArchive, tempFolder);
+                            }
 
-                            stream = File.OpenRead(extractedFile);
+                            var tempFilename = Directory.GetFiles(tempFolder).First();
+                            alreadyExtracted.TryAdd(pathInArchive, tempFilename); //todo: work out why Reload.xml in sda1 gets listed twice
                         }
 
+                        var extractedFilename = alreadyExtracted[pathInArchive];
+
+                        var stream = File.OpenRead(extractedFilename);
                         return stream;
+
                     });
+
 
 
 
@@ -330,107 +338,83 @@ namespace clonezilla_util
                     });
                     */
 
+                    var partitionRoot = new Folder(partitionName);
 
+                    CreateTree(partitionName, partitionRoot, filesInArchive, extractor);
 
-
-
-
-
-
-                    if (partitionRoot == null)
-                    {
-                        var processed = 0;
-                        partitionRoot = new Folder("");
-
-                        foreach (var archiveEntry in filesInArchive)
-                        {
-                            FileSystemEntry vfsEntry;
-                            if (archiveEntry.IsFolder)
-                            {
-                                var virtualFolderPath = archiveEntry.Path;
-
-                                if (virtualFolderPath.EndsWith(@"\."))
-                                {
-                                    virtualFolderPath = virtualFolderPath.Replace(@"\.", "");
-                                }
-
-                                virtualFolderPath = Path.Combine(partitionName, virtualFolderPath);
-
-                                vfsEntry = partitionRoot.CreateOrRetrieveFolder(virtualFolderPath);
-                            }
-                            else
-                            {
-                                var virtualFilePath = Path.Combine(partitionName, archiveEntry.Path);
-
-                                var virtualFileName = Path.GetFileName(virtualFilePath);
-                                var virtualFolderPath = Path.GetDirectoryName(virtualFilePath) ?? throw new Exception($"Could not retrieve folder for: {virtualFilePath}");
-
-                                var virtualFolder = partitionRoot.CreateOrRetrieveFolder(virtualFolderPath);
-
-                                var fileEntry = new SevenZipBackedFileEntry(archiveEntry, extractor)
-                                {
-                                    Created = archiveEntry.Created,
-                                    Accessed = archiveEntry.Accessed,
-                                    Modified = archiveEntry.Modified,
-                                    Length = archiveEntry.Size
-                                };
-
-                                vfsEntry = fileEntry;
-
-                                virtualFolder.Children.Add(vfsEntry);
-                            }
-
-                            vfsEntry.Created = archiveEntry.Created;
-                            vfsEntry.Modified = archiveEntry.Modified;
-                            vfsEntry.Accessed = archiveEntry.Accessed;
-
-                            processed++;
-
-                            if (processed % 1000 == 0)
-                            {
-                                Log.Information($"[{partitionName}] Processed {processed:N0} files");
-                            }
-                        };
-
-                        partitionCache.SetVFSFolder(partitionRoot);
-
-                        Log.Information($"[{partitionName}] Processed {processed:N0} files");
-                    }
-                    else
-                    {
-                        Log.Debug($"[{partitionName}] Loaded VFS entries from cache.");
-
-                        libCommon.Extensions.Recurse(
-                            new[] { partitionRoot },
-                            folder =>
-                                {
-                                    folder
-                                        .Children
-                                        .OfType<SevenZipBackedFileEntry>()
-                                        .ForEach(fileEntry =>
-                                        {
-                                            fileEntry.Extractor = extractor;
-                                        });
-
-                                    var subfolders = folder
-                                                        .Children
-                                                        .OfType<Folder>()
-                                                        .ToList();
-
-                                    return subfolders;
-                                })
-                                .ForEach(_ => { });
-                    }
-
-                    filesRoot.Children.AddRange(partitionRoot.Children);
+                    filesRoot.Children.Add(partitionRoot);
                 });
 
             //now that the file list is complete, we can add it to the root.
             root.Children.AddRange(filesRoot.Children);
 
             Log.Information($"Mounting complete. Mounted to: {mountAsFilesOptions.MountPoint}");
-            Console.WriteLine("Running. Press any key to exit.");
-            Console.ReadKey();
+            Console.WriteLine("Running. Press Enter to exit.");
+            Console.ReadLine();
+        }
+
+        protected static void CreateTree(string partitionName, Folder root, List<ArchiveEntry> allEntries, Func<string, Stream> extractor)
+        {
+            Log.Debug($"[{partitionName}] Building folder dictionary.");
+            var folders = allEntries
+                                .Where(archiveEntry => archiveEntry.IsFolder)
+                                .OrderBy(archiveEntry => archiveEntry.Path)
+                                .Select(archiveEntry =>
+                                {
+                                    var virtualFolderPath = archiveEntry.Path;
+                                    if (virtualFolderPath.EndsWith(@"\."))
+                                    {
+                                        virtualFolderPath = virtualFolderPath.Replace(@"\.", "");
+                                    }
+                                    virtualFolderPath = Path.Combine(partitionName, virtualFolderPath);
+
+                                    var name = Path.GetFileName(archiveEntry.Path);
+                                    var newFolder = new Folder(name)
+                                    {
+                                        Created = archiveEntry.Created,
+                                        Modified = archiveEntry.Modified,
+                                        Accessed = archiveEntry.Accessed,
+                                        FullPath = virtualFolderPath,
+                                    };
+
+                                    return newFolder;
+                                })
+                                .ToList();
+
+            Log.Debug($"[{partitionName}] Building file list.");
+            var files = allEntries
+                            .Where(archiveEntry => !archiveEntry.IsFolder)
+                            .Select(archiveEntry =>
+                            {
+                                var virtualFilePath = Path.Combine(partitionName, archiveEntry.Path);
+
+                                var name = Path.GetFileName(archiveEntry.Path);
+                                var newFile = new SevenZipBackedFileEntry(archiveEntry, extractor)
+                                {
+                                    FullPath = virtualFilePath
+                                };
+                                return newFile;
+                            })
+                            .ToList();
+
+            var folderLookup = folders
+                                .ToDictionary(vfsEntry => vfsEntry.FullPath!);
+
+            folderLookup[root.Name] = root;
+
+            Log.Debug($"[{partitionName}] Establishing parent/child relationships.");
+            folders
+                .Cast<FileSystemEntry>()
+                .Union(files)
+                .ForEach(fileSystemEntry =>
+                {
+                    var parentFolder = Path.GetDirectoryName(fileSystemEntry.FullPath);
+                    if (parentFolder == null) throw new Exception($"Could not derive parent for {fileSystemEntry.FullPath}");
+
+                    var parent = folderLookup[parentFolder];
+
+                    parent.Children.Add(fileSystemEntry);
+                });
         }
 
         private static void WaitForMountPointToBeAvailable(string mountPoint)

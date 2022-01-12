@@ -26,6 +26,7 @@
     <ProjectReference Include="..\libCommon\libCommon.csproj" />
     <ProjectReference Include="..\libDokan\libDokan.csproj" />
     <ProjectReference Include="..\libGZip\libGZip.csproj" />
+    <ProjectReference Include="..\libPartclone\libPartclone.csproj" />
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">

@@ -24,7 +24,7 @@ namespace libCommon
 
         public static IEnumerable<T> Recurse<T>(this IEnumerable<T> source, Func<T, IEnumerable<T>> childSelector, bool depthFirst = false)
         {
-            List<T> queue = new(source); ;
+            List<T> queue = new(source);
 
             while (queue.Count > 0)
             {
@@ -68,8 +68,12 @@ namespace libCommon
             }
         }
 
-        public static IEnumerable<T> Buffer<T>(this IEnumerable<T> input)
+        public static IEnumerable<T> Buffer<T>(this IEnumerable<T> input, Action<(int InputDiscovered, bool InputFinished, int OutputProcessed)>? progressCallback = null)
         {
+            int totalInputDiscovered = 0;
+            int totalOutputProcessed = 0;
+            bool inputFinished = false;
+
             var blockingCollection = new BlockingCollection<T>();
 
             //read from the input
@@ -78,14 +82,21 @@ namespace libCommon
                 foreach (var item in input)
                 {
                     blockingCollection.Add(item);
+                    totalInputDiscovered++;
                 }
 
+                progressCallback?.Invoke((totalInputDiscovered, inputFinished, totalOutputProcessed));
+
                 blockingCollection.CompleteAdding();
+                inputFinished = true;
             });
 
             foreach (var item in blockingCollection.GetConsumingEnumerable())
             {
                 yield return item;
+
+                totalOutputProcessed++;
+                progressCallback?.Invoke((totalInputDiscovered, inputFinished, totalOutputProcessed));
             }
         }
 

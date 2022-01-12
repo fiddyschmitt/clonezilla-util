@@ -223,6 +223,7 @@ namespace libDokan
                     return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
                         DokanResult.PathNotFound);
                 }
+                /*
                 catch (Exception ex)
                 {
                     var hr = (uint)Marshal.GetHRForException(ex);
@@ -235,6 +236,7 @@ namespace libDokan
                             throw;
                     }
                 }
+                */
             }
             return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
                 result);

@@ -25,7 +25,7 @@ namespace libClonezilla.Partitions
 
         public Partition(Stream compressedPartcloneStream, Compression compressionInUse, string partitionName, IPartitionCache? partitionCache, IPartcloneCache? partcloneCache, bool willPerformRandomSeeking)
         {
-            Log.Information($"Loading partition information for {partitionName}");
+            Log.Information($"[{partitionName}] Loading partition information");
 
             (Stream Stream, bool UseCacheLayer)? uncompressedPartcloneStream = null;
 
@@ -40,7 +40,7 @@ namespace libClonezilla.Partitions
                     //do a speed test. If the entire file can be read quickly then let's not bother using any indexing
 
                     var testDurationSeconds = 10;
-                    Log.Debug($"Running a {testDurationSeconds:N0} second speed test on {partitionName}, to determine the optimal way to serve it.");
+                    Log.Debug($"[{partitionName}] Running a {testDurationSeconds:N0} second speed test to determine the optimal way to serve it.");
 
                     Stream speedTestStream = compressionInUse switch
                     {
@@ -66,6 +66,8 @@ namespace libClonezilla.Partitions
                     Log.Debug($"At that rate, it would take {predictedSecondsToReadEntireFile:N1} seconds to read the entire file.");
 
                     compressedPartcloneStream.Seek(0, SeekOrigin.Begin);
+
+                    predictedSecondsToReadEntireFile = 60;
 
                     if (predictedSecondsToReadEntireFile < 20)
                     {
@@ -119,9 +121,8 @@ namespace libClonezilla.Partitions
 
                     var decompressor = new DecompressionStream(compressedPartcloneStream);
 
-                    var tempFilename = Path.GetTempFileName();
-                    File.Create(tempFilename).Close();
-                    File.SetAttributes(tempFilename, FileAttributes.Temporary); //not sure if this is needed, given that we use DeleteOnClose in the next call. But according to its doco, it gives a hint to the OS to mainly keep it in memory.
+                    var tempFilename = TempUtility.GetTempFilename(true);
+                    
                     var tempFileStream = new FileStream(tempFilename, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
 
                     decompressor.CopyTo(tempFileStream, Buffers.ARBITARY_HUGE_SIZE_BUFFER,
@@ -205,7 +206,7 @@ namespace libClonezilla.Partitions
 
         public static void ExtractToFile(string partitionName, ISparseAwareReader sparseAwareInput, string outputFilename, bool makeSparse)
         {
-            Log.Information($"Extracting partition {partitionName} to: {outputFilename}");
+            Log.Information($"[{partitionName}] Extracting partition to: {outputFilename}");
 
             var fileStream = File.Create(outputFilename);
             ExtractToFile(sparseAwareInput, fileStream, makeSparse);

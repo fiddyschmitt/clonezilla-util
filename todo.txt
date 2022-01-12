@@ -1,0 +1,19 @@
+- Ask Igor for 7z.exe update to load an archive, then read the command line for files to extract and send them to stdio
+
+- extract file(s)
+
+- do a speed test to see if we should use 7z.exe to extract the images, of the 7z FM. 
+	
+- Compare DokanVFS to this one, and see if it runs better:
+	C:\Users\fiddy\Desktop\dev\cs\Shaman.Dokan.Base-master\Shaman.Dokan.Base\FileSystemBase.cs
+	C:\Users\fiddy\Desktop\dev\cs\Shaman.Dokan.Archive-master\Shaman.Dokan.Archive\SevenZipFs.cs
+
+
+extract-to-sparse (*.img.gz, *.img.zst)
+
+mount-img
+	- img, img.gz, img.zst
+	- program based
+		- must provide full length
+		- program can be given Position, count in stdin, and must supply stdout
+	

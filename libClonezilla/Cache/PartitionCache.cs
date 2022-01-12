@@ -25,8 +25,6 @@ namespace libClonezilla.Cache
         private readonly string PartcloneContentMappingFilename;
         private readonly string FileListFilename;
 
-        public string VFSEntriesFilename { get; }
-
         public PartitionCache(string clonezillaCacheFolder, string partitionName)
         {
             ClonezillaCacheFolder = clonezillaCacheFolder;
@@ -34,7 +32,6 @@ namespace libClonezilla.Cache
 
             PartcloneContentMappingFilename = Path.Combine(ClonezillaCacheFolder, $"{partitionName}.PartcloneContentMapping.json");
             FileListFilename = Path.Combine(ClonezillaCacheFolder, $"{partitionName}.Files.json");
-            VFSEntriesFilename = Path.Combine(ClonezillaCacheFolder, $"{partitionName}.VFS.Files.json");
         }
 
         public string GetGztoolIndexFilename()
@@ -79,31 +76,6 @@ namespace libClonezilla.Cache
         {
             var json = JsonConvert.SerializeObject(filenames, Formatting.Indented);
             File.WriteAllText(FileListFilename, json);
-        }
-
-        public Folder? GetVFSFolder()
-        {
-            Folder? result = null;
-
-            if (File.Exists(VFSEntriesFilename))
-            {
-                string json = File.ReadAllText(VFSEntriesFilename);
-
-                var settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, Formatting = Formatting.Indented };
-
-                result = JsonConvert.DeserializeObject<Folder>(json, settings);
-            }
-
-            return result;
-        }
-
-        public void SetVFSFolder(Folder entries)
-        {
-            var settings = new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.Auto, Formatting = Formatting.Indented };
-
-            var json = JsonConvert.SerializeObject(entries, typeof(Folder), settings);
-
-            File.WriteAllText(VFSEntriesFilename, json);
         }
     }
 }

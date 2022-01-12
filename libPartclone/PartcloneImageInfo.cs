@@ -95,13 +95,13 @@ namespace libPartclone
 
             if (mappingFromCache == null)
             {
-                Log.Information($"Reading partclone content map for {partitionName}");
+                Log.Information($"[{partitionName}] Reading partclone content map");
                 DeduceContiguousRanges();
                 cache?.SetPartcloneContentMapping(PartcloneContentMapping);
             }
             else
             {
-                Log.Debug($"Loading partclone content map from cache for {partitionName}");
+                Log.Debug($"[{partitionName}] Loading partclone content map from cache");
                 PartcloneContentMapping = mappingFromCache;
             }
         }

@@ -1,10 +1,12 @@
-﻿using Serilog;
+﻿using libUIHelpers;
+using Serilog;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -184,6 +186,18 @@ namespace libCommon
 
                 return result;
             }
+        }
+
+        public static IntPtr GetMainWindowHandle(int processId)
+        {
+            var finder = new MainWindowFinder();
+            return finder.FindMainWindow(processId);
+        }
+
+        public static IntPtr GetMainWindowHandle(int processId, IntPtr desktopHandle)
+        {
+            var finder = new MainWindowFinder();
+            return finder.FindMainWindow(processId, desktopHandle);
         }
     }
 }
