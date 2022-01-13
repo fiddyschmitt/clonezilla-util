@@ -172,7 +172,7 @@ namespace libDokan
                                         attributes, DokanResult.AccessDenied);
 
                                 info.IsDirectory = pathIsDirectory;
-                                info.Context = new object();
+                                //info.Context = new object();
                                 // must set it to something if you return DokanError.Success
 
                                 return Trace(nameof(CreateFile), fileName, info, access, share, mode, options,
@@ -213,7 +213,8 @@ namespace libDokan
                         // returning AccessDenied cleanup and close won't be called,
                         // so we have to take care of the stream now
                         stream.Dispose();
-                        info.Context = null;
+
+                        //info.Context = null;
                     }
                     return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
                         DokanResult.AccessDenied);
@@ -249,8 +250,8 @@ namespace libDokan
                 Log.Debug(DokanFormat($"{nameof(Cleanup)}('{fileName}', {info} - entering"));
 #endif
 
-            (info.Context as Stream)?.Dispose();
-            info.Context = null;
+            //(info.Context as Stream)?.Dispose();
+            //info.Context = null;
 
             Trace(nameof(Cleanup), fileName, info, DokanResult.Success);
         }
@@ -262,8 +263,9 @@ namespace libDokan
                 Log.Debug(DokanFormat($"{nameof(CloseFile)}('{fileName}', {info} - entering"));
 #endif
 
-            (info.Context as Stream)?.Dispose();
-            info.Context = null;
+            //(info.Context as Stream)?.Dispose();
+            //info.Context = null;
+
             Trace(nameof(CloseFile), fileName, info, DokanResult.Success);
             // could recreate cleanup code here but this is not called sometimes
         }

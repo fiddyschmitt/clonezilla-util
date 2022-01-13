@@ -195,7 +195,10 @@ namespace libClonezilla.Partitions
                 throw new Exception($"Did not initialize a stream for partition {partitionName}");
             }
 
-            FullPartitionImage = new PartcloneStream(partitionName, uncompressedPartcloneStream.Value.Stream, partcloneCache);
+            var partcloneStream = new PartcloneStream(partitionName, uncompressedPartcloneStream.Value.Stream, partcloneCache);
+            //var syncrhonisedStream = Stream.Synchronized(partcloneStream); //protect the partcloneStream from concurrent access. Unfortunately FullPartitionImage is used for sparse-aware reading in ExtractToFile()
+
+            FullPartitionImage = partcloneStream;
             Name = partitionName;
         }
 

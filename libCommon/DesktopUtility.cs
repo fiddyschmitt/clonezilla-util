@@ -31,7 +31,7 @@ namespace libCommon
             }
         }
 
-        public static (int pid, IntPtr DesktopHandle, IntPtr MainWindowHandle) RunProcessOnAnotherDesktop(ProcessStartInfo psi, string desktopName)
+        public static (int pid, IntPtr DesktopHandle, IntPtr? WindowHandle) RunProcessOnAnotherDesktop(ProcessStartInfo psi, string desktopName, Func<(int pid, IntPtr DesktopHandle), IntPtr>? waitForWindow)
         {
             var newDesktopName = Guid.NewGuid().ToString();
             //newDesktopName = "Sysinternals Desktop 3";    //Alt + 4
@@ -55,38 +55,9 @@ namespace libCommon
             // start the process.
             CreateProcess(null, command, IntPtr.Zero, IntPtr.Zero, true, NormalPriorityClass, IntPtr.Zero, null, ref si, ref pi);
 
-            //This works for searching for windows in other desktops
-            /*
-            while (true)
-            {
-                EnumDesktopWindows(hNewDesktop, (hWnd, lParam) =>
-                {
-                    var windowText = WindowHandleHelper.GetWindowText(hWnd);
-
-                    Console.WriteLine($"Found Window: {hWnd} with title \"{windowText}\"");
-
-                    return true;
-                }, IntPtr.Zero);
-
-                Thread.Sleep(100);
-            }
-            */
-
-            //This is better because it's how Process.MainWindowHandle is retrieved (though had to add a new method which considers desktop)
-            IntPtr mainWindowHandle;
-            while (true)
-            {
-                mainWindowHandle = ProcessUtility.GetMainWindowHandle(pi.dwProcessId, hNewDesktop);
-
-                if (mainWindowHandle != IntPtr.Zero)
-                {
-                    break;
-                }
-
-                Thread.Sleep(100);
-            }
-
-            return (pi.dwProcessId, hNewDesktop, mainWindowHandle);
+            IntPtr? windowToReturn = waitForWindow?.Invoke((pi.dwProcessId, hNewDesktop));
+            
+            return (pi.dwProcessId, hNewDesktop, windowToReturn);
         }
 
         [DllImport("user32.dll", SetLastError = true)]

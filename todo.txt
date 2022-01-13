@@ -1,6 +1,11 @@
-- Ask Igor for 7z.exe update to load an archive, then read the command line for files to extract and send them to stdio
-
+- Explorer timeout when extraction takes too long. Aka: Insufficient system resources exist to complete the requested service
+	- Ask Igor for 7z.exe update to "load and wait" archive, then read the command line for files to extract and send them to stdio
+	- Consider caching the first 1KB of every file. Trickle that back in DokanVFS.ReadFile() until the full file is available
+	
 - extract file(s)
+
+- Work out why there's a duplicate of:
+	L:\sda1\Recovery\Logs\Reload.xml
 
 - do a speed test to see if we should use 7z.exe to extract the images, of the 7z FM. 
 	
@@ -9,11 +14,12 @@
 	C:\Users\fiddy\Desktop\dev\cs\Shaman.Dokan.Archive-master\Shaman.Dokan.Archive\SevenZipFs.cs
 
 
-extract-to-sparse (*.img.gz, *.img.zst)
+- Another app, using techniques from clonezilla-util
+	extract-to-sparse (*.img.gz, *.img.zst)
 
-mount-img
-	- img, img.gz, img.zst
-	- program based
-		- must provide full length
-		- program can be given Position, count in stdin, and must supply stdout
-	
+	mount-img
+		- img, img.gz, img.zst
+		- program based
+			- must provide full length
+			- program can be given Position, count in stdin, and must supply stdout
+		

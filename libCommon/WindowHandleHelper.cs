@@ -68,7 +68,23 @@ namespace libUIHelpers
 
         public static List<IntPtr> GetRootWindowsOfProcess(int pid, IntPtr? desktopHandle)
         {
-            List<IntPtr> rootWindows = GetChildWindows(IntPtr.Zero); //todo: Couldn't we just give the pid to this call, to save us iterating over all windows?
+            List<IntPtr> rootWindows;
+            if (desktopHandle == null)
+            {
+                rootWindows = GetChildWindows(IntPtr.Zero); //todo: Couldn't we just give the pid to this call, to save us iterating over all windows?
+            }
+            else
+            {
+                rootWindows = new();
+
+                EnumDesktopWindows(desktopHandle.Value, (handle, lParam) =>
+                {
+                    rootWindows.Add(handle);
+                    return true;
+                },
+                IntPtr.Zero);
+            }
+
             List<IntPtr> dsProcRootWindows = new();
             foreach (IntPtr hWnd in rootWindows)
             {
@@ -81,13 +97,21 @@ namespace libUIHelpers
             return dsProcRootWindows;
         }
 
-        public static List<(IntPtr Handle, string ControlClass, string Text, string ClassNN)> GetChildWindowsDetailsRecursively(IntPtr hWnd, IntPtr? desktopHandle)
+        public static List<(IntPtr Handle, string ControlClass, string Text, string ClassNN)> GetChildWindowsDetailsRecursively(IntPtr handle)
         {
-            var handles = GetChildWindowsRecursively(hWnd, desktopHandle);
+            var result = GetChildWindowsDetailsRecursively(new List<IntPtr>() { handle });
+            return result;
+        }
+
+        public static List<(IntPtr Handle, string ControlClass, string Text, string ClassNN)> GetChildWindowsDetailsRecursively(List<IntPtr> handles)
+        {
+            var allHandles = handles
+                                .SelectMany(h => GetChildWindowsRecursively(h))
+                                .ToList();
 
             var classCounts = new Dictionary<string, int>();
 
-            var result = handles
+            var result = allHandles
                             .Select(h =>
                             {
                                 var text = GetWindowText(h);
@@ -135,19 +159,11 @@ namespace libUIHelpers
             return result;
         }
 
-        public static List<IntPtr> GetChildWindowsRecursively(IntPtr hWnd, IntPtr? desktopHandle)
+        public static List<IntPtr> GetChildWindowsRecursively(IntPtr hWnd)
         {
-            var result = new List<IntPtr>();
-
-            Extensions.Recurse(new[] { hWnd }, hParent =>
+            var result = Extensions.Recurse(new[] { hWnd }, hParent =>
             {
                 var childWindows = GetChildWindows(hParent);
-
-                childWindows = childWindows
-                                .Where(childWindow => !result.Contains(childWindow))
-                                .ToList();
-
-                result.AddRange(childWindows);
 
                 return childWindows;
             }).ToList();
@@ -161,28 +177,8 @@ namespace libUIHelpers
             GCHandle listHandle = GCHandle.Alloc(result);
             try
             {
-                //if (desktopHandle == null)
-                {
-                    var childProc = new Win32Callback(EnumWindow);
-                    EnumChildWindows(parentHandle, childProc, GCHandle.ToIntPtr(listHandle));
-                }
-                /*
-                else
-                {
-                    GetWindowThreadProcessId(parentHandle, out var parentPid);
-
-                    EnumDesktopWindows(desktopHandle.Value, (handle, lParam) =>
-                    {
-                        GetWindowThreadProcessId(handle, out var processId);
-                        if (processId == parentPid && handle != parentHandle)
-                        {
-                            result.Add(handle);
-                        }
-                        return true;
-                    }
-                    , GCHandle.ToIntPtr(listHandle));
-                }
-                */
+                var childProc = new Win32Callback(EnumWindow);
+                EnumChildWindows(parentHandle, childProc, GCHandle.ToIntPtr(listHandle));
             }
             finally
             {

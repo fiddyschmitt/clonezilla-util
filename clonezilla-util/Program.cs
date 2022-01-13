@@ -20,6 +20,7 @@ using Serilog;
 using Serilog.Core;
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -269,51 +270,63 @@ namespace clonezilla_util
                     var filesInArchive = GetFilesInPartition(realImageFile, partitionCache).ToList();
 
 
+                    var extractors = new BlockingCollection<Func<string, Stream>>();
 
                     //Extractor which uses 7z.exe
                     //Works fine, except it's too slow when extracting from a large archive, causing explorer.exe to assume the file isn't available.
                     /*
-                    var extractor = new Func<ArchiveEntry, Stream>(archiveEntry =>
+                    for (int i = 0; i < 4; i++)
                     {
-                        var stream = new MemoryStream();
-                        lock (realImageFile)    //By serializing access, it stops a number of non-deterministic errors when multiple threads access this. eg. When searching with FLP. Todo: address each crash.
+                        var newExtractor = new Func<string, Stream>(archiveEntryPath =>
                         {
-                            Log.Debug($"Extracting {archiveEntry.Path} from {realImageFile}");
-                            SevenZipUtility.ExtractFileFromArchive(realImageFile, archiveEntry.Path, stream);
-                            Log.Debug($"Finished extracting {archiveEntry.Path} from {realImageFile}");
-                        }
-                        stream.Seek(0, SeekOrigin.Begin);
-                        return stream;
-                    });
+                            var stream = new MemoryStream();
+                            //lock (realImageFile)    //No need to synchronise here, as the PartcloneStream already protects itself from concurrent access
+                            {
+                                Log.Debug($"Extracting {archiveEntryPath} from {realImageFile}");
+                                SevenZipUtility.ExtractFileFromArchive(realImageFile, archiveEntryPath, stream);
+                                Log.Debug($"Finished extracting {archiveEntryPath} from {realImageFile}");
+                            }
+                            stream.Seek(0, SeekOrigin.Begin);
+                            return stream;
+                        });
+
+                        extractors.Add(newExtractor);
+                    }
                     */
 
 
                     //Extractor which uses the 7-Zip File Manager
                     //Opening the archive is slow, and is done here upfront. Subsequent extracts are quick
-                    var fileManagerExtractor = new SevenZipExtractorUsing7zFM(realImageFile);
                     var alreadyExtracted = new Dictionary<string, string>();
-
-                    var extractor = new Func<string, Stream>(pathInArchive =>
+                    for (int i = 0; i < 4; i++)
                     {
-                        if (!alreadyExtracted.ContainsKey(pathInArchive))
-                        {
-                            var tempFolder = TempUtility.GetTemporaryDirectory();
+                        var fileManagerExtractor = new SevenZipExtractorUsing7zFM(realImageFile);
 
-                            lock (fileManagerExtractor)
+                        //todo: Have a pool of 7zFM workers. Actually, might be problematic so current access caused issues with the SevenZipUtility-based extractor above
+                        var newExtractor = new Func<string, Stream>(pathInArchive =>
+                        {
+                            if (!alreadyExtracted.ContainsKey(pathInArchive))
                             {
-                                fileManagerExtractor.ExtractFile(pathInArchive, tempFolder);
+                                var tempFolder = TempUtility.GetTemporaryDirectory();
+
+                                //lock (fileManagerExtractor)   //No need to synchronise here, as the PartcloneStream and SevenZipExtractorUsing7zFM  already protect themselves from concurrent access
+                                {
+                                    fileManagerExtractor.ExtractFile(pathInArchive, tempFolder);
+                                }
+
+                                var tempFilename = Directory.GetFiles(tempFolder).First();
+                                alreadyExtracted.TryAdd(pathInArchive, tempFilename); //todo: work out why L:\sda1\Recovery\Logs\Reload.xml gets listed twice
                             }
 
-                            var tempFilename = Directory.GetFiles(tempFolder).First();
-                            alreadyExtracted.TryAdd(pathInArchive, tempFilename); //todo: work out why Reload.xml in sda1 gets listed twice
-                        }
+                            var extractedFilename = alreadyExtracted[pathInArchive];
 
-                        var extractedFilename = alreadyExtracted[pathInArchive];
+                            var stream = File.OpenRead(extractedFilename);
+                            return stream;
+                        });
 
-                        var stream = File.OpenRead(extractedFilename);
-                        return stream;
+                        extractors.Add(newExtractor);
+                    }
 
-                    });
 
 
 
@@ -337,6 +350,22 @@ namespace clonezilla_util
                         return stream;
                     });
                     */
+
+
+
+                    var extractor = new Func<string, Stream>(archiveEntryPath =>
+                    {
+                        //find an idle worker
+                        var worker = extractors.GetConsumingEnumerable().First();
+
+                        //do the work
+                        var result = worker(archiveEntryPath);
+
+                        //go to the back of the line
+                        extractors.Add(worker);
+
+                        return result;
+                    });
 
                     var partitionRoot = new Folder(partitionName);
 
