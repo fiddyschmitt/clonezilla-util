@@ -1,4 +1,5 @@
-﻿using lib7Zip;
+﻿using clonezilla_util.Extractors;
+using lib7Zip;
 using libDokan;
 using libDokan.VFS;
 using libDokan.VFS.Files;
@@ -23,7 +24,7 @@ namespace clonezilla_util.VFS
             PathInArchive = "";
         }
 
-        public SevenZipBackedFileEntry(ArchiveEntry archiveEntry, Func<string, Stream> extractor) : base(Path.GetFileName(archiveEntry.Path))
+        public SevenZipBackedFileEntry(ArchiveEntry archiveEntry, IExtractor extractor) : base(Path.GetFileName(archiveEntry.Path))
         {
             Extractor = extractor;
 
@@ -37,14 +38,14 @@ namespace clonezilla_util.VFS
 
 
         [IgnoreDataMember]
-        public Func<string, Stream>? Extractor { get; set; }
+        public IExtractor? Extractor { get; set; }
         public string PathInArchive { get; set; }
 
         public override Stream GetStream()
         {
             if (Extractor == null) throw new Exception($"{nameof(SevenZipBackedFileEntry)}: Extractor not initialized.");
 
-            var stream = Extractor(PathInArchive);
+            var stream = Extractor.Extract(PathInArchive);
             return stream;
         }
 

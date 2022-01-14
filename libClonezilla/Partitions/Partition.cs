@@ -37,12 +37,12 @@ namespace libClonezilla.Partitions
                 }
                 else
                 {
-                    //do a speed test. If the entire file can be read quickly then let's not bother using any indexing
+                    //Do a performance test. If the entire file can be read quickly then let's not bother using any indexing
 
                     var testDurationSeconds = 10;
-                    Log.Debug($"[{partitionName}] Running a {testDurationSeconds:N0} second speed test to determine the optimal way to serve it.");
+                    Log.Debug($"[{partitionName}] Running a {testDurationSeconds:N0} second performance test to determine the optimal way to serve it.");
 
-                    Stream speedTestStream = compressionInUse switch
+                    Stream testStream = compressionInUse switch
                     {
                         Compression.Gzip => new GZipStream(compressedPartcloneStream, CompressionMode.Decompress),
                         Compression.Zstandard => new DecompressionStream(compressedPartcloneStream),
@@ -52,7 +52,7 @@ namespace libClonezilla.Partitions
                     var startTime = DateTime.Now;
                     while (true)
                     {
-                        var bytesRead = speedTestStream.CopyTo(Stream.Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+                        var bytesRead = testStream.CopyTo(Stream.Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
                         if (bytesRead == 0) break;
                         var duration = DateTime.Now - startTime;
                         if (duration.TotalSeconds > testDurationSeconds) break;
@@ -67,11 +67,11 @@ namespace libClonezilla.Partitions
 
                     compressedPartcloneStream.Seek(0, SeekOrigin.Begin);
 
-                    predictedSecondsToReadEntireFile = 60;
+                    //predictedSecondsToReadEntireFile = int.MaxValue;
 
-                    if (predictedSecondsToReadEntireFile < 20)
+                    if (predictedSecondsToReadEntireFile < 10)
                     {
-                        Log.Debug($"Using a standard decompressor ({speedTestStream}) for this data.");
+                        Log.Debug($"Using a standard decompressor ({testStream}) for this data.");
 
                         var seekableStreamUsingRestarts = new SeekableStreamUsingRestarts(() =>
                         {
@@ -154,6 +154,8 @@ namespace libClonezilla.Partitions
             }
             else
             {
+                //Doing sequential reads (not seeking)
+
                 if (compressionInUse == Compression.None)
                 {
                     uncompressedPartcloneStream = (compressedPartcloneStream, false);
@@ -163,6 +165,8 @@ namespace libClonezilla.Partitions
                     //this is faster for sequential reads (eg. extracting the full partition image) because it doesn't first have to generate an index, and doesn't need to run gztool for read operations.
                     var seekableStreamUsingRestarts = new SeekableStreamUsingRestarts(() =>
                     {
+                        compressedPartcloneStream.Seek(0, SeekOrigin.Begin);
+
                         Stream newStream = compressionInUse switch
                         {
                             Compression.Gzip => new GZipStream(compressedPartcloneStream, CompressionMode.Decompress),
@@ -180,14 +184,16 @@ namespace libClonezilla.Partitions
             if (uncompressedPartcloneStream != null && uncompressedPartcloneStream.Value.UseCacheLayer)
             {
                 //add a cache layer
-                var readSuggestor = uncompressedPartcloneStream.Value.Stream as IReadSegmentSuggestor;
+                var readSuggestor = uncompressedPartcloneStream.Value.Stream as IReadSuggestor;
 
                 var totalSystemRAMInBytes = libCommon.Utility.GetTotalRamSizeBytes();
                 var totalSystemRAMInMegabytes = (int)(totalSystemRAMInBytes / (double)(1024 * 1024));
-                var maxCacheSizeInMegabytes = totalSystemRAMInMegabytes / Environment.ProcessorCount;
-                var cachingStream = new CachingStream(uncompressedPartcloneStream.Value.Stream, readSuggestor, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
+                var maxCacheSizeInMegabytes = totalSystemRAMInMegabytes / 4;
 
-                uncompressedPartcloneStream = (cachingStream, false);
+                var uncompressedStream = uncompressedPartcloneStream.Value.Stream;
+                uncompressedStream = new CachingStream(uncompressedStream, readSuggestor, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
+
+                uncompressedPartcloneStream = (uncompressedStream, false);
             }
 
             if (uncompressedPartcloneStream == null)
@@ -196,7 +202,6 @@ namespace libClonezilla.Partitions
             }
 
             var partcloneStream = new PartcloneStream(partitionName, uncompressedPartcloneStream.Value.Stream, partcloneCache);
-            //var syncrhonisedStream = Stream.Synchronized(partcloneStream); //protect the partcloneStream from concurrent access. Unfortunately FullPartitionImage is used for sparse-aware reading in ExtractToFile()
 
             FullPartitionImage = partcloneStream;
             Name = partitionName;

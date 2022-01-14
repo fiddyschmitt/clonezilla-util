@@ -10,10 +10,10 @@ namespace libCommon.Streams
 {
     public class CachingStream : Stream
     {
-        public CachingStream(Stream baseStream, IReadSegmentSuggestor? readSegmentSuggestor, EnumCacheType cacheType, int cacheLimitValue, List<CacheEntry>? precapturedCache)
+        public CachingStream(Stream baseStream, IReadSuggestor? readSuggestor, EnumCacheType cacheType, int cacheLimitValue, List<CacheEntry>? precapturedCache)
         {
             BaseStream = baseStream;
-            ReadSegmentSuggestor = readSegmentSuggestor;    //gives us insight into the most optimal way to read from the underyling stream
+            ReadSuggestor = readSuggestor;    //gives us insight into the most optimal way to read from the underyling stream
             CacheType = cacheType;
             CacheLimitValue = cacheLimitValue;
 
@@ -35,7 +35,7 @@ namespace libCommon.Streams
             set => Seek(value, SeekOrigin.Begin);
         }
         public Stream BaseStream { get; }
-        public IReadSegmentSuggestor? ReadSegmentSuggestor { get; }
+        public IReadSuggestor? ReadSuggestor { get; }
         public int BufferSize { get; set; }
         public EnumCacheType CacheType { get; set; }
         public int CacheLimitValue { get; set; }
@@ -53,18 +53,8 @@ namespace libCommon.Streams
             throw new NotImplementedException();
         }
 
-        //StreamWriter readPositions = null;
         public override int Read(byte[] buffer, int offset, int count)
         {
-            /*
-            if (readPositions == null)
-            {
-                var stream = File.Open(@"E:\read_positions.txt", FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
-                readPositions = new StreamWriter(stream);
-                readPositions.AutoFlush = true;
-            }
-            readPositions.WriteLine($"{position},{position + count}");
-            */
             var pos = position;
             var bufferPos = offset;
             var end = pos + count;
@@ -77,19 +67,19 @@ namespace libCommon.Streams
 
                 if (cacheEntry == null)
                 {
-                    Log.Debug("Cache miss");
+                    //Log.Information($"Cache miss: {pos}");
 
                     (long Start, long End) recommendedRead;
-                    if (ReadSegmentSuggestor == null)
+                    if (ReadSuggestor == null)
                     {
                         recommendedRead = (pos, pos + bytesToGo);
                     }
                     else
                     {
-                        recommendedRead = ReadSegmentSuggestor.GetRecommendation(pos, pos + bytesToGo);
+                        recommendedRead = ReadSuggestor.GetRecommendation(pos, pos + bytesToGo);
                     }
                     var toRead = (int)Math.Min(recommendedRead.End - recommendedRead.Start, int.MaxValue);
-                    Log.Debug($"Recommended to read {toRead.BytesToString()} from position {recommendedRead.Start:N0}");
+                    //Log.Information($"Recommended to read {toRead.BytesToString()} from position {recommendedRead.Start:N0}");
 
                     var buff = new byte[toRead];
 
@@ -158,6 +148,8 @@ namespace libCommon.Streams
                 }
                 else
                 {
+                    //Log.Information($"Cache hit: {pos:N0}");
+
                     //move it to the beginning of the cache, to keep it fresh
                     cache.Remove(cacheEntry);
                     cache.Insert(0, cacheEntry);
@@ -165,6 +157,11 @@ namespace libCommon.Streams
 
                 var bytesLeftInThisRange = cacheEntry.End - pos;
                 var bytesToRead = (int)Math.Min(bytesToGo, bytesLeftInThisRange);
+
+                if (bytesToRead == 0)
+                {
+                    throw new Exception($"Doing a zero-byte read");
+                }
 
                 var deltaFromBeginningOfRange = pos - cacheEntry.Start;
                 if (deltaFromBeginningOfRange < 0)

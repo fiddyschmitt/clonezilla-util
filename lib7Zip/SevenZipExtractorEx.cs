@@ -12,7 +12,8 @@ namespace lib7Zip
     {
         readonly SevenZipExtractor Extractor;
 
-        //Was hoping that we could get SevenZipExtractor to load the archive (which takes time) in the constructor, so that it would be more responsive when asked to extract a file from it. But it still takes too long, causing an explorer.exe timeout.
+        //Was hoping that we could get SevenZipExtractor to load the archive (which takes time) in the constructor, so that it would be more responsive when asked to extract a file from it.
+        //But it still takes too long, causing an explorer.exe timeout.
         public SevenZipExtractorEx(string archiveFilename)
         {
             var libraryPath = SevenZipUtility.SevenZipDll();
@@ -37,7 +38,7 @@ namespace lib7Zip
 
             //force the extractor to load the archive
             Log.Information($"Initialising extractor for stream.");
-            Extractor.ExtractFile(@"keycloak-15.0.2\version.txt", Stream.Null);
+            Extractor.ExtractFile(0, Stream.Null);
             Log.Information($"Finished initialiasing extractor for stream.");
         }
 

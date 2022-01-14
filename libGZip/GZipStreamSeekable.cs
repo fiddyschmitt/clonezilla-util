@@ -11,7 +11,7 @@ using Serilog;
 
 namespace libGZip
 {
-    public class GZipStreamSeekable : Stream, IReadSegmentSuggestor
+    public class GZipStreamSeekable : Stream, IReadSuggestor
     {
         readonly long uncompressedTotalLength = 0;
         public List<Mapping> indexContents = new();
@@ -138,13 +138,8 @@ namespace libGZip
         {
             end = Math.Min(Length, end);
 
-            var startIndexPoint = indexContents.Last(ent => ent.UncompressedStartByte <= start);
-            var endIndexPoint = indexContents.FirstOrDefault(ent => ent.UncompressedStartByte >= end);
-
-            if (endIndexPoint == null)
-            {
-                endIndexPoint = startIndexPoint;
-            }
+            var startIndexPoint = indexContents.Last(ent => start >= ent.UncompressedStartByte);
+            var endIndexPoint = indexContents.First(ent => end <= ent.UncompressedEndByte);
 
             var recommendedStart = startIndexPoint.UncompressedStartByte;   //measured to be slightly faster than just starting from the requested position
             var recommendedEnd = endIndexPoint.UncompressedEndByte;

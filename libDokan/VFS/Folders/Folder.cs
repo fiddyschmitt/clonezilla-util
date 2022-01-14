@@ -70,7 +70,6 @@ namespace libDokan.VFS.Folders
                         var file = currentFolder
                                     .Children
                                     .OfType<FileEntry>()
-                                    .Where(fileEntry => !fileEntry.Name.Equals("desktop.ini")) //a micro-optimisation to stop Windows from requesting this file and causing a lot of unecessary IO
                                     .FirstOrDefault(child => child.Name.Equals(component, StringComparison.CurrentCultureIgnoreCase));
 
                         return file;

@@ -31,7 +31,19 @@ namespace lib7Zip
         public static void ExtractFileFromArchive(string archiveFilename, string fileInArchive, Stream outputStream)
         {
             var args = $"e \"{archiveFilename}\" \"{fileInArchive}\" -so";
+
             ProcessUtility.ExecuteProcess(SevenZipExe(), args, null, outputStream);
+
+            
+        }
+
+        public static Stream ExtractFileFromArchive(string archiveFilename, string fileInArchive)
+        {
+            var args = $"e \"{archiveFilename}\" \"{fileInArchive}\" -so";
+
+            var process = ProcessUtility.ExecuteProcess(SevenZipExe(), args, null);
+            var result = process.StandardOutput.BaseStream;
+            return result;
         }
 
         public static IEnumerable<ArchiveEntry> GetArchiveEntries(string archiveFilename, bool verbose)

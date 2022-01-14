@@ -1,13 +1,11 @@
 - Explorer timeout when extraction takes too long. Aka: Insufficient system resources exist to complete the requested service
-	- Ask Igor for 7z.exe update to "load and wait" archive, then read the command line for files to extract and send them to stdio
-	- Consider caching the first 1KB of every file. Trickle that back in DokanVFS.ReadFile() until the full file is available
+	- Ask Igor for 7z.exe update with a "load and wait" option, then read the command line for files to extract and send them to stdout.
+	- Consider caching the first 1KB of every file. Have a speacialised extractor which trickle that back until the full file is available.
 	
-- extract file(s)
+- extract file(s) from command line
 
 - Work out why there's a duplicate of:
 	L:\sda1\Recovery\Logs\Reload.xml
-
-- do a speed test to see if we should use 7z.exe to extract the images, of the 7z FM. 
 	
 - Compare DokanVFS to this one, and see if it runs better:
 	C:\Users\fiddy\Desktop\dev\cs\Shaman.Dokan.Base-master\Shaman.Dokan.Base\FileSystemBase.cs

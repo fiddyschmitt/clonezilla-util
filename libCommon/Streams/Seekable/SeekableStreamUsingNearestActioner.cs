@@ -11,7 +11,7 @@ using System.Threading;
 
 namespace libCommon.Streams.Seekable
 {
-    public class SeekableStreamUsingNearestActioner : Stream, IReadSegmentSuggestor
+    public class SeekableStreamUsingNearestActioner : Stream, IReadSuggestor
     {
         long position = 0;
         long? length = null;

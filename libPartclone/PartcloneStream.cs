@@ -72,7 +72,6 @@ namespace libPartclone
         {
             lock (streamLock)
             {
-
                 if (PartcloneImageInfo == null) return 0;
                 if (PartcloneImageInfo.PartcloneContentMapping == null) return 0;
                 if (PartcloneImageInfo.ReadStream == null) return 0;

@@ -110,6 +110,51 @@ namespace libCommon
             }
         }
 
+        public static Process ExecuteProcess(string exe, string args, Stream? inputStream, long? bytesToRead = null, Action<long>? inputReadCallback = null)
+        {
+            var start = DateTime.Now;
+
+            var process = new Process();
+            process.StartInfo.FileName = exe;
+            process.StartInfo.Arguments = args;
+            process.StartInfo.UseShellExecute = false;
+
+            if (inputStream != null)
+            {
+                process.StartInfo.RedirectStandardInput = true;
+            }
+
+            process.StartInfo.RedirectStandardOutput = true;
+            process.StartInfo.RedirectStandardError = false;
+            process.StartInfo.CreateNoWindow = true;
+
+            Log.Debug($"{exe} {args}");
+            process.Start();
+
+            Task? sendInputTask = null;
+            if (inputStream != null)
+            {
+                sendInputTask = Task.Factory.StartNew(() =>
+                {
+                    try
+                    {
+                        inputStream.CopyTo(process.StandardInput.BaseStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER, inputReadCallback);
+                    }
+                    catch { }
+
+                    try
+                    {
+                        process.StandardInput.BaseStream.Close();
+                    }
+                    catch { }
+
+                });
+            }
+
+
+            return process;
+        }
+
         public static int ExecuteProcess(string exe, string args, Stream? inputStream, Stream? outputStream, long? bytesToRead = null, Action<long>? inputReadCallback = null)
         {
             var start = DateTime.Now;
@@ -145,7 +190,12 @@ namespace libCommon
                     }
                     catch { }
 
-                    process.StandardInput.BaseStream.Close();
+                    try
+                    {
+                        process.StandardInput.BaseStream.Close();
+                    }
+                    catch { }
+
                 });
             }
 

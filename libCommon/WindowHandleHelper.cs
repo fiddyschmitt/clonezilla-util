@@ -47,23 +47,52 @@ namespace libUIHelpers
             return result?.Handle;
         }
 
-        public static IntPtr? GetChildWindowByTitle(int pid, IntPtr? desktopHandle, Func<string, bool> condition)
+        public static IntPtr? GetChildHandleByText(int pid, IntPtr? desktopHandle, Func<string, bool> condition)
+        {
+            var result = GetChildHandle(pid, desktopHandle, childHandle =>
+            {
+                var text = GetWindowText(childHandle);
+                var matchesCondition = condition(text);
+                return matchesCondition;
+            });
+
+            return result;
+        }
+
+        public static IntPtr? GetChildHandleByText(IntPtr parentHandle, Func<string, bool> condition)
+        {
+            var result = GetChildHandle(parentHandle, childHandle =>
+            {
+                var text = GetWindowText(childHandle);
+                var matchesCondition = condition(text);
+                return matchesCondition;
+            });
+
+            return result;
+        }
+
+        public static IntPtr? GetChildHandle(int pid, IntPtr? desktopHandle, Func<IntPtr, bool> childFilter)
         {
             var rootWindows = GetRootWindowsOfProcess(pid, desktopHandle);
 
-            var titles = rootWindows
-                            .SelectMany(rootWindow => GetChildWindows(rootWindow))
-                            .Select(hChild => new
-                            {
-                                Title = GetWindowText(hChild),
-                                Handle = hChild
-                            })
-                            .ToList();
+            var childWindows = rootWindows
+                                .SelectMany(rootWindow => GetChildWindows(rootWindow))
+                                .ToList();
 
-            var result = titles
-                            .FirstOrDefault(child => condition(child.Title));
+            var result = childWindows
+                            .FirstOrDefault(child => childFilter(child));
 
-            return result?.Handle;
+            return result;
+        }
+
+        public static IntPtr? GetChildHandle(IntPtr parentHandle, Func<IntPtr, bool> childFilter)
+        {
+            var childWindows = GetChildWindows(parentHandle);
+
+            var result = childWindows
+                            .FirstOrDefault(child => childFilter(child));
+
+            return result;
         }
 
         public static List<IntPtr> GetRootWindowsOfProcess(int pid, IntPtr? desktopHandle)

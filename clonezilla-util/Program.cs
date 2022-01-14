@@ -1,4 +1,5 @@
 ﻿using clonezilla_util.CL.Verbs;
+using clonezilla_util.Extractors;
 using clonezilla_util.VFS;
 using CommandLine;
 using DokanNet;
@@ -136,6 +137,8 @@ namespace clonezilla_util
 
             foreach (var archiveEntry in archiveFiles)
             {
+                if (Path.GetFileName(archiveEntry.Path).Equals("desktop.ini", StringComparison.CurrentCultureIgnoreCase)) continue; //a micro-optimisation to stop Windows from requesting this file and causing a lot of unecessary IO
+
                 fullListOfFiles.Add(archiveEntry);
                 yield return archiveEntry;
             }
@@ -215,10 +218,15 @@ namespace clonezilla_util
             var root = new Folder("");
             AddPartitionImagesToVirtualFolder(partitionContainer.Partitions, mountAsImageOptions.MountPoint, root, "");
 
-            Log.Information($"Mounting partition images to: {mountAsImageOptions.MountPoint}");
-
             var vfs = new DokanVFS(PROGRAM_NAME, root);
-            vfs.Mount(mountAsImageOptions.MountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger());
+            Task.Factory.StartNew(() =>
+            {
+                vfs.Mount(mountAsImageOptions.MountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger());
+            });
+
+            Log.Information($"Mounting complete. Mounted to: {mountAsImageOptions.MountPoint}");
+            Console.WriteLine("Running. Press Enter to exit.");
+            Console.ReadLine();
         }
 
         private static void MountAsFiles(MountAsFiles mountAsFilesOptions, ClonezillaCacheManager clonezillaCacheManager)
@@ -269,103 +277,109 @@ namespace clonezilla_util
 
                     var filesInArchive = GetFilesInPartition(realImageFile, partitionCache).ToList();
 
+                    //Do a performance test. If the archive can be opened quickly, then use 7z.exe which is slow but reliable. If it takes a long time, then use 7zFM which is fast but less reliable.
 
-                    var extractors = new BlockingCollection<Func<string, Stream>>();
+                    //pick a small file
+                    var testFile = filesInArchive
+                                        .FirstOrDefault(file => file.Size < 1024 * 1024);
 
-                    //Extractor which uses 7z.exe
-                    //Works fine, except it's too slow when extracting from a large archive, causing explorer.exe to assume the file isn't available.
-                    /*
-                    for (int i = 0; i < 4; i++)
+                    bool use7z;
+
+                    if (testFile == null)
                     {
-                        var newExtractor = new Func<string, Stream>(archiveEntryPath =>
-                        {
-                            var stream = new MemoryStream();
-                            //lock (realImageFile)    //No need to synchronise here, as the PartcloneStream already protects itself from concurrent access
-                            {
-                                Log.Debug($"Extracting {archiveEntryPath} from {realImageFile}");
-                                SevenZipUtility.ExtractFileFromArchive(realImageFile, archiveEntryPath, stream);
-                                Log.Debug($"Finished extracting {archiveEntryPath} from {realImageFile}");
-                            }
-                            stream.Seek(0, SeekOrigin.Begin);
-                            return stream;
-                        });
-
-                        extractors.Add(newExtractor);
+                        use7z = true;
                     }
-                    */
-
-
-                    //Extractor which uses the 7-Zip File Manager
-                    //Opening the archive is slow, and is done here upfront. Subsequent extracts are quick
-                    var alreadyExtracted = new Dictionary<string, string>();
-                    for (int i = 0; i < 4; i++)
+                    else
                     {
-                        var fileManagerExtractor = new SevenZipExtractorUsing7zFM(realImageFile);
+                        Log.Debug($"[{partitionName}] Running a performance test to determine the optimal way to extract files from this image.");
 
-                        //todo: Have a pool of 7zFM workers. Actually, might be problematic so current access caused issues with the SevenZipUtility-based extractor above
-                        var newExtractor = new Func<string, Stream>(pathInArchive =>
+                        var testStart = DateTime.Now;
+                        var testExtractor = new ExtractorUsing7z(realImageFile);
+                        var testStream = testExtractor.Extract(testFile.Path);
+                        testStream.CopyTo(Stream.Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+
+                        var testDuration = DateTime.Now - testStart;
+
+                        Log.Debug($"[{partitionName}] Nominal file read in {testDuration.TotalSeconds:N1} seconds.");
+
+                        if (testDuration.TotalSeconds < 10)
                         {
-                            if (!alreadyExtracted.ContainsKey(pathInArchive))
-                            {
-                                var tempFolder = TempUtility.GetTemporaryDirectory();
-
-                                //lock (fileManagerExtractor)   //No need to synchronise here, as the PartcloneStream and SevenZipExtractorUsing7zFM  already protect themselves from concurrent access
-                                {
-                                    fileManagerExtractor.ExtractFile(pathInArchive, tempFolder);
-                                }
-
-                                var tempFilename = Directory.GetFiles(tempFolder).First();
-                                alreadyExtracted.TryAdd(pathInArchive, tempFilename); //todo: work out why L:\sda1\Recovery\Logs\Reload.xml gets listed twice
-                            }
-
-                            var extractedFilename = alreadyExtracted[pathInArchive];
-
-                            var stream = File.OpenRead(extractedFilename);
-                            return stream;
-                        });
-
-                        extractors.Add(newExtractor);
+                            use7z = true;
+                        }
+                        else
+                        {
+                            use7z = false;
+                        }
                     }
 
+                    IExtractor extractor;
+                    if (use7z)
+                    {
+                        Log.Information($"[{partitionName}] 7z.exe will be used to extract files from this partition.");
 
+                        //Extractor which uses 7z.exe.
+                        //It runs the process and returns its stdout straight away, so it's non-blocking.
+                        //Works fine, except it's too slow when extracting from a large archive, causing explorer.exe to assume the file isn't available.
+                        extractor = new ExtractorUsing7z(realImageFile);
 
+                        //This actually causes errors for FLP, because FLP uses more threads than are being served
+                        /*
+                        var extractors = new List<IExtractor>();
+                        for (int i = 0; i < 4; i++)
+                        {
+                            var newExtractor = new ExtractorUsing7z(realImageFile);
+                            extractors.Add(newExtractor);
+                        }
 
+                        extractor = new MultiExtractor(extractors, true);
+                        */
+                    }
+                    else
+                    {
+                        Log.Information($"[{partitionName}] 7zFM.exe will be used to extract files from this partition.");
 
-                    //Extractor based on SevenZipExtractor
+                        //Extractor which uses the 7-Zip File Manager
+                        //Opens the archive here, up front. Subsequent extracts are quick                    
+                        var extractors = new List<IExtractor>();
+                        for (int i = 0; i < 4; i++)
+                        {
+                            var newExtractor = new ExtractorUsing7zFM(realImageFile);
+                            extractors.Add(newExtractor);
+                        }
+
+                        extractor = new MultiExtractor(extractors, true);
+                    }
+
+                    //Extractor which uses the SevenZipExtractor library from NuGet
                     //Was hoping that we could get SevenZipExtractor to load the archive (which takes time) in the constructor, so that it would be more responsive when asked to extract a file from it. But it still takes too long, causing an explorer.exe timeout.
                     /*
-                    var partitionDetails = partitionContainer
-                                        .Partitions
-                                        .FirstOrDefault(partition => partition.Name.Equals(partitionName));
-
-                    if (partitionDetails == null) throw new Exception($"Could not load details for {partitionName}.");
-
-                    var sevenZipExtractorEx = new SevenZipExtractorEx(partitionDetails.FullPartitionImage);
-
-                    var extractor = new Func<ArchiveEntry, Stream>(archiveEntry =>
                     {
-                        var stream = new MemoryStream();
-                        sevenZipExtractorEx.ExtractFile(archiveEntry.Path, stream);
-                        stream.Seek(0, SeekOrigin.Begin);
-                        return stream;
-                    });
+                        var partitionDetails = partitionContainer
+                                            .Partitions
+                                            .FirstOrDefault(partition => partition.Name.Equals(partitionName));
+
+                        if (partitionDetails == null) throw new Exception($"Could not load details for {partitionName}.");
+                        for (int i = 0; i < 4; i++)
+                        {
+                            //don't use - seems to return incorrect file content
+                            var newExtractor = new ExtractorUsingSevenZipExtractorLibrary(partitionDetails.FullPartitionImage);
+
+                            //doesn't seem to like being run concurrently. Likely because it uses the native 7z.dll
+                            //var newExtractor = new ExtractorUsingSevenZipExtractorLibrary(realImageFile);
+
+                            extractors.Add(newExtractor);
+                        }
+                    }
                     */
 
 
 
-                    var extractor = new Func<string, Stream>(archiveEntryPath =>
-                    {
-                        //find an idle worker
-                        var worker = extractors.GetConsumingEnumerable().First();
 
-                        //do the work
-                        var result = worker(archiveEntryPath);
+                    //this layer caches streams as they're created, so that they are extracted only once
+                    extractor = new CachedExtractor(extractor);
 
-                        //go to the back of the line
-                        extractors.Add(worker);
-
-                        return result;
-                    });
+                    //this layer makes the extractor thread-safe by wrapping each stream in a Stream.Synchronized()
+                    extractor = new SynchronisedExtractor(extractor);
 
                     var partitionRoot = new Folder(partitionName);
 
@@ -382,7 +396,7 @@ namespace clonezilla_util
             Console.ReadLine();
         }
 
-        protected static void CreateTree(string partitionName, Folder root, List<ArchiveEntry> allEntries, Func<string, Stream> extractor)
+        protected static void CreateTree(string partitionName, Folder root, List<ArchiveEntry> allEntries, IExtractor extractor)
         {
             Log.Debug($"[{partitionName}] Building folder dictionary.");
             var folders = allEntries
@@ -397,7 +411,7 @@ namespace clonezilla_util
                                     }
                                     virtualFolderPath = Path.Combine(partitionName, virtualFolderPath);
 
-                                    var name = Path.GetFileName(archiveEntry.Path);
+                                    var name = Path.GetFileName(virtualFolderPath);
                                     var newFolder = new Folder(name)
                                     {
                                         Created = archiveEntry.Created,
