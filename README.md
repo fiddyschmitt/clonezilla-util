@@ -22,6 +22,6 @@ If the images are extracted to an NTFS drive, they are created as sparse. Meanin
 
 <img src="https://i.imgur.com/r0sepb7.png" width="300">
 
-Now you can open the image using 7-Zip and extract the file(s) you desire.
+Now you can open the image files using 7-Zip and extract the file(s) you desire.
 
 <img src="https://i.imgur.com/enJhShq.png" width="600">
