@@ -66,6 +66,7 @@ namespace lib7Zip
                     if (currentEntry != null)
                     {
                         yield return currentEntry;
+                        currentEntry = null;
                     }
 
                     continue;

@@ -4,9 +4,6 @@
 		- Whilst this likely addresses the timeout, it would still be super slow making for an unresponsive virtual drive.
 	
 - extract file(s) from command line
-
-- Work out why there's a duplicate of:
-	L:\sda1\Recovery\Logs\Reload.xml
 	
 - Compare DokanVFS to this one, and see if it runs better:
 	C:\Users\fiddy\Desktop\dev\cs\Shaman.Dokan.Base-master\Shaman.Dokan.Base\FileSystemBase.cs

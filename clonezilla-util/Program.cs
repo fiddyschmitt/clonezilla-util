@@ -35,7 +35,7 @@ namespace clonezilla_util
     class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "1.2";
+        const string PROGRAM_VERSION = "1.2.1";
 
         private enum ReturnCode
         {
