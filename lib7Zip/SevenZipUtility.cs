@@ -34,7 +34,7 @@ namespace lib7Zip
 
             ProcessUtility.ExecuteProcess(SevenZipExe(), args, null, outputStream);
 
-            
+
         }
 
         public static Stream ExtractFileFromArchive(string archiveFilename, string fileInArchive)
@@ -80,9 +80,9 @@ namespace lib7Zip
                     if (line.StartsWith($"Size =")) currentEntry.Size = long.Parse(line.Replace("Size = ", ""));
                 }
 
-                if (line.StartsWith($"Modified =")) currentEntry.Modified = DateTime.Parse(line.Replace("Modified = ", ""));
-                if (line.StartsWith($"Created =")) currentEntry.Created = DateTime.Parse(line.Replace("Created = ", ""));
-                if (line.StartsWith($"Accessed =")) currentEntry.Accessed = DateTime.Parse(line.Replace("Accessed = ", ""));
+                if (line.StartsWith($"Modified =")) DateTime.TryParse(line.Replace("Modified = ", ""), out currentEntry.Modified);
+                if (line.StartsWith($"Created =")) DateTime.TryParse(line.Replace("Created = ", ""), out currentEntry.Created);
+                if (line.StartsWith($"Accessed =")) DateTime.TryParse(line.Replace("Accessed = ", ""), out currentEntry.Accessed);
             }
         }
 

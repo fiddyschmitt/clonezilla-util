@@ -129,8 +129,8 @@ namespace libPartclone
                 //ImageDescV1 uses bitmap_mode = BM_BYTE
 
                 bmp = Bitmap
-                    .Select(byt => byt != 0x0)
-                    .Union(new[] { false });
+                        .Select(byt => byt != 0x0)
+                        .Concat(new[] { false });
             }
             if (ImageDescV2 != null)
             {
@@ -145,7 +145,7 @@ namespace libPartclone
 
                         bmp = Bitmap
                                 .Select(byt => byt != 0x0)
-                                .Union(new[] { false });
+                                .Concat(new[] { false });
                         break;
 
                     case BitmapMode.BM_NONE:
