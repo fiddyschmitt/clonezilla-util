@@ -1,6 +1,7 @@
 - Explorer timeout when extraction takes too long. Aka: Insufficient system resources exist to complete the requested service
 	- Ask Igor for 7z.exe update with a "load and wait" option, then read the command line for files to extract and send them to stdout.
-	- Consider caching the first 1KB of every file. Have a speacialised extractor which trickle that back until the full file is available.
+	- Consider caching the first 1KB of every file. Have a specialised extractor which trickles data back until the full file is available.
+		- Whilst this likely addresses the timeout, it would still be super slow making for an unresponsive virtual drive.
 	
 - extract file(s) from command line
 
