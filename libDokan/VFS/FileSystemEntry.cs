@@ -1,4 +1,6 @@
 ﻿using DokanNet;
+using libCommon;
+using libDokan.VFS.Folders;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,15 +15,26 @@ namespace libDokan.VFS
     {
         public string Name { get; set; }
 
-        [IgnoreDataMember]
-        public string? FullPath { get; set; }
-
+        Folder? parent;
+        public Folder? Parent
+        {
+            get
+            {
+                return parent;
+            }
+            set
+            {
+                parent = value;
+                parent?.AddChild(this);
+            }
+        }
         public bool Hidden { get; set; } = false;
         public bool System { get; set; } = false;
 
-        public FileSystemEntry(string name)
+        public FileSystemEntry(string name, Folder? parent)
         {
             Name = name;
+            Parent = parent;
         }
 
         public DateTime Modified;
@@ -29,6 +42,24 @@ namespace libDokan.VFS
         public DateTime Accessed;
 
         protected abstract FileInformation ToFileInfo();
+
+        public string FullPath
+        {
+            get
+            {
+                var ancestors = this
+                                    .Recurse(ancestor => ancestor.Parent)
+                                    .Reverse()
+                                    .ToList();
+
+                var result = ancestors
+                                .Where(a => !string.IsNullOrEmpty(a.Name))
+                                .Select(a => a.Name)
+                                .ToString("\\");
+
+                return result;
+            }
+        }
 
         public FileInformation ToFileInformation()
         {

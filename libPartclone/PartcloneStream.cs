@@ -21,11 +21,11 @@ namespace libPartclone
 
         private readonly object streamLock = new();
 
-        public PartcloneStream(string partitionName, Stream inputStream, IPartcloneCache? cache)
+        public PartcloneStream(string containerName, string partitionName, Stream inputStream, IPartcloneCache? cache)
         {
             inputStream.Seek(0, SeekOrigin.Begin);
 
-            PartcloneImageInfo = new PartcloneImageInfo(partitionName, inputStream, cache);
+            PartcloneImageInfo = new PartcloneImageInfo(containerName, partitionName, inputStream, cache);
             PartitionName = partitionName;
 
             LastRange = PartcloneImageInfo.PartcloneContentMapping.Last();

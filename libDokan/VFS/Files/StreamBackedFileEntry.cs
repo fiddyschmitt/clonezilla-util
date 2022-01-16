@@ -1,4 +1,5 @@
-﻿using System;
+﻿using libDokan.VFS.Folders;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -11,12 +12,12 @@ namespace libDokan.VFS.Files
         readonly Stream? Stream;
         readonly Func<Stream>? StreamFactory;
 
-        public StreamBackedFileEntry(string name, Stream stream) : base(name)
+        public StreamBackedFileEntry(string name, Folder? folder, Stream stream) : base(name, folder)
         {
             Stream = stream;
         }
 
-        public StreamBackedFileEntry(string name, Func<Stream> streamFactory) : base(name)
+        public StreamBackedFileEntry(string name, Folder? folder, Func<Stream> streamFactory) : base(name, folder)
         {
             StreamFactory = streamFactory;
         }

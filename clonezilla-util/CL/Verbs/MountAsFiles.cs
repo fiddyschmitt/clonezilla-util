@@ -14,6 +14,6 @@ namespace clonezilla_util.CL.Verbs
         public string? MountPoint { get; set; }
 
         [Option('p', "partitions", HelpText = "The partition(s) to serve. Eg. sda1. If not provided, all partitions will be served.", Required = false)]
-        public IEnumerable<string> PartitionsToExtract { get; set; } = new List<string>();
+        public IEnumerable<string> PartitionsToMount { get; set; } = new List<string>();
     }
 }

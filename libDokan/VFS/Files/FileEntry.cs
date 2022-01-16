@@ -1,4 +1,5 @@
 ﻿using DokanNet;
+using libDokan.VFS.Folders;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,7 +14,7 @@ namespace libDokan.VFS.Files
 
         public abstract Stream GetStream();
 
-        public FileEntry(string name) : base(name)
+        public FileEntry(string name, Folder? parent) : base(name, parent)
         {
         }
 

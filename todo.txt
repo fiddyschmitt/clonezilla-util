@@ -1,10 +1,7 @@
 - Explorer timeout when extraction takes too long. Aka: Insufficient system resources exist to complete the requested service
 	- Ask Igor for 7z.exe update with a "load and wait" option, then read the command line for files to extract and send them to stdout.
-	- Consider caching the first 1KB of every file. Have a specialised extractor which trickles data back until the full file is available.
-		- Whilst this likely addresses the timeout, it would still be super slow making for an unresponsive virtual drive.
-	
-- extract file(s) from command line
-	
+		https://sourceforge.net/p/sevenzip/discussion/45797/thread/d7e887a359/
+		
 - Compare DokanVFS to this one, and see if it runs better:
 	C:\Users\fiddy\Desktop\dev\cs\Shaman.Dokan.Base-master\Shaman.Dokan.Base\FileSystemBase.cs
 	C:\Users\fiddy\Desktop\dev\cs\Shaman.Dokan.Archive-master\Shaman.Dokan.Archive\SevenZipFs.cs

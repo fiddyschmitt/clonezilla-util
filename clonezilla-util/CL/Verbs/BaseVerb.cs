@@ -7,7 +7,7 @@ namespace clonezilla_util.CL.Verbs
 {
     public class BaseVerb
     {
-        [Option('i', "input", HelpText = "The folder containing the Clonezilla archive. Or, a partclone filename.", Required = true)]
-        public string? InputPath { get; set; }
+        [Option('i', "input", HelpText = "The folder containing the Clonezilla archive. Or, a partclone filename.", Required = true, Min = 1)]
+        public IEnumerable<string>? InputPaths { get; set; }
     }
 }

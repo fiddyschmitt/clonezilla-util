@@ -21,6 +21,7 @@ namespace libPartclone
         readonly byte[]? Bitmap;
 
         public long StartOfContent { get; }
+        public string ContainerName { get; }
         public string PartitionName { get; }
         public Stream? ReadStream { get; set; }
         public IPartcloneCache? Cache { get; }
@@ -38,8 +39,9 @@ namespace libPartclone
         //This way, if we are asked to restore a particular byte, we know where to find it in the partclone content.
         public List<ContiguousRange> PartcloneContentMapping = new();
 
-        public PartcloneImageInfo(string partitionName, Stream readStream, IPartcloneCache? cache)
+        public PartcloneImageInfo(string containerName, string partitionName, Stream readStream, IPartcloneCache? cache)
         {
+            ContainerName = containerName;
             PartitionName = partitionName;
             ReadStream = readStream;
             Cache = cache;
@@ -95,13 +97,13 @@ namespace libPartclone
 
             if (mappingFromCache == null)
             {
-                Log.Information($"[{partitionName}] Reading partclone content map");
+                Log.Information($"[{containerName}] [{partitionName}] Reading partclone content map");
                 DeduceContiguousRanges();
                 cache?.SetPartcloneContentMapping(PartcloneContentMapping);
             }
             else
             {
-                Log.Debug($"[{partitionName}] Loading partclone content map from cache");
+                Log.Debug($"[{containerName}] [{partitionName}] Loading partclone content map from cache");
                 PartcloneContentMapping = mappingFromCache;
             }
         }

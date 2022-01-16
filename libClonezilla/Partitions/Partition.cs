@@ -15,17 +15,24 @@ using libCommon.Streams.Sparse;
 using ZstdNet;
 using libCommon.Streams.Seekable;
 using libPartclone.Cache;
+using lib7Zip;
+using libDokan.VFS.Folders;
+using libDokan.VFS.Files;
+using libClonezilla.PartitionContainers;
 
 namespace libClonezilla.Partitions
 {
     public class Partition
     {
         public PartcloneStream FullPartitionImage { get; }
+        public PartitionContainer Container { get; }
         public string Name { get; }
+        public IPartitionCache? PartitionCache { get; }
 
-        public Partition(Stream compressedPartcloneStream, Compression compressionInUse, string partitionName, IPartitionCache? partitionCache, IPartcloneCache? partcloneCache, bool willPerformRandomSeeking)
+        public Partition(PartitionContainer container, Stream compressedPartcloneStream, Compression compressionInUse, string partitionName, IPartitionCache? partitionCache, IPartcloneCache? partcloneCache, bool willPerformRandomSeeking)
         {
-            Log.Information($"[{partitionName}] Loading partition information");
+            var containerName = container.GetName();
+            Log.Information($"[{containerName}] [{partitionName}] Loading partition information");
 
             (Stream Stream, bool UseCacheLayer)? uncompressedPartcloneStream = null;
 
@@ -40,7 +47,7 @@ namespace libClonezilla.Partitions
                     //Do a performance test. If the entire file can be read quickly then let's not bother using any indexing
 
                     var testDurationSeconds = 10;
-                    Log.Debug($"[{partitionName}] Running a {testDurationSeconds:N0} second performance test to determine the optimal way to serve it.");
+                    Log.Debug($"[{containerName}] [{partitionName}] Running a {testDurationSeconds:N0} second performance test to determine the optimal way to serve it.");
 
                     Stream testStream = compressionInUse switch
                     {
@@ -122,7 +129,7 @@ namespace libClonezilla.Partitions
                     var decompressor = new DecompressionStream(compressedPartcloneStream);
 
                     var tempFilename = TempUtility.GetTempFilename(true);
-                    
+
                     var tempFileStream = new FileStream(tempFilename, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
 
                     decompressor.CopyTo(tempFileStream, Buffers.ARBITARY_HUGE_SIZE_BUFFER,
@@ -201,20 +208,23 @@ namespace libClonezilla.Partitions
                 throw new Exception($"Did not initialize a stream for partition {partitionName}");
             }
 
-            var partcloneStream = new PartcloneStream(partitionName, uncompressedPartcloneStream.Value.Stream, partcloneCache);
+            var partcloneStream = new PartcloneStream(containerName, partitionName, uncompressedPartcloneStream.Value.Stream, partcloneCache);
 
             FullPartitionImage = partcloneStream;
+            Container = container;
             Name = partitionName;
+            PartitionCache = partitionCache;
         }
 
         public void ExtractToFile(string outputFilename, bool makeSparse)
         {
-            ExtractToFile(Name, FullPartitionImage, outputFilename, makeSparse);
+            var containerName = Container.GetName();
+            ExtractToFile(containerName, Name, FullPartitionImage, outputFilename, makeSparse);
         }
 
-        public static void ExtractToFile(string partitionName, ISparseAwareReader sparseAwareInput, string outputFilename, bool makeSparse)
+        public static void ExtractToFile(string containerName, string partitionName, ISparseAwareReader sparseAwareInput, string outputFilename, bool makeSparse)
         {
-            Log.Information($"[{partitionName}] Extracting partition to: {outputFilename}");
+            Log.Information($"[{containerName}] [{partitionName}] Extracting partition to: {outputFilename}");
 
             var fileStream = File.Create(outputFilename);
             ExtractToFile(sparseAwareInput, fileStream, makeSparse);
@@ -263,6 +273,58 @@ namespace libClonezilla.Partitions
                         Log.Information($"Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
                     });
             }
+        }
+
+        public IEnumerable<ArchiveEntry> GetFilesInPartition()
+        {
+            IEnumerable<ArchiveEntry>? archiveFiles = PartitionCache?.GetFileList();
+
+            bool saveToCache = false;
+            if (archiveFiles == null)
+            {
+                archiveFiles = SevenZipUtility.GetArchiveEntries(PhysicalImageFilename, false);
+                saveToCache = true;
+            };
+
+            var fullListOfFiles = new List<ArchiveEntry>();
+
+            foreach (var archiveEntry in archiveFiles)
+            {
+                if (Path.GetFileName(archiveEntry.Path).Equals("desktop.ini", StringComparison.CurrentCultureIgnoreCase)) continue; //a micro-optimisation to stop Windows from requesting this file and causing a lot of unecessary IO
+
+                fullListOfFiles.Add(archiveEntry);
+                yield return archiveEntry;
+            }
+
+            if (saveToCache)
+            {
+                PartitionCache?.SetFileList(fullListOfFiles);
+            }
+        }
+
+        public string? PhysicalImageFilename { get; protected set; }
+
+        public void AddPartitionImageToVirtualFolder(string mountPoint, Folder folder)
+        {
+            var virtualImageFilename = Path.Combine(folder.FullPath, $"{Name}.img");
+            PhysicalImageFilename = Path.Combine(mountPoint, virtualImageFilename);
+
+            var virtualFileName = Path.GetFileName(virtualImageFilename);
+
+            var fileEntry = new StreamBackedFileEntry(
+                virtualFileName,
+                folder,
+                () =>
+                {
+                    var stream = FullPartitionImage;
+                    return stream;
+                })
+            {
+                Created = DateTime.Now,
+                Accessed = DateTime.Now,
+                Modified = DateTime.Now,
+                Length = FullPartitionImage.Length,
+            };
         }
     }
 }

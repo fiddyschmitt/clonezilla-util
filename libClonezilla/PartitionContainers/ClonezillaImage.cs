@@ -11,12 +11,14 @@ using System.Linq;
 
 namespace libClonezilla.PartitionContainers
 {
-    public class ClonezillaImage : IPartitionContainer
+    public class ClonezillaImage : PartitionContainer
     {
-        public List<Partition> Partitions { get; }
+        public string ClonezillaArchiveFolder { get; }
 
         public ClonezillaImage(string clonezillaArchiveFolder, IClonezillaCacheManager cacheManager, IEnumerable<string>? partitionsToLoad, bool willPerformRandomSeeking)
         {
+            ClonezillaArchiveFolder = clonezillaArchiveFolder;
+
             var partsFilename = Path.Combine(clonezillaArchiveFolder, "parts");
 
             if (!File.Exists(partsFilename))
@@ -93,11 +95,17 @@ namespace libClonezilla.PartitionContainers
 
                                 var compressedPartcloneStream = new Multistream(containerStreams);
 
-                                var result = new Partition(compressedPartcloneStream, compressionInUse, partitionName, partitionCache, partcloneCache, willPerformRandomSeeking);
+                                var result = new Partition(this, compressedPartcloneStream, compressionInUse, partitionName, partitionCache, partcloneCache, willPerformRandomSeeking);
 
                                 return result;
                             })
                             .ToList();
+        }
+
+        public override string GetName()
+        {
+            var containerName = Path.GetFileName(ClonezillaArchiveFolder) ?? throw new Exception($"Could not get container name from path: {ClonezillaArchiveFolder}");
+            return containerName;
         }
 
         public static (Compression compression, List<string> containerFilenames) GetCompressionInUse(string clonezillaArchiveFolder, string partitionName)

@@ -8,9 +8,8 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.PartitionContainers
 {
-    public class PartcloneFile : IPartitionContainer
+    public class PartcloneFile : PartitionContainer
     {
-        public List<Partition> Partitions { get; }
         public string Filename { get; }
 
         public PartcloneFile(string filename, bool willPerformRandomSeeking)
@@ -19,12 +18,18 @@ namespace libClonezilla.PartitionContainers
 
             var partitionName = Path.GetFileName(filename);
 
-            var partition = new Partition(File.OpenRead(filename), libPartclone.Compression.None, partitionName, null, null, willPerformRandomSeeking);
+            var partition = new Partition(this, File.OpenRead(filename), libPartclone.Compression.None, partitionName, null, null, willPerformRandomSeeking);
 
             Partitions = new List<Partition>
             {
                 partition
             };
+        }
+
+        public override string GetName()
+        {
+            var containerName = Path.GetFileName(Filename) ?? throw new Exception($"Could not get container name from path: {Filename}");
+            return containerName;
         }
     }
 }

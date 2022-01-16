@@ -11,7 +11,8 @@ namespace libDokan.VFS.Folders
 {
     public class Folder : FileSystemEntry
     {
-        public List<FileSystemEntry> Children = new();
+        List<FileSystemEntry> children = new List<FileSystemEntry>();
+        public IEnumerable<FileSystemEntry> Children => children;
 
         public Folder CreateOrRetrieveFolder(string folderPath)
         {
@@ -27,7 +28,17 @@ namespace libDokan.VFS.Folders
             return result;
         }
 
-        public Folder(string name) : base(name)
+        public void AddChild(FileSystemEntry entry)
+        {
+            children.Add(entry);
+        }
+
+        public void AddChildren(IEnumerable<FileSystemEntry> entries)
+        {
+            children.AddRange(entries);
+        }
+
+        public Folder(string name, Folder? parent) : base(name, parent)
         {
         }
 
@@ -80,8 +91,7 @@ namespace libDokan.VFS.Folders
 
                         if (createFolderStructure)
                         {
-                            subFolder = new Folder(component);
-                            currentFolder.Children.Add(subFolder);
+                            subFolder = new Folder(component, currentFolder);
                         }
                         else
                         {

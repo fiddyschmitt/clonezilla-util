@@ -35,7 +35,7 @@ namespace clonezilla_util
     class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "1.2.1";
+        const string PROGRAM_VERSION = "1.3";
 
         private enum ReturnCode
         {
@@ -44,6 +44,7 @@ namespace clonezilla_util
             GeneralException = 2,
         }
 
+        public static string CacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
 
         static int Main(string[] args)
         {
@@ -70,7 +71,6 @@ namespace clonezilla_util
 
             Log.Debug("Exit successfully");
             return (int)ReturnCode.Success;
-
         }
 
         static void PrintProgramVersion()
@@ -88,105 +88,69 @@ namespace clonezilla_util
 
         private static void Run(object obj)
         {
-            string cacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
-
-            ClonezillaCacheManager? clonezillaCacheManager = null;
-            if (obj is BaseVerb baseVerb)
-            {
-                if (baseVerb.InputPath == null) throw new Exception($"{nameof(baseVerb.InputPath)} not specified.");
-                clonezillaCacheManager = new(baseVerb.InputPath, cacheFolder);
-            }
-            if (clonezillaCacheManager == null) throw new Exception($"Did not create ClonezillaCacheManager.");
-
             switch (obj)
             {
-                case ExtractPartitionImage extractPartitionImageOptions:
+                case ListContents listContentsOptions:
 
-                    ExtractPartitionImage(extractPartitionImageOptions, clonezillaCacheManager);
+                    ListContents(listContentsOptions);
                     break;
 
-                case MountAsImage mountAsImageOptions:
+                case MountAsImageFiles mountAsImageOptions:
 
-                    MountAsImage(mountAsImageOptions, clonezillaCacheManager);
+                    MountAsImageFiles(mountAsImageOptions);
                     break;
 
                 case MountAsFiles mountAtFilesOptions:
 
-                    MountAsFiles(mountAtFilesOptions, clonezillaCacheManager);
+                    MountAsFiles(mountAtFilesOptions);
                     break;
 
-                case ListContents listContentsOptions:
+                case ExtractPartitionImage extractPartitionImageOptions:
 
-                    ListContents(listContentsOptions, clonezillaCacheManager);
+                    ExtractPartitionImage(extractPartitionImageOptions);
                     break;
             }
         }
 
-        static IEnumerable<ArchiveEntry> GetFilesInPartition(string realImageFile, IPartitionCache? partitionCache)
+        private static void ListContents(ListContents listContentsOptions)
         {
-            IEnumerable<ArchiveEntry>? archiveFiles = partitionCache?.GetFileList();
-
-            bool saveToCache = false;
-            if (archiveFiles == null)
-            {
-                archiveFiles = SevenZipUtility.GetArchiveEntries(realImageFile, false);
-                saveToCache = true;
-            };
-
-            var fullListOfFiles = new List<ArchiveEntry>();
-
-            foreach (var archiveEntry in archiveFiles)
-            {
-                if (Path.GetFileName(archiveEntry.Path).Equals("desktop.ini", StringComparison.CurrentCultureIgnoreCase)) continue; //a micro-optimisation to stop Windows from requesting this file and causing a lot of unecessary IO
-
-                fullListOfFiles.Add(archiveEntry);
-                yield return archiveEntry;
-            }
-
-            if (saveToCache)
-            {
-                partitionCache?.SetFileList(fullListOfFiles);
-            }
-        }
-
-        private static void ListContents(ListContents listContentsOptions, ClonezillaCacheManager clonezillaCacheManager)
-        {
-            if (listContentsOptions.InputPath == null) throw new Exception($"{nameof(listContentsOptions.InputPath)} not specified.");
-
-            var partitionContainerType = IPartitionContainer.FromPath(listContentsOptions.InputPath);
-
-            IPartitionContainer partitionContainer = partitionContainerType switch
-            {
-                PartitionContainerType.ClonezillaFolder => new ClonezillaImage(listContentsOptions.InputPath, clonezillaCacheManager, listContentsOptions.PartitionsToInspect, true),
-                PartitionContainerType.PartcloneFile => new PartcloneFile(listContentsOptions.InputPath, true),
-                _ => throw new NotImplementedException()
-            };
+            if (listContentsOptions.InputPaths == null) throw new Exception($"{nameof(listContentsOptions.InputPaths)} not specified.");
 
             var mountPoint = libDokan.Utility.GetAvailableDriveLetter();
-            var root = new Folder("");
 
-            AddPartitionImagesToVirtualFolder(partitionContainer.Partitions, mountPoint, root, "");
+            var root = new Folder("", null);
 
-            var vfs = new DokanVFS(PROGRAM_NAME, root);
-            Task.Factory.StartNew(() => vfs.Mount(mountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger()));
-            WaitForMountPointToBeAvailable(mountPoint);
+            var containers = PartitionContainer.FromPaths(
+                                listContentsOptions.InputPaths.ToList(),
+                                CacheFolder,
+                                listContentsOptions.PartitionsToInspect.ToList(),
+                                true)
+                            .OrderBy(container => container.GetName())
+                            .ToList();
 
-            //use 7z to get a list of files
-            var imageFiles = Directory.GetFiles(mountPoint, "*", SearchOption.AllDirectories).ToList();
+            MountPartitionsAsImageFiles(
+                containers,
+                mountPoint,
+                root,
+                root);
 
-            imageFiles
-                .ForEach(realImageFile =>
+            var partitions = containers
+                                .SelectMany(container => container.Partitions)
+                                .ToList();
+
+            partitions
+                .ForEach(partition =>
                 {
-                    var partitionName = Path.GetFileNameWithoutExtension(realImageFile);
-                    Log.Information($"[{partitionName}] Retrieving a list of files.");
+                    var containerName = partition.Container.GetName();
+                    var partitionName = partition.Name;
 
-                    var partitionCache = clonezillaCacheManager.GetPartitionCache(partitionName);
+                    Log.Information($"[{containerName}] [{partitionName}] Retrieving a list of files.");
 
-                    var filesInArchive = GetFilesInPartition(realImageFile, partitionCache);
+                    var filesInArchive = partition.GetFilesInPartition();
 
                     foreach (var archiveEntry in filesInArchive)
                     {
-                        var filenameIncludingPartition = Path.Combine(partitionName, archiveEntry.Path);
+                        var filenameIncludingPartition = Path.Combine(containerName, partitionName, archiveEntry.Path);
 
                         Console.Write(filenameIncludingPartition);
                         if (listContentsOptions.UseNullSeparator)
@@ -201,262 +165,283 @@ namespace clonezilla_util
                 });
         }
 
-        private static void MountAsImage(MountAsImage mountAsImageOptions, ClonezillaCacheManager clonezillaCacheManager)
+        private static void MountAsImageFiles(MountAsImageFiles mountAsImageOptions)
         {
-            if (mountAsImageOptions.InputPath == null) throw new Exception($"{nameof(mountAsImageOptions.InputPath)} not specified.");
+            if (mountAsImageOptions.InputPaths == null) throw new Exception($"{nameof(mountAsImageOptions.InputPaths)} not specified.");
             if (mountAsImageOptions.MountPoint == null) mountAsImageOptions.MountPoint = libDokan.Utility.GetAvailableDriveLetter();
 
-            var partitionContainerType = IPartitionContainer.FromPath(mountAsImageOptions.InputPath);
+            var root = new Folder("", null);
+            var mountPoint = mountAsImageOptions.MountPoint;
 
-            IPartitionContainer partitionContainer = partitionContainerType switch
-            {
-                PartitionContainerType.ClonezillaFolder => new ClonezillaImage(mountAsImageOptions.InputPath, clonezillaCacheManager, mountAsImageOptions.PartitionsToExtract, true),
-                PartitionContainerType.PartcloneFile => new PartcloneFile(mountAsImageOptions.InputPath, true),
-                _ => throw new NotImplementedException()
-            };
+            var containers = PartitionContainer.FromPaths(
+                                mountAsImageOptions.InputPaths.ToList(),
+                                CacheFolder,
+                                mountAsImageOptions.PartitionsToMount.ToList(),
+                                true);
 
-            var root = new Folder("");
-            AddPartitionImagesToVirtualFolder(partitionContainer.Partitions, mountAsImageOptions.MountPoint, root, "");
-
-            var vfs = new DokanVFS(PROGRAM_NAME, root);
-            Task.Factory.StartNew(() =>
-            {
-                vfs.Mount(mountAsImageOptions.MountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger());
-            });
+            MountPartitionsAsImageFiles(
+                containers,
+                mountPoint,
+                root,
+                root);
 
             Log.Information($"Mounting complete. Mounted to: {mountAsImageOptions.MountPoint}");
             Console.WriteLine("Running. Press Enter to exit.");
             Console.ReadLine();
         }
 
-        private static void MountAsFiles(MountAsFiles mountAsFilesOptions, ClonezillaCacheManager clonezillaCacheManager)
+        private static void MountAsFiles(MountAsFiles mountAsFilesOptions)
         {
-            if (mountAsFilesOptions.InputPath == null) throw new Exception($"{nameof(mountAsFilesOptions.InputPath)} not specified.");
+            if (mountAsFilesOptions.InputPaths == null) throw new Exception($"{nameof(mountAsFilesOptions.InputPaths)} not specified.");
             if (mountAsFilesOptions.MountPoint == null) mountAsFilesOptions.MountPoint = libDokan.Utility.GetAvailableDriveLetter();
 
-            var partitionContainerType = IPartitionContainer.FromPath(mountAsFilesOptions.InputPath);
+            var containers = PartitionContainer.FromPaths(
+                            mountAsFilesOptions.InputPaths.ToList(),
+                            CacheFolder,
+                            mountAsFilesOptions.PartitionsToMount.ToList(),
+                            true);
 
-            IPartitionContainer partitionContainer = partitionContainerType switch
-            {
-                PartitionContainerType.ClonezillaFolder => new ClonezillaImage(mountAsFilesOptions.InputPath, clonezillaCacheManager, mountAsFilesOptions.PartitionsToExtract, true),
-                PartitionContainerType.PartcloneFile => new PartcloneFile(mountAsFilesOptions.InputPath, true),
-                _ => throw new NotImplementedException()
-            };
-
-            var root = new Folder("");
+            var root = new Folder("", null);
 
             //create a hidden folder for the images, so that we can interogate them using 7z.exe
             var imagesRootFolder = $"images {Guid.NewGuid()}";
-
-            AddPartitionImagesToVirtualFolder(partitionContainer.Partitions, mountAsFilesOptions.MountPoint, root, imagesRootFolder);
-
-            var imagesRoot = root.CreateOrRetrieveFolder(imagesRootFolder);
-            imagesRoot.Hidden = true;
-
-            var vfs = new DokanVFS(PROGRAM_NAME, root);
-            Task.Factory.StartNew(() =>
+            var imagesRoot = new Folder(imagesRootFolder, root)
             {
-                vfs.Mount(mountAsFilesOptions.MountPoint, DokanOptions.WriteProtection, 64, new DokanNet.Logging.NullLogger());
-            });
-            WaitForMountPointToBeAvailable(mountAsFilesOptions.MountPoint);
+                Hidden = true
+            };
 
-            //use 7z to get a list of files (or load them from cache)
-            var realImagesFolder = Path.Combine(mountAsFilesOptions.MountPoint, imagesRootFolder);
-            var imageFiles = Directory.GetFiles(realImagesFolder, "*", SearchOption.AllDirectories).ToList();
+            MountPartitionsAsImageFiles(
+                containers,
+                mountAsFilesOptions.MountPoint,
+                imagesRoot,
+                root);
 
             //not adding the files directly to root, because we want to present them all at once at the very end
-            var filesRoot = new Folder("");
+            var containerFolders = new List<Folder>();
 
-            imageFiles
-                .ForEach(realImageFile =>
+            containers
+                .ForEach(container =>
                 {
-                    var partitionName = Path.GetFileNameWithoutExtension(realImageFile);
-                    Log.Information($"[{partitionName}] Retrieving a list of files.");
+                    var containerName = container.GetName();
+                    var containerFolder = new Folder(containerName, null);
+                    containerFolders.Add(containerFolder);
 
-                    var partitionCache = clonezillaCacheManager.GetPartitionCache(partitionName);
-
-                    var filesInArchive = GetFilesInPartition(realImageFile, partitionCache).ToList();
-
-                    //Do a performance test. If the archive can be opened quickly, then use 7z.exe which is slow but reliable. If it takes a long time, then use 7zFM which is fast but less reliable.
-
-                    //pick a small file
-                    var testFile = filesInArchive
-                                        .FirstOrDefault(file => file.Size < 1024 * 1024);
-
-                    bool use7z;
-
-                    if (testFile == null)
-                    {
-                        use7z = true;
-                    }
-                    else
-                    {
-                        Log.Debug($"[{partitionName}] Running a performance test to determine the optimal way to extract files from this image.");
-
-                        var testStart = DateTime.Now;
-                        var testExtractor = new ExtractorUsing7z(realImageFile);
-                        var testStream = testExtractor.Extract(testFile.Path);
-                        testStream.CopyTo(Stream.Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
-
-                        var testDuration = DateTime.Now - testStart;
-
-                        Log.Debug($"[{partitionName}] Nominal file read in {testDuration.TotalSeconds:N1} seconds.");
-
-                        if (testDuration.TotalSeconds < 10)
+                    container
+                        .Partitions
+                        .ForEach(partition =>
                         {
-                            use7z = true;
-                        }
-                        else
-                        {
-                            use7z = false;
-                        }
-                    }
+                            var partitionName = partition.Name;
 
-                    IExtractor extractor;
-                    if (use7z)
-                    {
-                        Log.Information($"[{partitionName}] 7z.exe will be used to extract files from this partition.");
+                            Log.Information($"[{containerName}] [{partitionName}] Retrieving a list of files.");
 
-                        //Extractor which uses 7z.exe.
-                        //It runs the process and returns its stdout straight away, so it's non-blocking.
-                        //Works fine, except it's too slow when extracting from a large archive, causing explorer.exe to assume the file isn't available.
-                        extractor = new ExtractorUsing7z(realImageFile);
+                            var filesInArchive = partition.GetFilesInPartition().ToList();
 
-                        //This actually causes errors for FLP, because FLP uses more threads than are being served
-                        /*
-                        var extractors = new List<IExtractor>();
-                        for (int i = 0; i < 4; i++)
-                        {
-                            var newExtractor = new ExtractorUsing7z(realImageFile);
-                            extractors.Add(newExtractor);
-                        }
+                            //Do a performance test. If the archive can be opened quickly, then use 7z.exe which is slow but reliable. If it takes a long time, then use 7zFM which is fast but less reliable.
 
-                        extractor = new MultiExtractor(extractors, true);
-                        */
-                    }
-                    else
-                    {
-                        Log.Information($"[{partitionName}] 7zFM.exe will be used to extract files from this partition.");
+                            //pick a small file
+                            var testFile = filesInArchive
+                                                .FirstOrDefault(file => file.Size < 1024 * 1024);
 
-                        //Extractor which uses the 7-Zip File Manager
-                        //Opens the archive here, up front. Subsequent extracts are quick                    
-                        var extractors = new List<IExtractor>();
-                        for (int i = 0; i < 4; i++)
-                        {
-                            var newExtractor = new ExtractorUsing7zFM(realImageFile);
-                            extractors.Add(newExtractor);
-                        }
+                            if (partition.PhysicalImageFilename == null) throw new Exception($"{nameof(partition.PhysicalImageFilename)} is null. The file has not yet been initialised in the Virtual File System.");
 
-                        extractor = new MultiExtractor(extractors, true);
-                    }
+                            bool use7z;
 
-                    //Extractor which uses the SevenZipExtractor library from NuGet
-                    //Was hoping that we could get SevenZipExtractor to load the archive (which takes time) in the constructor, so that it would be more responsive when asked to extract a file from it. But it still takes too long, causing an explorer.exe timeout.
-                    /*
-                    {
-                        var partitionDetails = partitionContainer
-                                            .Partitions
-                                            .FirstOrDefault(partition => partition.Name.Equals(partitionName));
+                            if (testFile == null)
+                            {
+                                use7z = true;
+                            }
+                            else
+                            {
+                                Log.Debug($"[{containerName}] [{partitionName}] Running a performance test to determine the optimal way to extract files from this image.");
 
-                        if (partitionDetails == null) throw new Exception($"Could not load details for {partitionName}.");
-                        for (int i = 0; i < 4; i++)
-                        {
-                            //don't use - seems to return incorrect file content
-                            var newExtractor = new ExtractorUsingSevenZipExtractorLibrary(partitionDetails.FullPartitionImage);
+                                var testStart = DateTime.Now;
+                                var testExtractor = new ExtractorUsing7z(partition.PhysicalImageFilename);
+                                var testStream = testExtractor.Extract(testFile.Path);
+                                testStream.CopyTo(Stream.Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
 
-                            //doesn't seem to like being run concurrently. Likely because it uses the native 7z.dll
-                            //var newExtractor = new ExtractorUsingSevenZipExtractorLibrary(realImageFile);
+                                var testDuration = DateTime.Now - testStart;
 
-                            extractors.Add(newExtractor);
-                        }
-                    }
-                    */
+                                Log.Debug($"[{containerName}] [{partitionName}] Nominal file read in {testDuration.TotalSeconds:N1} seconds.");
+
+                                if (testDuration.TotalSeconds < 10)
+                                {
+                                    use7z = true;
+                                }
+                                else
+                                {
+                                    use7z = false;
+                                }
+                            }
+
+                            IExtractor extractor;
+                            if (use7z)
+                            {
+                                Log.Information($"[{containerName}] [{partitionName}] 7z.exe will be used to extract files from this partition.");
+
+                                //Extractor which uses 7z.exe.
+                                //It runs the process and returns its stdout straight away, so it's non-blocking.
+                                //Works fine, except it's too slow when extracting from a large archive, causing explorer.exe to assume the file isn't available.
+                                extractor = new ExtractorUsing7z(partition.PhysicalImageFilename);
+
+                                //This actually causes errors for FLP, because FLP uses more threads than are being served
+                                /*
+                                var extractors = new List<IExtractor>();
+                                for (int i = 0; i < 4; i++)
+                                {
+                                    var newExtractor = new ExtractorUsing7z(realImageFile);
+                                    extractors.Add(newExtractor);
+                                }
+
+                                extractor = new MultiExtractor(extractors, true);
+                                */
+                            }
+                            else
+                            {
+                                Log.Information($"[{containerName}] [{partitionName}] 7zFM.exe will be used to extract files from this partition.");
+
+                                //Extractor which uses the 7-Zip File Manager
+                                //Opens the archive here, up front. Subsequent extracts are quick                    
+                                var extractors = new List<IExtractor>();
+                                for (int i = 0; i < 4; i++)
+                                {
+                                    var newExtractor = new ExtractorUsing7zFM(partition.PhysicalImageFilename);
+                                    extractors.Add(newExtractor);
+                                }
+
+                                extractor = new MultiExtractor(extractors, true);
+                            }
+
+                            //Extractor which uses the SevenZipExtractor library from NuGet
+                            //Was hoping that we could get SevenZipExtractor to load the archive (which takes time) in the constructor, so that it would be more responsive when asked to extract a file from it. But it still takes too long, causing an explorer.exe timeout.
+                            /*
+                            {
+                                var partitionDetails = partitionContainer
+                                                    .Partitions
+                                                    .FirstOrDefault(partition => partition.Name.Equals(partitionName));
+
+                                if (partitionDetails == null) throw new Exception($"Could not load details for {partitionName}.");
+                                for (int i = 0; i < 4; i++)
+                                {
+                                    //don't use - seems to return incorrect file content
+                                    var newExtractor = new ExtractorUsingSevenZipExtractorLibrary(partitionDetails.FullPartitionImage);
+
+                                    //doesn't seem to like being run concurrently. Likely because it uses the native 7z.dll
+                                    //var newExtractor = new ExtractorUsingSevenZipExtractorLibrary(realImageFile);
+
+                                    extractors.Add(newExtractor);
+                                }
+                            }
+                            */
 
 
 
 
-                    //this layer caches streams as they're created, so that they are extracted only once
-                    extractor = new CachedExtractor(extractor);
+                            //this layer caches streams as they're created, so that they are extracted only once
+                            extractor = new CachedExtractor(extractor);
 
-                    //this layer makes the extractor thread-safe by wrapping each stream in a Stream.Synchronized()
-                    extractor = new SynchronisedExtractor(extractor);
+                            //this layer makes the extractor thread-safe by wrapping each stream in a Stream.Synchronized()
+                            extractor = new SynchronisedExtractor(extractor);
 
-                    var partitionRoot = new Folder(partitionName);
-
-                    CreateTree(partitionName, partitionRoot, filesInArchive, extractor);
-
-                    filesRoot.Children.Add(partitionRoot);
+                            var partitionRoot = new Folder(partitionName, containerFolder);
+                            CreateTree(containerName, partitionName, partitionRoot, filesInArchive, extractor);
+                        });
                 });
 
             //now that the file list is complete, we can add it to the root.
-            root.Children.AddRange(filesRoot.Children);
+            if (containers.Count == 1)
+            {
+                var partitionFolders = containerFolders
+                                    .SelectMany(containerFolder => containerFolder.Children)
+                                    .ToList();
+
+                root.AddChildren(partitionFolders);
+            }
+            else
+            {
+                root.AddChildren(containerFolders);
+            }
+
 
             Log.Information($"Mounting complete. Mounted to: {mountAsFilesOptions.MountPoint}");
             Console.WriteLine("Running. Press Enter to exit.");
             Console.ReadLine();
         }
 
-        protected static void CreateTree(string partitionName, Folder root, List<ArchiveEntry> allEntries, IExtractor extractor)
+        protected static void CreateTree(string containerName, string partitionName, Folder root, List<ArchiveEntry> allEntries, IExtractor extractor)
         {
-            Log.Debug($"[{partitionName}] Building folder dictionary.");
-            var folders = allEntries
-                                .Where(archiveEntry => archiveEntry.IsFolder)
-                                .OrderBy(archiveEntry => archiveEntry.Path)
+            Log.Debug($"[{containerName}] [{partitionName}] Building folder dictionary.");
+            var entries = allEntries
                                 .Select(archiveEntry =>
                                 {
-                                    var virtualFolderPath = archiveEntry.Path;
-                                    if (virtualFolderPath.EndsWith(@"\."))
+                                    FileSystemEntry newEntry;
+
+                                    string containingFolder;
+                                    string pathInArchive;
+                                    if (archiveEntry.IsFolder)
                                     {
-                                        virtualFolderPath = virtualFolderPath.Replace(@"\.", "");
+                                        var virtualFolderPath = archiveEntry.Path;
+                                        if (virtualFolderPath.EndsWith(@"\."))
+                                        {
+                                            virtualFolderPath = virtualFolderPath.Replace(@"\.", "");
+                                        }
+
+                                        var name = Path.GetFileName(virtualFolderPath);
+                                        newEntry = new Folder(name, null)
+                                        {
+                                            Created = archiveEntry.Created,
+                                            Modified = archiveEntry.Modified,
+                                            Accessed = archiveEntry.Accessed,
+                                        };
+
+                                        containingFolder = Path.GetDirectoryName(virtualFolderPath) ?? throw new Exception($"Could not get parent directory for: {virtualFolderPath}");
+                                        pathInArchive = virtualFolderPath;
                                     }
-                                    virtualFolderPath = Path.Combine(partitionName, virtualFolderPath);
-
-                                    var name = Path.GetFileName(virtualFolderPath);
-                                    var newFolder = new Folder(name)
+                                    else
                                     {
-                                        Created = archiveEntry.Created,
-                                        Modified = archiveEntry.Modified,
-                                        Accessed = archiveEntry.Accessed,
-                                        FullPath = virtualFolderPath,
-                                    };
+                                        var virtualFilePath = archiveEntry.Path;
 
-                                    return newFolder;
+                                        var name = Path.GetFileName(virtualFilePath);
+                                        newEntry = new SevenZipBackedFileEntry(archiveEntry, null, extractor);
+
+                                        containingFolder = Path.GetDirectoryName(virtualFilePath) ?? throw new Exception($"Could not get parent directory for: {virtualFilePath}");
+                                        pathInArchive = virtualFilePath;
+                                    }
+
+                                    return new
+                                    {
+                                        NewEntry = newEntry,
+                                        ContainingFolder = containingFolder,
+                                        PathInArchive = pathInArchive
+                                    };
                                 })
                                 .ToList();
 
-            Log.Debug($"[{partitionName}] Building file list.");
-            var files = allEntries
-                            .Where(archiveEntry => !archiveEntry.IsFolder)
-                            .Select(archiveEntry =>
-                            {
-                                var virtualFilePath = Path.Combine(partitionName, archiveEntry.Path);
+            var folderLookup = entries
+                                .Where(entry => entry.NewEntry is Folder)
+                                .ToDictionary(
+                                    entry => entry.PathInArchive,
+                                    entry => entry.NewEntry as Folder);
 
-                                var name = Path.GetFileName(archiveEntry.Path);
-                                var newFile = new SevenZipBackedFileEntry(archiveEntry, extractor)
-                                {
-                                    FullPath = virtualFilePath
-                                };
-                                return newFile;
-                            })
-                            .ToList();
+            folderLookup[""] = root;
 
-            var folderLookup = folders
-                                .ToDictionary(vfsEntry => vfsEntry.FullPath!);
+            var pathLookup = entries
+                                .ToDictionary(
+                                    vfsEntry => vfsEntry.NewEntry,
+                                    vfsEntry => vfsEntry.ContainingFolder);
 
-            folderLookup[root.Name] = root;
-
-            Log.Debug($"[{partitionName}] Establishing parent/child relationships.");
-            folders
+            Log.Debug($"[{containerName}] [{partitionName}] Establishing parent/child relationships.");
+            entries
+                .Select(entry => entry.NewEntry)
                 .Cast<FileSystemEntry>()
-                .Union(files)
                 .ForEach(fileSystemEntry =>
                 {
-                    var parentFolder = Path.GetDirectoryName(fileSystemEntry.FullPath);
-                    if (parentFolder == null) throw new Exception($"Could not derive parent for {fileSystemEntry.FullPath}");
+                    var parentFolder = pathLookup[fileSystemEntry];
 
                     var parent = folderLookup[parentFolder];
 
-                    parent.Children.Add(fileSystemEntry);
+                    if (parent == null) throw new Exception($"Parent not found for: {fileSystemEntry.FullPath}");
+
+                    fileSystemEntry.Parent = parent;
                 });
         }
 
@@ -473,65 +458,77 @@ namespace clonezilla_util
             }
         }
 
-        static void AddPartitionImagesToVirtualFolder(List<Partition> partitions, string mountPoint, Folder root, string virtualFolderPath)
+        private static void ExtractPartitionImage(ExtractPartitionImage extractPartitionImageOptions)
         {
-            partitions
-                .ForEach(partition =>
-                {
-                    var virtualImageFilename = Path.Combine(virtualFolderPath, $"{partition.Name}.img");
-                    var physicalImageFilename = Path.Combine(mountPoint, virtualImageFilename);
-
-                    var virtualFileName = Path.GetFileName(virtualImageFilename);
-
-                    var virtualFolder = root.CreateOrRetrieveFolder(virtualFolderPath);
-
-                    var fileEntry = new StreamBackedFileEntry(
-                        virtualFileName,
-                        () =>
-                        {
-                            var stream = partition.FullPartitionImage;
-                            return stream;
-                        })
-                    {
-                        Created = DateTime.Now,
-                        Accessed = DateTime.Now,
-                        Modified = DateTime.Now,
-                        Length = partition.FullPartitionImage.Length,
-                    };
-
-                    virtualFolder.Children.Add(fileEntry);
-                });
-        }
-
-        private static void ExtractPartitionImage(ExtractPartitionImage extractPartitionImageOptions, ClonezillaCacheManager clonezillaCacheManager)
-        {
-            if (extractPartitionImageOptions.InputPath == null) throw new Exception($"{nameof(extractPartitionImageOptions.InputPath)} not specified.");
+            if (extractPartitionImageOptions.InputPaths == null) throw new Exception($"{nameof(extractPartitionImageOptions.InputPaths)} not specified.");
             if (extractPartitionImageOptions.OutputFolder == null) throw new Exception($"{nameof(extractPartitionImageOptions.OutputFolder)} not specified.");
-
-            var partitionContainerType = IPartitionContainer.FromPath(extractPartitionImageOptions.InputPath);
-
-            IPartitionContainer partitionContainer = partitionContainerType switch
-            {
-                PartitionContainerType.ClonezillaFolder => new ClonezillaImage(extractPartitionImageOptions.InputPath, clonezillaCacheManager, extractPartitionImageOptions.PartitionsToExtract, false),
-                PartitionContainerType.PartcloneFile => new PartcloneFile(extractPartitionImageOptions.InputPath, false),
-                _ => throw new NotImplementedException()
-            };
-
-            var partitionsToExtract = partitionContainer.Partitions;
 
             if (!Directory.Exists(extractPartitionImageOptions.OutputFolder))
             {
                 Directory.CreateDirectory(extractPartitionImageOptions.OutputFolder);
             }
 
-            partitionsToExtract
-                .ForEach(partition =>
-                {
-                    var outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{partition.Name}.img");
+            var containers = PartitionContainer.FromPaths(
+                                extractPartitionImageOptions.InputPaths.ToList(),
+                                CacheFolder,
+                                extractPartitionImageOptions.PartitionsToExtract.ToList(),
+                                false);
 
-                    var makeSparse = !extractPartitionImageOptions.NoSparseOutput;
-                    partition.ExtractToFile(outputFilename, makeSparse);
+            containers
+                .ForEach(container =>
+                {
+                    var partitionsToExtract = container.Partitions;
+
+                    var containerName = container.GetName();
+
+                    partitionsToExtract
+                        .ForEach(partition =>
+                        {
+                            string outputFilename;
+                            if (containers.Count == 1)
+                            {
+                                outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{partition.Name}.img");
+                            }
+                            else
+                            {
+                                outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{containerName}.{partition.Name}.img");
+                            }
+
+                            var makeSparse = !extractPartitionImageOptions.NoSparseOutput;
+                            partition.ExtractToFile(outputFilename, makeSparse);
+                        });
                 });
+        }
+
+        private static void MountPartitionsAsImageFiles(List<PartitionContainer> containers, string mountPoint, Folder containersRoot, Folder rootToMount)
+        {
+            //tell each partition to create a virtual file
+            containers
+                .ForEach(container =>
+                {
+                    Folder containerFolder;
+
+                    if (containers.Count == 1)
+                    {
+                        containerFolder = containersRoot;
+                    }
+                    else
+                    {
+                        var containerName = container.GetName();
+                        containerFolder = new Folder(containerName, containersRoot);
+                    }
+
+                    container
+                        .Partitions
+                        .ForEach(partition =>
+                        {
+                            partition.AddPartitionImageToVirtualFolder(mountPoint, containerFolder);
+                        });
+                });
+
+            var vfs = new DokanVFS(PROGRAM_NAME, rootToMount);
+            Task.Factory.StartNew(() => vfs.Mount(mountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger()));
+            WaitForMountPointToBeAvailable(mountPoint);
         }
 
         private static void HandleErrors(IEnumerable<Error> obj)

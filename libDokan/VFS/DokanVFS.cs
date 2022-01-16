@@ -26,7 +26,9 @@ namespace libDokan
 
         public static void Test()
         {
-            var rootFolder = new Folder("");
+            var rootFolder = new Folder("", null);
+            var subfolder1 = new Folder("2021-12-28-13-img_PB-DEVOPS1_gz", rootFolder);
+            var subfolder2 = new Folder("extracted", subfolder1);
 
             var files = Directory
                         .GetFiles(@"E:\_img\3 - restored using clonezilla-util")
@@ -36,6 +38,7 @@ namespace libDokan
 
                             var file = new StreamBackedFileEntry(
                                 fi.Name,
+                                subfolder2,
                                 () =>
                                 {
                                     var stream = File.OpenRead(filename);
@@ -53,13 +56,6 @@ namespace libDokan
                         })
                         .ToList();
 
-            var subfolder2 = new Folder("extracted");
-            subfolder2.Children.AddRange(files);
-
-            var subfolder1 = new Folder("2021-12-28-13-img_PB-DEVOPS1_gz");
-            subfolder1.Children.Add(subfolder2);
-
-            rootFolder.Children.Add(subfolder1);
 
             var testFS = new DokanVFS("DokanVFS", rootFolder);
 
@@ -212,8 +208,8 @@ namespace libDokan
                     {
                         // returning AccessDenied cleanup and close won't be called,
                         // so we have to take care of the stream now
-                        stream.Dispose();
 
+                        //stream.Dispose();
                         //info.Context = null;
                     }
                     return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,

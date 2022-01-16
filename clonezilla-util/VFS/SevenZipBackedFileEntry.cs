@@ -3,6 +3,7 @@ using lib7Zip;
 using libDokan;
 using libDokan.VFS;
 using libDokan.VFS.Files;
+using libDokan.VFS.Folders;
 using Serilog;
 using SevenZip;
 using System;
@@ -19,12 +20,12 @@ namespace clonezilla_util.VFS
     public class SevenZipBackedFileEntry : FileEntry
     {
         //for Json deserializer
-        public SevenZipBackedFileEntry() : base("")
+        public SevenZipBackedFileEntry() : base("", null)
         {
             PathInArchive = "";
         }
 
-        public SevenZipBackedFileEntry(ArchiveEntry archiveEntry, IExtractor extractor) : base(Path.GetFileName(archiveEntry.Path))
+        public SevenZipBackedFileEntry(ArchiveEntry archiveEntry, Folder? parent, IExtractor extractor) : base(Path.GetFileName(archiveEntry.Path), parent)
         {
             Extractor = extractor;
 
