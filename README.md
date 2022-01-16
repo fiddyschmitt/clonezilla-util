@@ -12,7 +12,7 @@ First, install [this version](https://github.com/dokan-dev/dokany/releases/tag/v
 
 Now run the following command:
 
-`clonezilla-util mount --input <clonzilla folder> --mount L:\`
+`clonezilla-util.exe mount --input <clonzilla folder> --mount L:\`
 
 A virtual drive is created, containing all the files in the Clonezilla archive:
 
@@ -28,7 +28,7 @@ First, install [this version](https://github.com/dokan-dev/dokany/releases/tag/v
 
 Now run the following command:
 
-`clonezilla-util mount-as-image --input <clonzilla folder> --mount L:\`
+`clonezilla-util.exe mount-as-image --input <clonzilla folder> --mount L:\`
 
 A virtual drive is created, containing a file for each partition:
 
@@ -48,7 +48,7 @@ You can open them using 7-Zip, and extract individual files:
 
 Run the following command:
 
-`clonezilla-util extract-partition-image --input <clonzilla folder> --output <folder to extract to>`
+`clonezilla-util.exe extract-partition-image --input <clonzilla folder> --output <folder to extract to>`
 
 The program creates a file for each partition in the Clonezilla archive.
 
