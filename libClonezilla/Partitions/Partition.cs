@@ -226,7 +226,7 @@ namespace libClonezilla.Partitions
         {
             Log.Information($"[{containerName}] [{partitionName}] Extracting partition to: {outputFilename}");
 
-            var fileStream = File.Create(outputFilename);
+            using var fileStream = File.Create(outputFilename);
             ExtractToFile(sparseAwareInput, fileStream, makeSparse);
         }
 
