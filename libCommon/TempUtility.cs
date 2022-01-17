@@ -9,12 +9,30 @@ namespace libCommon
 {
     public static class TempUtility
     {
-        static List<string> Folders = new List<string>();
-        static List<string> Files = new List<string>();
+        static string tempRoot = Path.GetTempPath();
+        public static string TempRoot
+        {
+            get
+            {
+                return tempRoot;
+            }
+
+            set
+            {
+                tempRoot = value;
+                if (!Directory.Exists(tempRoot))
+                {
+                    Directory.CreateDirectory(tempRoot);
+                }
+            }
+        }
+
+        static readonly List<string> Folders = new();
+        static readonly List<string> Files = new();
 
         public static string GetTemporaryDirectory()
         {
-            string tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetFileNameWithoutExtension(Path.GetRandomFileName()));
+            string tempDirectory = Path.Combine(TempRoot, Path.GetFileNameWithoutExtension(Path.GetRandomFileName()));
             Directory.CreateDirectory(tempDirectory);
 
             lock (Folders)
@@ -27,7 +45,7 @@ namespace libCommon
 
         public static string GetTempFilename(bool createEmptyFile)
         {
-            var tempFilename = Path.GetTempFileName();
+            var tempFilename = Path.Combine(TempRoot, Path.GetRandomFileName());
 
             if (createEmptyFile)
             {

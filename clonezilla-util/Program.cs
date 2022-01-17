@@ -63,6 +63,7 @@ namespace clonezilla_util
             Log.Debug("Start");
             PrintProgramVersion();
 
+            TempUtility.TempRoot = Path.Combine(CacheFolder, "Temp");
             var types = LoadVerbs();
 
             Parser.Default.ParseArguments(args, types)

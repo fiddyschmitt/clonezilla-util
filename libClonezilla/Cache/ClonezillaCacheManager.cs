@@ -12,17 +12,10 @@ namespace libClonezilla.Cache
         {
             ClonezillaFolder = clonezillaFolder;
             CacheRootFolder = cacheRootFolder;
-
-            TempFolder = Path.Combine(CacheRootFolder, "Temp");
-            if (!Directory.Exists(TempFolder))
-            {
-                Directory.CreateDirectory(TempFolder);
-            }
         }
 
         public string ClonezillaFolder { get; }
         public string CacheRootFolder { get; }
-        public string TempFolder { get; }
 
         public IPartitionCache GetPartitionCache(string partitionName)
         {
