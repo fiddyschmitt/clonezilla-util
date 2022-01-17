@@ -14,16 +14,19 @@ namespace libCommon
         {
             get
             {
+                lock (tempRoot)
+                {
+                    if (!Directory.Exists(tempRoot))
+                    {
+                        Directory.CreateDirectory(tempRoot);
+                    }
+                }
                 return tempRoot;
             }
 
             set
             {
                 tempRoot = value;
-                if (!Directory.Exists(tempRoot))
-                {
-                    Directory.CreateDirectory(tempRoot);
-                }
             }
         }
 

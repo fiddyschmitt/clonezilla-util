@@ -63,7 +63,6 @@ namespace clonezilla_util
             Log.Debug("Start");
             PrintProgramVersion();
 
-            TempUtility.TempRoot = Path.Combine(CacheFolder, "Temp");
             var types = LoadVerbs();
 
             Parser.Default.ParseArguments(args, types)
@@ -89,6 +88,14 @@ namespace clonezilla_util
 
         private static void Run(object obj)
         {
+            if (obj is BaseVerb baseVerb)
+            {
+                if (baseVerb.TempFolder != null)
+                {
+                    TempUtility.TempRoot = baseVerb.TempFolder;
+                }
+            }
+
             switch (obj)
             {
                 case ListContents listContentsOptions:
