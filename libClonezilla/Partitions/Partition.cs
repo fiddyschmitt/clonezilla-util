@@ -124,7 +124,7 @@ namespace libClonezilla.Partitions
                 {
                     //For now, let's extract it to a file so that we can have fast seeking
 
-                    Log.Information($"Zstandard doesn't support random seeking. Extracting to a temporary file.");
+                    Log.Information($"[{containerName}] [{partitionName}] Zstandard doesn't support random seeking. Extracting to a temporary file.");
 
                     var decompressor = new DecompressionStream(compressedPartcloneStream);
 
@@ -136,7 +136,7 @@ namespace libClonezilla.Partitions
                         totalCopied =>
                         {
                             var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
-                            Log.Information($"Extracted {totalCopiedStr} of partclone file.");
+                            Log.Information($"[{containerName}] [{partitionName}] Extracted {totalCopiedStr} of partclone file.");
                         });
 
                     uncompressedPartcloneStream = (tempFileStream, false);
@@ -227,12 +227,11 @@ namespace libClonezilla.Partitions
             Log.Information($"[{containerName}] [{partitionName}] Extracting partition to: {outputFilename}");
 
             using var fileStream = File.Create(outputFilename);
-            ExtractToFile(sparseAwareInput, fileStream, makeSparse);
+            ExtractToFile(containerName, partitionName, sparseAwareInput, fileStream, makeSparse);
         }
 
-        public static void ExtractToFile(ISparseAwareReader sparseAwareInput, FileStream fileStream, bool makeSparse)
+        public static void ExtractToFile(string containerName, string partitionName, ISparseAwareReader sparseAwareInput, FileStream fileStream, bool makeSparse)
         {
-
             if (libCommon.Utility.IsOnNTFS(fileStream.Name) && makeSparse)
             {
                 //a hack to speed things up. Let's make the output file sparse, so that we don't have to write zeroes for all the unpopulated ranges
@@ -255,7 +254,7 @@ namespace libClonezilla.Partitions
 
                         var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
                         var totalStr = libCommon.Extensions.BytesToString(sparseAwareInput.Length);
-                        Log.Information($"Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
+                        Log.Information($"[{containerName}] [{partitionName}] Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
                     });
             }
             else
@@ -270,7 +269,7 @@ namespace libClonezilla.Partitions
 
                         var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
                         var totalStr = libCommon.Extensions.BytesToString(sparseAwareInput.Length);
-                        Log.Information($"Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
+                        Log.Information($"[{containerName}] [{partitionName}] Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
                     });
             }
         }
