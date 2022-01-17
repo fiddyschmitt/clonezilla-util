@@ -4,6 +4,7 @@ using libClonezilla.Partitions;
 using libCommon.Streams;
 using libPartclone;
 using libPartclone.Cache;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -18,6 +19,7 @@ namespace libClonezilla.PartitionContainers
         public ClonezillaImage(string clonezillaArchiveFolder, IClonezillaCacheManager cacheManager, IEnumerable<string>? partitionsToLoad, bool willPerformRandomSeeking)
         {
             ClonezillaArchiveFolder = clonezillaArchiveFolder;
+            var containerName = GetName();
 
             var partsFilename = Path.Combine(clonezillaArchiveFolder, "parts");
 
@@ -95,10 +97,20 @@ namespace libClonezilla.PartitionContainers
 
                                 var compressedPartcloneStream = new Multistream(containerStreams);
 
-                                var result = new Partition(this, compressedPartcloneStream, compressionInUse, partitionName, partitionCache, partcloneCache, willPerformRandomSeeking);
+                                Partition? result = null;
+
+                                try
+                                {
+                                    result = new Partition(this, compressedPartcloneStream, compressionInUse, partitionName, partitionCache, partcloneCache, willPerformRandomSeeking);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log.Error(ex, $"[{containerName}] [{partitionName}] Error while opening partition");
+                                }
 
                                 return result;
                             })
+                            .OfType<Partition>()
                             .ToList();
         }
 

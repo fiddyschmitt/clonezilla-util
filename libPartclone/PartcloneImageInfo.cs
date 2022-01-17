@@ -70,8 +70,7 @@ namespace libPartclone
 
                 binaryReader.ReadBytes(8);  //BIT_MAGIC_SIZE = 8. This is just a magic string to signify the start of the Bitmap. BiTmAgIc
             }
-
-            if (imageVersion.Equals("0002"))
+            else if (imageVersion.Equals("0002"))
             {
                 ImageDescV2 = new ImageDescV2(binaryReader);
 
@@ -84,6 +83,10 @@ namespace libPartclone
 
                 //skip something
                 binaryReader.ReadBytes(4);
+            }
+            else
+            {
+                throw new Exception($"Unknown partclone image version: {imageVersion}");
             }
 
             //File.WriteAllBytes($"C:\\Temp\\{clonezillaArchiveName}\\{partitionName}.bitmap", Bitmap);
