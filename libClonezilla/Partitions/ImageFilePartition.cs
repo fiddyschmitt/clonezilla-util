@@ -15,7 +15,7 @@ namespace libClonezilla.Partitions
     {
         public ImageFilePartition(PartitionContainer container, string partitionName, Stream stream, long? uncompressedSize, Compression compressionInUse, IPartitionCache? partitionCache, bool willPerformRandomSeeking) : base(container, partitionName, partitionCache)
         {
-            Log.Information($"[{container.Name}] [{partitionName}] Finding optimal decompressor");
+            Log.Information($"[{container.Name}] [{partitionName}] Finding optimal decompressor (seekable/sequential)");
 
             var decompressorSelector = new DecompressorSelector(container.Name, partitionName, stream, uncompressedSize, compressionInUse, partitionCache);
 
