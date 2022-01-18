@@ -1,5 +1,6 @@
 ﻿using libClonezilla.Cache;
 using libClonezilla.Cache.FileSystem;
+using libClonezilla.Decompressors;
 using libClonezilla.Partitions;
 using libCommon.Streams;
 using libPartclone;
@@ -19,7 +20,6 @@ namespace libClonezilla.PartitionContainers
         public ClonezillaImage(string clonezillaArchiveFolder, IClonezillaCacheManager cacheManager, IEnumerable<string>? partitionsToLoad, bool willPerformRandomSeeking)
         {
             ClonezillaArchiveFolder = clonezillaArchiveFolder;
-            var containerName = GetName();
 
             var partsFilename = Path.Combine(clonezillaArchiveFolder, "parts");
 
@@ -51,57 +51,65 @@ namespace libClonezilla.PartitionContainers
                             .Select(partitionName =>
                             {
                                 var driveName = new string(partitionName.TakeWhile(c => !char.IsNumber(c)).ToArray());
+
                                 var drivePartitionsFilename = Path.Combine(clonezillaArchiveFolder, $"{driveName}-pt.sf");
 
-                                if (!File.Exists(drivePartitionsFilename))
-                                {
-                                    throw new Exception($"Could not find the drive partitions file: {drivePartitionsFilename}");
-                                }
-
-                                /*
                                 //get the original size of the partition
-                                var lines = File.ReadAllLines(drivePartitionsFilename);
+                                long? partitionSizeInBytes = null;
+                                try
+                                {
 
-                                var sectorSizeInBytesStr = lines
-                                                            .First(line => line.StartsWith("sector-size"))
-                                                            .Split(':')
-                                                            .Last()
-                                                            .Trim();
 
-                                var sectorSizeInBytes = int.Parse(sectorSizeInBytesStr);
+                                    if (!File.Exists(drivePartitionsFilename))
+                                    {
+                                        throw new Exception($"Could not find the drive partitions file: {drivePartitionsFilename}");
+                                    }
 
-                                var partitionSizeInSectorsString = lines
-                                                                    .First(line => line.StartsWith($"/dev/{partitionName}"))
-                                                                    .Split("size=")[1]
-                                                                    .Split(",")[0]
-                                                                    .Trim();
+                                    var lines = File.ReadAllLines(drivePartitionsFilename);
 
-                                var partitionSizeInSectors = long.Parse(partitionSizeInSectorsString);
-                                var partitionSizeInBytes = partitionSizeInSectors * sectorSizeInBytes;
-                                */
+                                    var sectorSizeInBytesStr = lines
+                                                                .First(line => line.StartsWith("sector-size"))
+                                                                .Split(':')
+                                                                .Last()
+                                                                .Trim();
+
+                                    var sectorSizeInBytes = int.Parse(sectorSizeInBytesStr);
+
+                                    var partitionSizeInSectorsString = lines
+                                                                        .First(line => line.StartsWith($"/dev/{partitionName}"))
+                                                                        .Split("size=")[1]
+                                                                        .Split(",")[0]
+                                                                        .Trim();
+
+                                    var partitionSizeInSectors = long.Parse(partitionSizeInSectorsString);
+                                    partitionSizeInBytes = partitionSizeInSectors * sectorSizeInBytes;
+                                }
+                                catch
+                                {
+                                    Log.Debug($"Could not get sector size from: {drivePartitionsFilename}");
+                                }
 
 
                                 var partitionCache = cacheManager.GetPartitionCache(partitionName);
                                 var partcloneCache = partitionCache as IPartcloneCache;
 
-                                //determine the type of compression in use
-                                (var compressionInUse, var containerFilenames) = GetCompressionInUse(clonezillaArchiveFolder, partitionName);
+                                var splitFilenames = Directory
+                                                        .GetFiles(clonezillaArchiveFolder, $"{partitionName}.*-ptcl-img*")
+                                                        .ToList();
 
-                                var firstContainerFilename = containerFilenames.First();
+                                var compressionInUse = GetCompressionInUse(clonezillaArchiveFolder, partitionName);
 
-                                var partitionType = Path.GetFileName(firstContainerFilename).Split('.', '-')[1];
-
-                                var containerStreams = containerFilenames
+                                var splitFileStreams = splitFilenames
                                                         .Select(filename => new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                                                         .ToList();
 
-                                var compressedPartcloneStream = new Multistream(containerStreams);
+                                var compressedPartcloneStream = new Multistream(splitFileStreams);
 
                                 Partition? result = null;
 
                                 try
                                 {
-                                    result = new Partition(this, compressedPartcloneStream, compressionInUse, partitionName, partitionCache, partcloneCache, willPerformRandomSeeking);
+                                    result = new PartclonePartition(this, partitionName, compressedPartcloneStream, partitionSizeInBytes, compressionInUse, partitionCache, partcloneCache, willPerformRandomSeeking);
                                 }
                                 catch (Exception ex)
                                 {
@@ -114,13 +122,7 @@ namespace libClonezilla.PartitionContainers
                             .ToList();
         }
 
-        public override string GetName()
-        {
-            var containerName = Path.GetFileName(ClonezillaArchiveFolder) ?? throw new Exception($"Could not get container name from path: {ClonezillaArchiveFolder}");
-            return containerName;
-        }
-
-        public static (Compression compression, List<string> containerFilenames) GetCompressionInUse(string clonezillaArchiveFolder, string partitionName)
+        public static Compression GetCompressionInUse(string clonezillaArchiveFolder, string partitionName)
         {
             var compressionPatterns = new (Compression Compression, string FilenamePattern)[]
             {
@@ -137,12 +139,30 @@ namespace libClonezilla.PartitionContainers
 
                 if (files.Count > 0)
                 {
-                    var result = (pattern.Compression, files);
+                    var result = pattern.Compression;
                     return result;
                 }
             }
-
             throw new Exception($"Could not determine compression used by partition {partitionName} in: {clonezillaArchiveFolder}");
+        }
+
+        string? containerName;
+        public override string Name
+        {
+            get
+            {
+                if (containerName == null)
+                {
+                    containerName = Path.GetFileName(ClonezillaArchiveFolder) ?? throw new Exception($"Could not get container name from path: {ClonezillaArchiveFolder}");
+                }
+
+                return containerName;
+            }
+
+            set
+            {
+                containerName = value;
+            }
         }
     }
 }

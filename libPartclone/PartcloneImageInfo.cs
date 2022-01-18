@@ -111,11 +111,19 @@ namespace libPartclone
             }
         }
 
+        public long Length
+        {
+            get
+            {
+                long deviceSizeBytes = (long)(ImageDescV1?.FileSystemInfoV1?.DeviceSizeBytes ?? ImageDescV2?.FileSystemInfoV2?.DeviceSizeBytes ?? 0);
+                return deviceSizeBytes;
+            }
+        }
+
         void DeduceContiguousRanges()
         {
             if (Bitmap == null) return;
 
-            long deviceSizeBytes = (long)(ImageDescV1?.FileSystemInfoV1?.DeviceSizeBytes ?? ImageDescV2?.FileSystemInfoV2?.DeviceSizeBytes ?? 0);
 
             long blockIndex = 0;
             long populatedBlockIndex = 0;
@@ -217,20 +225,11 @@ namespace libPartclone
                     populatedBlockIndex++;
                 }
 
-                if (currentRange.OutputFileRange.EndByte > deviceSizeBytes)
+                if (currentRange.OutputFileRange.EndByte > Length)
                 {
-                    currentRange.OutputFileRange.EndByte = deviceSizeBytes - 1;
+                    currentRange.OutputFileRange.EndByte = Length - 1;
                 }
             }
-
-            //File.WriteAllText(@"C:\Temp\ranges.txt", PartcloneContentMapping.Select(r => $"{r.OutputFileRange.StartByte},{r.OutputFileRange.EndByte}").ToString(Environment.NewLine));
         }
-    }
-
-    public enum Compression
-    {
-        Gzip,
-        Zstandard,
-        None
     }
 }

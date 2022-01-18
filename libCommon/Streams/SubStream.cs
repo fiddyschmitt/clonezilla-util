@@ -10,10 +10,10 @@ namespace libCommon.Streams
         public SubStream(Stream baseStream, long startByte, long endByte)
         {
             BaseStream = baseStream;
-            BaseStream.Position = startByte;
-
             StartByte = startByte;
             EndByte = endByte;
+
+            Seek(0, SeekOrigin.Begin);
         }
         public override bool CanRead => true;
 
@@ -32,7 +32,7 @@ namespace libCommon.Streams
 
         public override long Position
         {
-            get => BaseStream.Position;
+            get => BaseStream.Position - StartByte;
             set => Seek(value, SeekOrigin.Begin);
         }
         public Stream BaseStream { get; }
@@ -46,18 +46,45 @@ namespace libCommon.Streams
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            var bytesLeft = EndByte - Position;
+            //if (Position == Length) return 0;
 
-            var newCount = (int)Math.Min(bytesLeft, count);
+            var bytesLeftInVirtualFile = Length - Position;
+            //var bytesLeftInBaseStream = BaseStream.Length - BaseStream.Position;
 
-            var result = BaseStream.Read(buffer, offset, newCount);
+            if (Position >= BaseStream.Length)
+            {
+                //we are beyond the original stream. Just return blanks
+                var toClear = (int)Math.Min(bytesLeftInVirtualFile, count);
+                Array.Clear(buffer, offset, toClear);
+                return toClear;
+            }
+
+            var toRead = count;
+            toRead = (int)Math.Min(toRead, bytesLeftInVirtualFile);
+            //toRead = (int)Math.Min(toRead, bytesLeftInBaseStream);
+
+            var result = BaseStream.Read(buffer, offset, toRead);
             return result;
         }
 
         public override long Seek(long offset, SeekOrigin origin)
         {
-            BaseStream.Seek(offset, origin);
-            return BaseStream.Position;
+            switch (origin)
+            {
+                case SeekOrigin.Begin:
+                    BaseStream.Seek(StartByte + offset, origin);
+                    break;
+
+                case SeekOrigin.Current:
+                    BaseStream.Seek(offset, origin);
+                    break;
+
+                case SeekOrigin.End:
+                    BaseStream.Seek(EndByte + offset, origin);
+                    break;
+            }
+
+            return Position;
         }
 
         public override void SetLength(long value)

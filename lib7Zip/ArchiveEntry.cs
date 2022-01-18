@@ -20,5 +20,11 @@ namespace lib7Zip
         public DateTime Modified;
         public DateTime Created;
         public DateTime Accessed;
+        public long? Offset;
+
+        public override string ToString()
+        {
+            return Path;
+        }
     }
 }

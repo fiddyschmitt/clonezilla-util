@@ -13,10 +13,11 @@ namespace libCommon.Streams.Seekable
         long? length = null;
         Stream underlyingStream;
 
-        public SeekableStreamUsingRestarts(Func<Stream> resetStream)
+        public SeekableStreamUsingRestarts(Func<Stream> resetStream, long? length)
         {
             underlyingStream = resetStream.Invoke();
             StreamFactory = resetStream;
+            this.length = length;
         }
 
         public override bool CanRead => true;
@@ -87,7 +88,7 @@ namespace libCommon.Streams.Seekable
 
             if (position < oldPosition)
             {
-                Log.Debug($"Restarting stream and seeking to correct position");
+                Log.Debug($"Restarting stream. Need to seek from beginning to position {position.BytesToString()}");
 
                 //The original stream can't go backwards. So we need to start over
                 underlyingStream = StreamFactory.Invoke();
@@ -96,7 +97,25 @@ namespace libCommon.Streams.Seekable
             else
             {
                 var toSeek = position - oldPosition;
-                underlyingStream.CopyTo(Null, toSeek, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+
+                if (toSeek > 0)
+                {
+                    Log.Debug($"Was asked to seek from position {oldPosition:N0} to {position:N0}. To get there, need to seek {toSeek.BytesToString()}");
+
+                    /*
+                    if (toSeek > Buffers.ARBITARY_HUGE_SIZE_BUFFER)
+                    {
+                        //Experiment
+
+                        //7-Zip didn't like us doing this? Why? It's fine in SiphonStream
+                        toSeek = Buffers.ARBITARY_HUGE_SIZE_BUFFER;
+                        Log.Debug($"That's a bit far. How about a {toSeek.BytesToString()} seek instead?");
+                    }
+                    */
+
+                    var seeked = underlyingStream.CopyTo(Null, toSeek, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+                    position = oldPosition + seeked;
+                }
             }
 
             return Position;

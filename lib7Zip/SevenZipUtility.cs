@@ -1,4 +1,5 @@
 ﻿using libCommon;
+using Serilog;
 using System.Runtime.InteropServices;
 
 namespace lib7Zip
@@ -20,9 +21,9 @@ namespace lib7Zip
             throw new Exception("OS not supported yet.");
         }
 
-        public static void ExtractFileToFolder(string inputFilename, string outputFolder, bool verbose)
+        public static void ExtractFileToFolder(string inputFilename, string outputFolder, bool verbose, bool throwExceptionIfProcessHadErrors)
         {
-            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), new[] { $"x \"{inputFilename}\" -p\"blah\" -r -y -o\"{outputFolder}\"" }, verbose);
+            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), $"x \"{inputFilename}\" -p\"blah\" -r -y -o\"{outputFolder}\"", verbose, throwExceptionIfProcessHadErrors);
 
             //iteration will finish when the program has exited
             _ = sevenZipOutput.ToList();
@@ -33,8 +34,6 @@ namespace lib7Zip
             var args = $"e \"{archiveFilename}\" \"{fileInArchive}\" -so";
 
             ProcessUtility.ExecuteProcess(SevenZipExe(), args, null, outputStream);
-
-
         }
 
         public static Stream ExtractFileFromArchive(string archiveFilename, string fileInArchive)
@@ -42,13 +41,24 @@ namespace lib7Zip
             var args = $"e \"{archiveFilename}\" \"{fileInArchive}\" -so";
 
             var process = ProcessUtility.ExecuteProcess(SevenZipExe(), args, null);
+            //var result = process.StandardOutput.BaseStream;
             var result = process.StandardOutput.BaseStream;
             return result;
         }
 
-        public static IEnumerable<ArchiveEntry> GetArchiveEntries(string archiveFilename, bool verbose)
+        public static IEnumerable<ArchiveEntry> GetArchiveEntries(string archiveFilename, bool verbose, bool throwExceptionIfProcessHadErrors, Func<bool>? shouldStop = null)
         {
-            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), new[] { $"l -slt \"{archiveFilename}\"" }, verbose);
+            Func<string, bool>? shouldStopProcess = null;
+            if (shouldStop != null)
+            {
+                shouldStopProcess = line =>
+                {
+                    var requestStop = shouldStop();
+                    return requestStop;
+                };
+            }
+
+            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), $"l -slt \"{archiveFilename}\"", verbose, throwExceptionIfProcessHadErrors, shouldStopProcess);
 
             ArchiveEntry? currentEntry = null;
             foreach (var line in sevenZipOutput)
@@ -79,6 +89,7 @@ namespace lib7Zip
                 if (!currentEntry.IsFolder)
                 {
                     if (line.StartsWith($"Size =")) currentEntry.Size = long.Parse(line.Replace("Size = ", ""));
+                    if (line.StartsWith($"Offset =")) currentEntry.Offset = long.Parse(line.Replace("Offset = ", ""));
                 }
 
                 if (line.StartsWith($"Modified =")) DateTime.TryParse(line.Replace("Modified = ", ""), out currentEntry.Modified);
@@ -87,9 +98,9 @@ namespace lib7Zip
             }
         }
 
-        public static IEnumerable<string> GetArchivesInFolder(string inputFolder, bool verbose)
+        public static IEnumerable<string> GetArchivesInFolder(string inputFolder, bool verbose, bool throwExceptionIfProcessHadErrors)
         {
-            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), new[] { $"l \"{inputFolder.EnsureEndsInPathSeparator()}\"" }, verbose);
+            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), $"l \"{inputFolder.EnsureEndsInPathSeparator()}\"", verbose, throwExceptionIfProcessHadErrors);
 
             foreach (var line in sevenZipOutput)
             {
@@ -100,12 +111,27 @@ namespace lib7Zip
                     {
                         if (verbose)
                         {
-                            Console.WriteLine($"Found archive: {archiveFilename}");
+                            Log.Information($"Found archive: {archiveFilename}");
                         }
                         yield return archiveFilename;
                     }
                 }
             }
+        }
+
+        public static bool IsArchive(string filename)
+        {
+            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), $"l \"{filename}\"", false, true);
+
+            foreach (var line in sevenZipOutput)
+            {
+                if (line.StartsWith($"Path ="))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

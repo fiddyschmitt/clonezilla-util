@@ -91,6 +91,13 @@ namespace libCommon.Streams
                         break;
                     }
 
+                    if (bytesRead < toRead)
+                    {
+                        var trimmedBuff = new byte[bytesRead];
+                        Array.Copy(buff, trimmedBuff, trimmedBuff.Length);
+                        buff = trimmedBuff;
+                    }
+
                     cacheEntry = new CacheEntry(recommendedRead.Start, recommendedRead.Start + bytesRead, buff);
 
                     //clear the cache until there's enough room

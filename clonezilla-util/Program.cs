@@ -35,7 +35,7 @@ namespace clonezilla_util
     class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "1.3.1";
+        const string PROGRAM_VERSION = "1.4";
 
         private enum ReturnCode
         {
@@ -133,10 +133,11 @@ namespace clonezilla_util
                                 CacheFolder,
                                 listContentsOptions.PartitionsToInspect.ToList(),
                                 true)
-                            .OrderBy(container => container.GetName())
+                            .OrderBy(container => container.Name)
                             .ToList();
 
-            MountPartitionsAsImageFiles(
+            libClonezilla.Utility.MountPartitionsAsImageFiles(
+                PROGRAM_NAME,
                 containers,
                 mountPoint,
                 root,
@@ -149,16 +150,15 @@ namespace clonezilla_util
             partitions
                 .ForEach(partition =>
                 {
-                    var containerName = partition.Container.GetName();
                     var partitionName = partition.Name;
 
-                    Log.Information($"[{containerName}] [{partitionName}] Retrieving a list of files.");
+                    Log.Information($"[{partition.Container.Name}] [{partitionName}] Retrieving a list of files.");
 
                     var filesInArchive = partition.GetFilesInPartition();
 
                     foreach (var archiveEntry in filesInArchive)
                     {
-                        var filenameIncludingPartition = Path.Combine(containerName, partitionName, archiveEntry.Path);
+                        var filenameIncludingPartition = Path.Combine(partition.Container.Name, partitionName, archiveEntry.Path);
 
                         Console.Write(filenameIncludingPartition);
                         if (listContentsOptions.UseNullSeparator)
@@ -187,7 +187,8 @@ namespace clonezilla_util
                                 mountAsImageOptions.PartitionsToMount.ToList(),
                                 true);
 
-            MountPartitionsAsImageFiles(
+            libClonezilla.Utility.MountPartitionsAsImageFiles(
+                PROGRAM_NAME,
                 containers,
                 mountPoint,
                 root,
@@ -218,8 +219,9 @@ namespace clonezilla_util
                 Hidden = true
             };
 
-            MountPartitionsAsImageFiles(
-                containers,
+            libClonezilla.Utility.MountPartitionsAsImageFiles(
+                 PROGRAM_NAME,
+                 containers,
                 mountAsFilesOptions.MountPoint,
                 imagesRoot,
                 root);
@@ -230,8 +232,7 @@ namespace clonezilla_util
             containers
                 .ForEach(container =>
                 {
-                    var containerName = container.GetName();
-                    var containerFolder = new Folder(containerName, null);
+                    var containerFolder = new Folder(container.Name, null);
                     containerFolders.Add(containerFolder);
 
                     container
@@ -240,7 +241,7 @@ namespace clonezilla_util
                         {
                             var partitionName = partition.Name;
 
-                            Log.Information($"[{containerName}] [{partitionName}] Retrieving a list of files.");
+                            Log.Information($"[{container.Name}] [{partitionName}] Retrieving a list of files.");
 
                             var filesInArchive = partition.GetFilesInPartition().ToList();
 
@@ -260,7 +261,7 @@ namespace clonezilla_util
                             }
                             else
                             {
-                                Log.Debug($"[{containerName}] [{partitionName}] Running a performance test to determine the optimal way to extract files from this image.");
+                                Log.Debug($"[{container.Name}] [{partitionName}] Running a performance test to determine the optimal way to extract files from this image.");
 
                                 var testStart = DateTime.Now;
                                 var testExtractor = new ExtractorUsing7z(partition.PhysicalImageFilename);
@@ -269,7 +270,7 @@ namespace clonezilla_util
 
                                 var testDuration = DateTime.Now - testStart;
 
-                                Log.Debug($"[{containerName}] [{partitionName}] Nominal file read in {testDuration.TotalSeconds:N1} seconds.");
+                                Log.Debug($"[{container.Name}] [{partitionName}] Nominal file read in {testDuration.TotalSeconds:N1} seconds.");
 
                                 if (testDuration.TotalSeconds < 10)
                                 {
@@ -284,7 +285,7 @@ namespace clonezilla_util
                             IExtractor extractor;
                             if (use7z)
                             {
-                                Log.Information($"[{containerName}] [{partitionName}] 7z.exe will be used to extract files from this partition.");
+                                Log.Information($"[{container.Name}] [{partitionName}] 7z.exe will be used to extract files from this partition.");
 
                                 //Extractor which uses 7z.exe.
                                 //It runs the process and returns its stdout straight away, so it's non-blocking.
@@ -305,7 +306,7 @@ namespace clonezilla_util
                             }
                             else
                             {
-                                Log.Information($"[{containerName}] [{partitionName}] 7zFM.exe will be used to extract files from this partition.");
+                                Log.Information($"[{container.Name}] [{partitionName}] 7zFM.exe will be used to extract files from this partition.");
 
                                 //Extractor which uses the 7-Zip File Manager
                                 //Opens the archive here, up front. Subsequent extracts are quick                    
@@ -351,7 +352,7 @@ namespace clonezilla_util
                             extractor = new SynchronisedExtractor(extractor);
 
                             var partitionRoot = new Folder(partitionName, containerFolder);
-                            CreateTree(containerName, partitionName, partitionRoot, filesInArchive, extractor);
+                            CreateTree(container.Name, partitionName, partitionRoot, filesInArchive, extractor);
                         });
                 });
 
@@ -453,19 +454,6 @@ namespace clonezilla_util
                 });
         }
 
-        private static void WaitForMountPointToBeAvailable(string mountPoint)
-        {
-            Log.Information($"Waiting for {mountPoint} to be available.");
-            while (true)
-            {
-                if (Directory.Exists(mountPoint))
-                {
-                    break;
-                }
-                Thread.Sleep(100);
-            }
-        }
-
         private static void ExtractPartitionImage(ExtractPartitionImage extractPartitionImageOptions)
         {
             if (extractPartitionImageOptions.InputPaths == null) throw new Exception($"{nameof(extractPartitionImageOptions.InputPaths)} not specified.");
@@ -487,8 +475,6 @@ namespace clonezilla_util
                 {
                     var partitionsToExtract = container.Partitions;
 
-                    var containerName = container.GetName();
-
                     partitionsToExtract
                         .ForEach(partition =>
                         {
@@ -499,44 +485,13 @@ namespace clonezilla_util
                             }
                             else
                             {
-                                outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{containerName}.{partition.Name}.img");
+                                outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{container.Name}.{partition.Name}.img");
                             }
 
                             var makeSparse = !extractPartitionImageOptions.NoSparseOutput;
                             partition.ExtractToFile(outputFilename, makeSparse);
                         });
                 });
-        }
-
-        private static void MountPartitionsAsImageFiles(List<PartitionContainer> containers, string mountPoint, Folder containersRoot, Folder rootToMount)
-        {
-            //tell each partition to create a virtual file
-            containers
-                .ForEach(container =>
-                {
-                    Folder containerFolder;
-
-                    if (containers.Count == 1)
-                    {
-                        containerFolder = containersRoot;
-                    }
-                    else
-                    {
-                        var containerName = container.GetName();
-                        containerFolder = new Folder(containerName, containersRoot);
-                    }
-
-                    container
-                        .Partitions
-                        .ForEach(partition =>
-                        {
-                            partition.AddPartitionImageToVirtualFolder(mountPoint, containerFolder);
-                        });
-                });
-
-            var vfs = new DokanVFS(PROGRAM_NAME, rootToMount);
-            Task.Factory.StartNew(() => vfs.Mount(mountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger()));
-            WaitForMountPointToBeAvailable(mountPoint);
         }
 
         private static void HandleErrors(IEnumerable<Error> obj)

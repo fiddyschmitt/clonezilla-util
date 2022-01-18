@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Linq;
+using lib7Zip;
 
 namespace libClonezilla.PartitionContainers
 {
@@ -12,7 +13,7 @@ namespace libClonezilla.PartitionContainers
     {
         public List<Partition> Partitions { get; protected set; } = new List<Partition>();
 
-        public abstract string GetName();
+        public abstract string Name { get; set; }
 
         public static PartitionContainer FromPath(string path, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking)
         {
@@ -28,22 +29,20 @@ namespace libClonezilla.PartitionContainers
                     result = new ClonezillaImage(path, clonezillaCacheManager, partitionsToLoad, willPerformRandomSeeking);
                 }
             }
-            else
+            else if (File.Exists(path))
             {
-                if (File.Exists(path))
-                {
-                    try
-                    {
-                        using var fileStream = File.OpenRead(path);
-                        using var binaryReader = new BinaryReader(fileStream);
-                        var magic = Encoding.ASCII.GetString(binaryReader.ReadBytes(16)).TrimEnd('\0');
+                using var fileStream = File.OpenRead(path);
+                using var binaryReader = new BinaryReader(fileStream);
+                var magic = Encoding.ASCII.GetString(binaryReader.ReadBytes(16)).TrimEnd('\0');
 
-                        if (magic.Equals("partclone-image"))
-                        {
-                            result = new PartcloneFile(path, willPerformRandomSeeking);
-                        }
-                    }
-                    catch { }
+                if (magic.Equals("partclone-image"))
+                {
+                    result = new PartcloneFile(path, willPerformRandomSeeking);
+                }
+                else
+                {
+                    //todo: handle compressed images
+                    result = new ImageFile(path, willPerformRandomSeeking);
                 }
             }
 

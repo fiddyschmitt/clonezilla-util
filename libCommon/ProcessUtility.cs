@@ -15,17 +15,18 @@ namespace libCommon
 {
     public class ProcessUtility
     {
-        public static IEnumerable<string> RunCommand(string cpath, string[] args, bool verbose, Func<string, bool>? shouldTerminate = null)
+        public static IEnumerable<string> RunCommand(string cpath, string args, bool verbose, bool throwExceptionIfProcessHadErrors, Func<string, bool>? shouldStop = null)
         {
             using var p = new Process();
             p.StartInfo.FileName = cpath;
-            p.StartInfo.Arguments = string.Join(" ", args);
+            p.StartInfo.Arguments = args;
 
             p.StartInfo.UseShellExecute = false;
             p.StartInfo.RedirectStandardOutput = true;
             p.StartInfo.RedirectStandardError = true;
 
             var outputLines = new BlockingCollection<string>();
+            var errorLines = new List<string>();
 
             using var stdoutWaitHandle = new AutoResetEvent(false);
             using var stderrWaitHandle = new AutoResetEvent(false);
@@ -36,22 +37,25 @@ namespace libCommon
                 {
                     if (verbose)
                     {
-                        Console.WriteLine($"No more data");
+                        Log.Information($"No more data");
                     }
 
-                    outputLines.CompleteAdding();
+                    lock (outputLines)
+                    {
+                        outputLines.CompleteAdding();
+                    }
                     stdoutWaitHandle.Set();
                 }
                 else
                 {
                     if (verbose)
                     {
-                        Console.WriteLine($"{e.Data}");
+                        Log.Information($"{e.Data}");
                     }
 
-                    bool isFatal = shouldTerminate?.Invoke(e.Data) ?? false;
+                    bool stopRequested = shouldStop?.Invoke(e.Data) ?? false;
 
-                    if (isFatal)
+                    if (stopRequested)
                     {
                         p.Close();
                     }
@@ -68,9 +72,19 @@ namespace libCommon
                 }
                 else
                 {
-                    if (!outputLines.IsAddingCompleted)
+                    errorLines.Add(e.Data);
+
+                    if (verbose)
                     {
-                        outputLines.Add(e.Data);
+                        Log.Information($"{e.Data}");
+                    }
+
+                    lock (outputLines)
+                    {
+                        if (!outputLines.IsAddingCompleted)
+                        {
+                            outputLines.Add(e.Data);
+                        }
                     }
                 }
             };
@@ -89,7 +103,7 @@ namespace libCommon
 
             if (verbose)
             {
-                Console.WriteLine($"Waiting for exit");
+                Log.Information($"Waiting for exit");
             }
 
             // wait for process to terminate
@@ -97,16 +111,24 @@ namespace libCommon
 
             if (verbose)
             {
-                Console.WriteLine($"Exitted. Waiting on outputWaitHandle.");
+                Log.Information($"Exitted. Waiting on outputWaitHandle.");
             }
 
             // wait on handle
             stdoutWaitHandle.WaitOne();
             stderrWaitHandle.WaitOne();
 
+            if (throwExceptionIfProcessHadErrors && errorLines.Count > 0)
+            {
+                var allErrorsStr = errorLines
+                                    .ToString(Environment.NewLine);
+
+                throw new Exception($"{cpath} {args}{Environment.NewLine}Process encountered errors: {allErrorsStr}");
+            }
+
             if (verbose)
             {
-                Console.WriteLine($"Finished executing: {p.StartInfo.FileName} {p.StartInfo.Arguments}");
+                Log.Information($"Finished executing: {p.StartInfo.FileName} {p.StartInfo.Arguments}");
             }
         }
 
@@ -150,7 +172,6 @@ namespace libCommon
 
                 });
             }
-
 
             return process;
         }

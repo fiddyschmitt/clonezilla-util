@@ -1,4 +1,5 @@
 ﻿using DokanNet;
+using libCommon;
 using libDokan.VFS;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
@@ -297,6 +298,31 @@ namespace libDokan
 
                 lock (stream) //Protect from overlapped read
                 {
+                    var distanceFromCurrentPosition = offset - stream.Position;
+
+                    //experimental
+                    if (distanceFromCurrentPosition > Buffers.ARBITARY_HUGE_SIZE_BUFFER * 2 && offset + buffer.Length == stream.Length)
+                    {
+                        Log.Debug($"External process has asked to read the last {buffer.Length.BytesToString()} of the {stream.Length.BytesToString()} file. Ignoring.");
+
+                        bytesRead = 0;
+                        return DokanResult.Unsuccessful;
+                    }
+
+                    /*
+                    //7-Zip doesn't like it when we do this
+                    var maxSeek = 5_000_000;
+                    var toSeek = offset - stream.Position;
+                    if (toSeek > maxSeek)
+                    {
+                        Console.WriteLine($"External process has asked to seek from {stream.Position:N0} to {offset:N0}. Ignoring.");
+
+                        bytesRead = 0;
+                        //return NtStatus.IllegalInstruction;
+                        return DokanResult.Unsuccessful;
+                    }
+                    */
+
                     stream.Position = offset;
                     bytesRead = stream.Read(buffer, 0, buffer.Length);
                 }

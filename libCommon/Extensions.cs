@@ -184,7 +184,7 @@ namespace libCommon
             return totalRead;
         }
 
-        public static long CopyTo(this ISparseAwareReader input, ISparseAwareWriter output, int bufferSize, Action<long>? callBack)
+        public static long Sparsify(this ISparseAwareReader input, ISparseAwareWriter output, int bufferSize, Action<long>? callBack)
         {
             byte[] buffer = Buffers.BufferPool.Rent(bufferSize);
             long totalRead = 0;
@@ -261,20 +261,16 @@ namespace libCommon
             return totalRead;
         }
 
-#pragma warning disable CS8601 // Possible null reference assignment.
-#pragma warning disable CS8619 // Nullability of reference types in value doesn't match target type.
-#pragma warning disable CS8600 // Converting null literal or possible null value to non-nullable type.
-        public static IEnumerable<(T Previous, T Current, T Next)> Sandwich<T>(this IEnumerable<T> source, T beforeFirst = default, T afterLast = default)
+        public static IEnumerable<(T? Previous, T Current, T? Next)> Sandwich<T>(this IEnumerable<T> source, T? beforeFirst = default, T? afterLast = default)
         {
             var sourceList = source.ToList();
 
-            T previous = beforeFirst;
+            T? previous = beforeFirst;
 
-            T current = sourceList.FirstOrDefault();
+            T current = sourceList.First();
 
             foreach (var next in sourceList.Skip(1))
             {
-
                 yield return (previous, current, next);
 
                 previous = current;
@@ -283,9 +279,6 @@ namespace libCommon
 
             yield return (previous, current, afterLast);
         }
-#pragma warning restore CS8601 // Possible null reference assignment.
-#pragma warning restore CS8619 // Nullability of reference types in value doesn't match target type.
-#pragma warning restore CS8600 // Converting null literal or possible null value to non-nullable type.
 
         [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern bool DeviceIoControl(

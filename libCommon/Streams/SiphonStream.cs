@@ -1,4 +1,5 @@
 ﻿using libCommon;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,9 +11,9 @@ using System.Threading.Tasks;
 
 namespace MountDocushare.Streams
 {
-    public class WaitForDataStream : Stream
+    public class SiphonStream : Stream
     {
-        public WaitForDataStream(Stream underlyingStream, Stream tempStorage)
+        public SiphonStream(Stream underlyingStream, Stream tempStorage)
         {
             UnderlyingStream = underlyingStream;
             TemporaryStorage = tempStorage;
@@ -20,7 +21,7 @@ namespace MountDocushare.Streams
             pump = Task.Factory.StartNew(() =>
             {
                 var buffer = new byte[Buffers.ARBITARY_LARGE_SIZE_BUFFER];
-                var totalBytesRead = 0;
+                var totalBytesRead = 0L;
                 while (true)
                 {
                     var bytesRead = underlyingStream.Read(buffer, 0, buffer.Length);
@@ -28,6 +29,8 @@ namespace MountDocushare.Streams
                     if (bytesRead == 0) break;
 
                     totalBytesRead += bytesRead;
+
+                    Log.Debug($"{nameof(SiphonStream)} pumped {totalBytesRead.BytesToString()} from original stream.");
 
                     lock (TemporaryStorage)
                     {
@@ -156,10 +159,12 @@ namespace MountDocushare.Streams
 
             if (position > TemporaryStorage.Length)
             {
+                Log.Debug($"Was asked to seek to {position.BytesToString()}, which is beyond what we have already {TemporaryStorage.Length.BytesToString()}. Just offering that instead.");
+
                 //Experiment - see if we can avoid seeking further than what we have.
-                //Surprisingly, this works fine. Likely because of Dokan
+                //Surprisingly, this works fine. Likely because of Dokan handles it gracefully
                 position = Math.Min(TemporaryStorage.Length, position);
-            }            
+            }
 
             return position;
         }
