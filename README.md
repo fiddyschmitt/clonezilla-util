@@ -4,8 +4,8 @@ A tool for working with drive images.
 ## Supported formats
     Clonezilla archive
     Partclone
-    Drive image     (eg. sda.img)
-    Partition image (eg. sda1.img)
+    Raw drive image     (eg. sda.img)
+    Raw partition image (eg. sda1.img)
 
 It lets you extract an individual file from a Clonezilla archive, without extracting the full archive.
 <br />
