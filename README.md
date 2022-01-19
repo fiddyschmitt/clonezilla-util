@@ -1,5 +1,5 @@
 # clonezilla-util
-A tool for working with drive images.
+Mount drive images in Windows
 
 ## Supported formats
     Clonezilla archive
