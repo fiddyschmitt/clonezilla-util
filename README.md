@@ -2,15 +2,19 @@
 A tool for working with drive images.
 
 ## Supported formats
-* Clonezilla archive
-* Partclone
-* Drive image     (eg. sda.img)
-* Partition image (eg. sda1.img)
+    Clonezilla archive
+    Partclone
+    Drive image     (eg. sda.img)
+    Partition image (eg. sda1.img)
 
 It lets you extract an individual file from a Clonezilla archive, without extracting the full archive.
+<br />
+<br />
 
 ## Where to download
 Releases can be found over in the [releases](https://github.com/fiddyschmitt/clonezilla-util/releases) section.
+<br />
+<br />
 
 ## Mount a Clonezilla archive in Windows
 
@@ -28,6 +32,10 @@ A virtual drive is created, containing all the files in the Clonezilla archive:
 </kbd>
 </div>
 
+<br />
+<br />
+<br />
+
 ## Mount a Clonezilla archive as partition image files
 
 First, install [this version](https://github.com/dokan-dev/dokany/releases/tag/v1.5.1.1000) of the Dokan Driver. This is required to create a Virtual Drive.
@@ -44,9 +52,16 @@ A virtual drive is created, containing a file for each partition:
 </kbd>
 </div>
 
+<br />
+<br />
+
 You can open them using 7-Zip, and extract individual files:
 
 <img src="https://i.imgur.com/enJhShq.png" width="600">
+
+<br />
+<br />
+<br />
 
 # Advanced features
 
@@ -55,6 +70,8 @@ You can open them using 7-Zip, and extract individual files:
 Run the following command:
 
 `clonezilla-util.exe mount --input "sda.img" --mount L:\`
+<br />
+<br />
 
 ## Extract partition images from Clonezilla archive
 
@@ -70,9 +87,15 @@ The program creates a file for each partition in the Clonezilla archive.
 </kbd>
 </div>
 
+<br />
+<br />
+
 If the images are extracted to an NTFS drive, they are created as sparse. Meaning they only take up the necessary space:
 
 <img src="https://i.imgur.com/r0sepb7.png" width="300">
+<br />
+<br />
+<br />
 
 # License
 ```
