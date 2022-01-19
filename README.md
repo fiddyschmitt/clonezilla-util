@@ -1,5 +1,11 @@
 # clonezilla-util
-A tool for working with Clonezilla archives.
+A tool for working with drive images.
+
+## Supported formats
+* Clonezilla archive
+* Partclone
+* Drive image     (eg. sda.img)
+* Partition image (eg. sda1.img)
 
 It lets you extract an individual file from a Clonezilla archive, without extracting the full archive.
 
@@ -43,6 +49,12 @@ You can open them using 7-Zip, and extract individual files:
 <img src="https://i.imgur.com/enJhShq.png" width="600">
 
 # Advanced features
+
+## Mount raw images
+
+Run the following command:
+
+`clonezilla-util.exe mount --input "sda.img" --mount L:\`
 
 ## Extract partition images from Clonezilla archive
 
