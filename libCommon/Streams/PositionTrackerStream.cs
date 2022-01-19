@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Serilog;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -30,7 +31,7 @@ namespace libCommon.Streams
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            //Console.WriteLine($"Requested to read {count.BytesToString()} from {position.BytesToString()}");
+            //Log.Information($"Requested to read {count.BytesToString()} from {position.BytesToString()}");
 
             var bytesRead = BaseStream.Read(buffer, offset, count);
 

@@ -41,6 +41,9 @@ namespace clonezilla_util.Extractors
 
             var result = new SiphonStream(processStream, tempStorageStream); //this will return data as soon as it arrives from the process
 
+            //processStream.CopyTo(tempStorageStream);
+            //var result = tempStorageStream;
+
             return result;
         }
     }

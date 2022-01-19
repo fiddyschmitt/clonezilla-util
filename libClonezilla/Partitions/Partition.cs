@@ -36,9 +36,9 @@ namespace libClonezilla.Partitions
 
         public void ExtractToFile(string outputFilename, bool makeSparse)
         {
-            if (FullPartitionImage == null) throw new Exception($"[{Container.Name}] [{Name}] Cannot extract. {nameof(FullPartitionImage)} has not been intialised.");
+            if (FullPartitionImage == null) throw new Exception($"[{Container.ContainerName}] [{Name}] Cannot extract. {nameof(FullPartitionImage)} has not been intialised.");
 
-            ExtractToFile(Container.Name, Name, FullPartitionImage, outputFilename, makeSparse);
+            ExtractToFile(Container.ContainerName, Name, FullPartitionImage, outputFilename, makeSparse);
         }
 
         public static void ExtractToFile(string containerName, string partitionName, Stream stream, string outputFilename, bool makeSparse)
@@ -99,7 +99,7 @@ namespace libClonezilla.Partitions
             bool saveToCache = false;
             if (archiveFiles == null)
             {
-                if (PhysicalImageFilename == null) throw new Exception($"[{Container.Name}] [{Name}] Cannot retrieve files. {nameof(PhysicalImageFilename)} has not been intialised.");
+                if (PhysicalImageFilename == null) throw new Exception($"[{Container.ContainerName}] [{Name}] Cannot retrieve files. {nameof(PhysicalImageFilename)} has not been intialised.");
 
                 archiveFiles = SevenZipUtility.GetArchiveEntries(PhysicalImageFilename, false, true);
                 saveToCache = true;
@@ -130,7 +130,7 @@ namespace libClonezilla.Partitions
 
             var virtualFileName = Path.GetFileName(virtualImageFilename);
 
-            if (FullPartitionImage == null) throw new Exception($"[{Container.Name}] [{Name}] Cannot extract file. {nameof(FullPartitionImage)} has not been intialised.");
+            if (FullPartitionImage == null) throw new Exception($"[{Container.ContainerName}] [{Name}] Cannot extract file. {nameof(FullPartitionImage)} has not been intialised.");
 
             var fileEntry = new StreamBackedFileEntry(
                 virtualFileName,

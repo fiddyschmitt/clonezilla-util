@@ -22,6 +22,7 @@ namespace MountDocushare.Streams
             {
                 var buffer = new byte[Buffers.ARBITARY_LARGE_SIZE_BUFFER];
                 var totalBytesRead = 0L;
+
                 while (true)
                 {
                     var bytesRead = underlyingStream.Read(buffer, 0, buffer.Length);

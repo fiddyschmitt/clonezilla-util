@@ -25,50 +25,6 @@ namespace libDokan
             VolumeLabel = volumeLabel;
         }
 
-        public static void Test()
-        {
-            var rootFolder = new Folder("", null);
-            var subfolder1 = new Folder("2021-12-28-13-img_PB-DEVOPS1_gz", rootFolder);
-            var subfolder2 = new Folder("extracted", subfolder1);
-
-            var files = Directory
-                        .GetFiles(@"E:\_img\3 - restored using clonezilla-util")
-                        .Select(filename =>
-                        {
-                            var fi = new FileInfo(filename);
-
-                            var file = new StreamBackedFileEntry(
-                                fi.Name,
-                                subfolder2,
-                                () =>
-                                {
-                                    var stream = File.OpenRead(filename);
-                                    return stream;
-                                }
-                                )
-                            {
-                                Length = fi.Length,
-                                Created = fi.CreationTime,
-                                Accessed = fi.LastAccessTime,
-                                Modified = fi.LastWriteTime
-                            };
-
-                            return file;
-                        })
-                        .ToList();
-
-
-            var testFS = new DokanVFS("DokanVFS", rootFolder);
-
-            testFS.Mount(@"X:\");
-        }
-
-
-
-
-
-
-
         private const FileAccess DataAccess = FileAccess.ReadData | FileAccess.WriteData | FileAccess.AppendData |
                                       FileAccess.Execute |
                                       FileAccess.GenericExecute | FileAccess.GenericWrite |
@@ -121,7 +77,7 @@ namespace libDokan
                     switch (mode)
                     {
                         case FileMode.Open:
-                            if (Root.GetEntryFromPath(filePath) is not Folder fileSystemEntry)
+                            if (Root.GetEntryFromPath(filePath) is not Folder)
                             {
                                 return Trace(nameof(CreateFile), fileName, info, access, share, mode, options,
                                     attributes, DokanResult.PathNotFound);
@@ -149,7 +105,6 @@ namespace libDokan
                 var readAccess = (access & DataWriteAccess) == 0;
 
                 var fileSystemEntry = Root.GetEntryFromPath(filePath);
-
                 pathExists = fileSystemEntry != null;
                 pathIsDirectory = fileSystemEntry is Folder;
 
@@ -169,7 +124,7 @@ namespace libDokan
                                         attributes, DokanResult.AccessDenied);
 
                                 info.IsDirectory = pathIsDirectory;
-                                //info.Context = new object();
+                                // info.Context = new object();
                                 // must set it to something if you return DokanError.Success
 
                                 return Trace(nameof(CreateFile), fileName, info, access, share, mode, options,
@@ -600,5 +555,44 @@ namespace libDokan
 
             return Trace(nameof(FindFilesWithPattern), fileName, info, DokanResult.Success);
         }
+
+        public static void Test()
+        {
+            var rootFolder = new Folder("", null);
+            var subfolder1 = new Folder("2021-12-28-13-img_PB-DEVOPS1_gz", rootFolder);
+            var subfolder2 = new Folder("extracted", subfolder1);
+
+            var files = Directory
+                        .GetFiles(@"E:\_img\3 - restored using clonezilla-util")
+                        .Select(filename =>
+                        {
+                            var fi = new FileInfo(filename);
+
+                            var file = new StreamBackedFileEntry(
+                                fi.Name,
+                                subfolder2,
+                                () =>
+                                {
+                                    var stream = File.OpenRead(filename);
+                                    return stream;
+                                }
+                                )
+                            {
+                                Length = fi.Length,
+                                Created = fi.CreationTime,
+                                Accessed = fi.LastAccessTime,
+                                Modified = fi.LastWriteTime
+                            };
+
+                            return file;
+                        })
+                        .ToList();
+
+
+            var testFS = new DokanVFS("DokanVFS", rootFolder);
+
+            testFS.Mount(@"X:\");
+        }
+
     }
 }

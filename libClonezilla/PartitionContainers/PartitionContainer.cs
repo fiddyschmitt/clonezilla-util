@@ -6,6 +6,7 @@ using System.IO;
 using System.Text;
 using System.Linq;
 using lib7Zip;
+using libClonezilla.PartitionContainers.ImageFiles;
 
 namespace libClonezilla.PartitionContainers
 {
@@ -13,7 +14,7 @@ namespace libClonezilla.PartitionContainers
     {
         public List<Partition> Partitions { get; protected set; } = new List<Partition>();
 
-        public abstract string Name { get; set; }
+        public abstract string ContainerName { get; protected set; }
 
         public static PartitionContainer FromPath(string path, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking)
         {
@@ -41,7 +42,6 @@ namespace libClonezilla.PartitionContainers
                 }
                 else
                 {
-                    //todo: handle compressed images
                     result = new ImageFile(path, willPerformRandomSeeking);
                 }
             }

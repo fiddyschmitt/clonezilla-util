@@ -33,7 +33,15 @@ namespace libClonezilla
             }
         }
 
-        public static void MountPartitionsAsImageFiles(string programName, List<PartitionContainer> containers, string mountPoint, Folder containersRoot, Folder rootToMount)
+        public static void MountPartitionsAsImageFiles(string programName, PartitionContainer container, string mountPoint, Folder containersRoot, Folder rootToMount) =>
+            MountPartitionsAsImageFiles(
+                programName, 
+                new List<PartitionContainer>() { container}, 
+                mountPoint, 
+                containersRoot, 
+                rootToMount);
+
+            public static void MountPartitionsAsImageFiles(string programName, List<PartitionContainer> containers, string mountPoint, Folder containersRoot, Folder rootToMount)
         {
             //tell each partition to create a virtual file
             containers
@@ -47,7 +55,7 @@ namespace libClonezilla
                     }
                     else
                     {
-                        containerFolder = new Folder(container.Name, containersRoot);
+                        containerFolder = new Folder(container.ContainerName, containersRoot);
                     }
 
                     container
@@ -59,7 +67,7 @@ namespace libClonezilla
                 });
 
             var vfs = new DokanVFS(programName, rootToMount);
-            Task.Factory.StartNew(() => vfs.Mount(mountPoint, DokanOptions.WriteProtection, new DokanNet.Logging.NullLogger()));
+            Task.Factory.StartNew(() => vfs.Mount(mountPoint, DokanOptions.WriteProtection, 64, new DokanNet.Logging.NullLogger()));
             WaitForMountPointToBeAvailable(mountPoint);
         }
 

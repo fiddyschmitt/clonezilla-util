@@ -147,7 +147,7 @@ namespace libClonezilla.PartitionContainers
         }
 
         string? containerName;
-        public override string Name
+        public override string ContainerName
         {
             get
             {
@@ -159,7 +159,7 @@ namespace libClonezilla.PartitionContainers
                 return containerName;
             }
 
-            set
+            protected set
             {
                 containerName = value;
             }

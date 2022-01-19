@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "mount --input \"E:\\2021-12-28-13-img_PB-DEVOPS1_gz\" -p sda1 sdb1 --mount L:\\"
+      "commandLineArgs": "mount --input \"E:\\_img\\1 - ddrescue backups (even includes deleted)\\2021-12-28_pb-devops1_sda1.img.gz\" --mount L:\\"
     }
   }
 }

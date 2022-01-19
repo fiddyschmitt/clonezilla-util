@@ -22,7 +22,7 @@ namespace libClonezilla.PartitionContainers
 
             var partcloneStream = File.OpenRead(filename);
 
-            var partcloneInfo = new PartcloneImageInfo(Name, partitionName, partcloneStream, null);
+            var partcloneInfo = new PartcloneImageInfo(ContainerName, partitionName, partcloneStream, null);
             var uncompressedLength = partcloneInfo.Length;
 
             var partition = new PartclonePartition(this, partitionName, partcloneStream, uncompressedLength, Compression.None, null, null, willPerformRandomSeeking);
@@ -34,7 +34,7 @@ namespace libClonezilla.PartitionContainers
         }
 
         string? containerName;
-        public override string Name
+        public override string ContainerName
         {
             get
             {
@@ -46,7 +46,7 @@ namespace libClonezilla.PartitionContainers
                 return containerName;
             }
 
-            set
+            protected set
             {
                 containerName = value;
             }

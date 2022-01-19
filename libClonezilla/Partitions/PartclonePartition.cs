@@ -24,9 +24,10 @@ namespace libClonezilla.Partitions
         public PartclonePartition(PartitionContainer container, string partitionName, Stream compressedPartcloneStream, long? uncompressedLength, Compression compressionInUse, IPartitionCache? partitionCache, IPartcloneCache? partcloneCache, bool willPerformRandomSeeking)
             : base(container, partitionName, partitionCache)
         {
-            Log.Information($"[{container.Name}] [{partitionName}] Finding optimal decompressor (seekable/sequential)");
+            var streamName = $"[{container.ContainerName}] [{partitionName}]";
+            Log.Information($"{streamName} Finding optimal decompressor (seekable/sequential)");
 
-            var decompressorSelector = new DecompressorSelector(container.Name, partitionName, compressedPartcloneStream, uncompressedLength, compressionInUse, partitionCache);
+            var decompressorSelector = new DecompressorSelector(streamName, compressedPartcloneStream, uncompressedLength, compressionInUse, partitionCache);
 
             Stream decompressedStream;
             if (willPerformRandomSeeking)
@@ -38,8 +39,8 @@ namespace libClonezilla.Partitions
                 decompressedStream = decompressorSelector.GetSequentialStream();
             }
 
-            Log.Information($"[{container.Name}] [{partitionName}] Loading partition information");
-            FullPartitionImage = new PartcloneStream(container.Name, partitionName, decompressedStream, partcloneCache);
+            Log.Information($"{streamName} Loading partition information");
+            FullPartitionImage = new PartcloneStream(container.ContainerName, partitionName, decompressedStream, partcloneCache);
         }
     }
 }

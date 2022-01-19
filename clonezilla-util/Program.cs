@@ -133,7 +133,7 @@ namespace clonezilla_util
                                 CacheFolder,
                                 listContentsOptions.PartitionsToInspect.ToList(),
                                 true)
-                            .OrderBy(container => container.Name)
+                            .OrderBy(container => container.ContainerName)
                             .ToList();
 
             libClonezilla.Utility.MountPartitionsAsImageFiles(
@@ -152,13 +152,13 @@ namespace clonezilla_util
                 {
                     var partitionName = partition.Name;
 
-                    Log.Information($"[{partition.Container.Name}] [{partitionName}] Retrieving a list of files.");
+                    Log.Information($"[{partition.Container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
                     var filesInArchive = partition.GetFilesInPartition();
 
                     foreach (var archiveEntry in filesInArchive)
                     {
-                        var filenameIncludingPartition = Path.Combine(partition.Container.Name, partitionName, archiveEntry.Path);
+                        var filenameIncludingPartition = Path.Combine(partition.Container.ContainerName, partitionName, archiveEntry.Path);
 
                         Console.Write(filenameIncludingPartition);
                         if (listContentsOptions.UseNullSeparator)
@@ -232,7 +232,7 @@ namespace clonezilla_util
             containers
                 .ForEach(container =>
                 {
-                    var containerFolder = new Folder(container.Name, null);
+                    var containerFolder = new Folder(container.ContainerName, null);
                     containerFolders.Add(containerFolder);
 
                     container
@@ -241,7 +241,7 @@ namespace clonezilla_util
                         {
                             var partitionName = partition.Name;
 
-                            Log.Information($"[{container.Name}] [{partitionName}] Retrieving a list of files.");
+                            Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
                             var filesInArchive = partition.GetFilesInPartition().ToList();
 
@@ -261,7 +261,7 @@ namespace clonezilla_util
                             }
                             else
                             {
-                                Log.Debug($"[{container.Name}] [{partitionName}] Running a performance test to determine the optimal way to extract files from this image.");
+                                Log.Debug($"[{container.ContainerName}] [{partitionName}] Running a performance test to determine the optimal way to extract files from this image.");
 
                                 var testStart = DateTime.Now;
                                 var testExtractor = new ExtractorUsing7z(partition.PhysicalImageFilename);
@@ -270,7 +270,7 @@ namespace clonezilla_util
 
                                 var testDuration = DateTime.Now - testStart;
 
-                                Log.Debug($"[{container.Name}] [{partitionName}] Nominal file read in {testDuration.TotalSeconds:N1} seconds.");
+                                Log.Debug($"[{container.ContainerName}] [{partitionName}] Nominal file read in {testDuration.TotalSeconds:N1} seconds.");
 
                                 if (testDuration.TotalSeconds < 10)
                                 {
@@ -285,7 +285,7 @@ namespace clonezilla_util
                             IExtractor extractor;
                             if (use7z)
                             {
-                                Log.Information($"[{container.Name}] [{partitionName}] 7z.exe will be used to extract files from this partition.");
+                                Log.Information($"[{container.ContainerName}] [{partitionName}] 7z.exe will be used to extract files from this partition.");
 
                                 //Extractor which uses 7z.exe.
                                 //It runs the process and returns its stdout straight away, so it's non-blocking.
@@ -306,7 +306,7 @@ namespace clonezilla_util
                             }
                             else
                             {
-                                Log.Information($"[{container.Name}] [{partitionName}] 7zFM.exe will be used to extract files from this partition.");
+                                Log.Information($"[{container.ContainerName}] [{partitionName}] 7zFM.exe will be used to extract files from this partition.");
 
                                 //Extractor which uses the 7-Zip File Manager
                                 //Opens the archive here, up front. Subsequent extracts are quick                    
@@ -352,7 +352,7 @@ namespace clonezilla_util
                             extractor = new SynchronisedExtractor(extractor);
 
                             var partitionRoot = new Folder(partitionName, containerFolder);
-                            CreateTree(container.Name, partitionName, partitionRoot, filesInArchive, extractor);
+                            CreateTree(container.ContainerName, partitionName, partitionRoot, filesInArchive, extractor);
                         });
                 });
 
@@ -485,7 +485,7 @@ namespace clonezilla_util
                             }
                             else
                             {
-                                outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{container.Name}.{partition.Name}.img");
+                                outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{container.ContainerName}.{partition.Name}.img");
                             }
 
                             var makeSparse = !extractPartitionImageOptions.NoSparseOutput;

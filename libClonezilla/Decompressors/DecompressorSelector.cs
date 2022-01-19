@@ -17,10 +17,9 @@ namespace libClonezilla.Decompressors
 {
     public class DecompressorSelector : IDecompressor
     {
-        public DecompressorSelector(string containerName, string partitionName, Stream compressedStream, long? uncompressedLength, Compression compressionInUse, IPartitionCache? partitionCache)
+        public DecompressorSelector(string streamName, Stream compressedStream, long? uncompressedLength, Compression compressionInUse, IPartitionCache? partitionCache)
         {
-            ContainerName = containerName;
-            PartitionName = partitionName;
+            StreamName = streamName;
             CompressedStream = compressedStream;
             UncompressedLength = uncompressedLength;
             CompressionInUse = compressionInUse;
@@ -35,12 +34,11 @@ namespace libClonezilla.Decompressors
 
                 Compression.Zstandard => new ZstDecompressor(CompressedStream, uncompressedLength),
                 Compression.None => new NoChangeDecompressor(CompressedStream),
-                _ => throw new Exception($"Could not initial a sequential decompressor for {PartitionName}"),
+                _ => throw new Exception($"Could not initialise a decompressor for {StreamName}"),
             };
         }
 
-        public string ContainerName { get; }
-        public string PartitionName { get; }
+        public string StreamName { get; }
         public Stream CompressedStream { get; }
         public long? UncompressedLength { get; }
         public Compression CompressionInUse { get; }
@@ -52,7 +50,7 @@ namespace libClonezilla.Decompressors
             //Do a performance test. If the entire file can be read quickly then let's not bother using any indexing
 
             var testDurationSeconds = 10;
-            Log.Debug($"[{ContainerName}] [{PartitionName}] Running a {testDurationSeconds:N0} second performance test to determine the optimal way to serve it.");
+            Log.Debug($"{StreamName} Running a {testDurationSeconds:N0} second performance test to determine the optimal way to serve it.");
 
             var startTime = DateTime.Now;
             var testStream = Decompressor.GetSequentialStream();
@@ -74,14 +72,21 @@ namespace libClonezilla.Decompressors
 
             CompressedStream.Seek(0, SeekOrigin.Begin);
 
+            bool addCacheLayer = true;
             Stream uncompressedStream;
             if (predictedSecondsToReadEntireFile < 10)
             {
                 Log.Debug($"Using a sequential decompressor for this data.");
 
+                if (testStream is FileStream)
+                {
+                    addCacheLayer = false;
+                }
+
                 //Still have to make it seekable though
                 var seekableStreamUsingRestarts = new SeekableStreamUsingRestarts(() =>
                 {
+                    Log.Debug($"{StreamName} Creating new seekable stream.");
                     var sequentialStream = Decompressor.GetSequentialStream();
                     return sequentialStream;
                 }, UncompressedLength);
@@ -93,9 +98,12 @@ namespace libClonezilla.Decompressors
                 Log.Debug($"Using a seekable decompressor for this data.");
                 var seekableStream = Decompressor.GetSeekableStream();
                 uncompressedStream = seekableStream;
-            }
 
-            var addCacheLayer = !(uncompressedStream is FileStream);
+                if (uncompressedStream is FileStream)
+                {
+                    addCacheLayer = false;
+                }
+            }
 
             if (addCacheLayer)
             {

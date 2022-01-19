@@ -7,7 +7,7 @@ namespace libCommon.Streams
 {
     public class SubStream : Stream
     {
-        public SubStream(Stream baseStream, long startByte, long endByte)
+        public SubStream(IndependentStream baseStream, long startByte, long endByte)
         {
             BaseStream = baseStream;
             StartByte = startByte;

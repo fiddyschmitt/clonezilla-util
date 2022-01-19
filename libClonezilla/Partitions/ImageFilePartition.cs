@@ -15,9 +15,11 @@ namespace libClonezilla.Partitions
     {
         public ImageFilePartition(PartitionContainer container, string partitionName, Stream stream, long? uncompressedSize, Compression compressionInUse, IPartitionCache? partitionCache, bool willPerformRandomSeeking) : base(container, partitionName, partitionCache)
         {
-            Log.Information($"[{container.Name}] [{partitionName}] Finding optimal decompressor (seekable/sequential)");
+            var streamName = $"[{container.ContainerName}] [{partitionName}]";
 
-            var decompressorSelector = new DecompressorSelector(container.Name, partitionName, stream, uncompressedSize, compressionInUse, partitionCache);
+            Log.Information($"{streamName} Finding optimal decompressor (seekable/sequential)");
+            
+            var decompressorSelector = new DecompressorSelector(streamName, stream, uncompressedSize, compressionInUse, partitionCache);
 
             Stream decompressedStream;
             if (willPerformRandomSeeking)
@@ -29,7 +31,7 @@ namespace libClonezilla.Partitions
                 decompressedStream = decompressorSelector.GetSequentialStream();
             }
 
-            Log.Information($"[{container.Name}] [{partitionName}] Loading partition information");
+            Log.Information($"[{container.ContainerName}] [{partitionName}] Loading partition information");
             FullPartitionImage = decompressedStream;
         }
     }
