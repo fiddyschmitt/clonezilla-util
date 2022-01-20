@@ -1,5 +1,7 @@
 # clonezilla-util
-Mount drive images in Windows
+* Mount drive images in Windows.
+
+* Extract individual files from a Clonezilla archive, without extracting the full archive.
 
 ## Supported formats
     Clonezilla archive
@@ -7,7 +9,6 @@ Mount drive images in Windows
     Raw drive image     (eg. sda.img)
     Raw partition image (eg. sda1.img)
 
-It lets you extract an individual file from a Clonezilla archive, without extracting the full archive.
 <br />
 <br />
 
