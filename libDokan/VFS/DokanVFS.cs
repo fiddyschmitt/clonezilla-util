@@ -5,6 +5,8 @@ using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
 using rextractor;
 using Serilog;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -62,10 +64,30 @@ namespace libDokan
             return result;
         }
 
+        ConcurrentDictionary<int, string> pidToProcessName = new();
+
+        const long STATUS_FILE_IS_A_DIRECTORY = 0xC00000BAL;
+
         public NtStatus CreateFile(string fileName, FileAccess access, FileShare share, FileMode mode,
             FileOptions options, FileAttributes attributes, IDokanFileInfo info)
         {
-            //Console.WriteLine($"CreateFile: {fileName}");
+            /*
+            var processName = pidToProcessName.GetOrAdd(info.ProcessId, pid =>
+            {
+                var proc = Process.GetProcessById(pid);
+                var result = proc.ProcessName;
+
+                if (proc.MainModule != null)
+                {
+                    var exeFilename = Path.GetFileName(proc.MainModule.FileName);
+                    result += $" ({exeFilename})";
+                }
+
+                return result;
+            });
+
+            Console.WriteLine($"[{processName}] CreateFile: {fileName}");
+            */
 
             var result = DokanResult.Success;
             var filePath = GetPath(fileName);
@@ -107,6 +129,15 @@ namespace libDokan
                 var fileSystemEntry = Root.GetEntryFromPath(filePath);
                 pathExists = fileSystemEntry != null;
                 pathIsDirectory = fileSystemEntry is Folder;
+
+                //Without this block, some programs can't enumerate the drive. Eg. log4jscanner.exe
+                //See: https://github.com/dokan-dev/dokan-dotnet/issues/274
+                if (pathIsDirectory)
+                {
+                    if (access == FileAccess.GenericRead) //<=== createOptions & FileOptions.NonDirectoryFile
+                        return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
+                                                            (NtStatus)STATUS_FILE_IS_A_DIRECTORY);
+                }
 
                 switch (mode)
                 {
