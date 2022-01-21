@@ -10,7 +10,6 @@
     Raw partition image (eg. sda1.img)
 
 <br />
-<br />
 
 ## Where to download
 Releases can be found over in the [releases](https://github.com/fiddyschmitt/clonezilla-util/releases) section.
