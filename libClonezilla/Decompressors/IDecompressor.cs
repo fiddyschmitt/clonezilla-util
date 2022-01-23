@@ -1,4 +1,5 @@
 ﻿using libCommon;
+using SharpCompress.Compressors.Xz;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -23,6 +24,7 @@ namespace libClonezilla.Decompressors
             {
                 (Compression.Gzip, new GZipStream(compressedStream, CompressionMode.Decompress)),
                 (Compression.Zstandard, new DecompressionStream(compressedStream)),
+                (Compression.xz, new XZStream(compressedStream))
             };
 
             foreach (var decompressor in decompressors)
@@ -39,6 +41,8 @@ namespace libClonezilla.Decompressors
                 catch { }
             }
 
+            compressedStream.Seek(0, SeekOrigin.Begin);
+
             return result;
         }
     }
@@ -47,6 +51,7 @@ namespace libClonezilla.Decompressors
     {
         Gzip,
         Zstandard,
+        xz,
         None
     }
 }

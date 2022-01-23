@@ -28,7 +28,7 @@ namespace libPartclone
             PartcloneImageInfo = new PartcloneImageInfo(containerName, partitionName, inputStream, cache);
             PartitionName = partitionName;
 
-            LastRange = PartcloneImageInfo.PartcloneContentMapping.Last();
+            LastRange = PartcloneImageInfo.PartcloneContentMapping.Value.Last();
         }
 
         public Stream Stream => this;
@@ -82,7 +82,7 @@ namespace libPartclone
 
                     //check if the entire requested section is contained within the last range
                     var readTo = Position + count;
-                    var enclosingRange = PartcloneImageInfo.PartcloneContentMapping.FirstOrDefault(r => Position >= r.OutputFileRange.StartByte && readTo <= r.OutputFileRange.EndByte);
+                    var enclosingRange = PartcloneImageInfo.PartcloneContentMapping.Value.FirstOrDefault(r => Position >= r.OutputFileRange.StartByte && readTo <= r.OutputFileRange.EndByte);
 
                     if (enclosingRange != null && enclosingRange == LastRange)
                     {
@@ -112,7 +112,7 @@ namespace libPartclone
                         break;
                     }
 
-                    var range = PartcloneImageInfo.PartcloneContentMapping.FirstOrDefault(r => pos >= r.OutputFileRange.StartByte && pos <= r.OutputFileRange.EndByte);
+                    var range = PartcloneImageInfo.PartcloneContentMapping.Value.FirstOrDefault(r => pos >= r.OutputFileRange.StartByte && pos <= r.OutputFileRange.EndByte);
 
                     if (range == null)
                     {

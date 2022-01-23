@@ -37,7 +37,7 @@ namespace libPartclone
 
         //This variable stores a mapping of the output file, to the corresponding section in the partclone content.
         //This way, if we are asked to restore a particular byte, we know where to find it in the partclone content.
-        public List<ContiguousRange> PartcloneContentMapping = new();
+        public Lazy<List<ContiguousRange>> PartcloneContentMapping;
 
         public PartcloneImageInfo(string containerName, string partitionName, Stream readStream, IPartcloneCache? cache)
         {
@@ -98,17 +98,33 @@ namespace libPartclone
 
             var mappingFromCache = cache?.GetPartcloneContentMapping();
 
-            if (mappingFromCache == null)
-            {
-                Log.Information($"[{containerName}] [{partitionName}] Reading partclone content map");
-                DeduceContiguousRanges();
-                cache?.SetPartcloneContentMapping(PartcloneContentMapping);
-            }
-            else
-            {
-                Log.Debug($"[{containerName}] [{partitionName}] Loading partclone content map from cache");
-                PartcloneContentMapping = mappingFromCache;
-            }
+            PartcloneContentMapping = new Lazy<List<ContiguousRange>>(() =>
+              {
+                  if (mappingFromCache == null)
+                  {
+                      Log.Information($"[{containerName}] [{partitionName}] Reading partclone content map");
+
+                      if (Bitmap == null) throw new Exception($"[{containerName}] [{partitionName}] BitMap is not populated.");
+
+                      BitmapMode bitmapMode = BitmapMode.BM_NONE;
+                      if (ImageDescV1 != null) bitmapMode = BitmapMode.BM_BYTE;
+                      if (ImageDescV2 != null) bitmapMode = ImageDescV2.ImageOptionsV2?.BitmapMode ?? BitmapMode.BM_NONE;
+
+                      var blockSize = ImageDescV1?.FileSystemInfoV1?.BlockSize ?? ImageDescV2?.FileSystemInfoV2?.BlockSize ?? throw new Exception("Could not retrieve block size");
+                      ushort checksumSize = ImageDescV2?.ImageOptionsV2?.ChecksumSize ?? 4;   //ImageDescV1 always uses 4 bytes for the checksum. See partclone.h, or search partclone.c for "void set_image_options_v1"
+                      var blocksPerChecksum = ImageDescV2?.ImageOptionsV2?.BlocksPerChecksum ?? 1;   //ImageDescV1 always uses 1 block per checksum. Search partclone.c for "void set_image_options_v1"
+
+                      var partcloneContentMapping = DeduceContiguousRanges(Bitmap, bitmapMode, blockSize, checksumSize, blocksPerChecksum, StartOfContent, Length);
+                      cache?.SetPartcloneContentMapping(partcloneContentMapping);
+
+                      return partcloneContentMapping;
+                  }
+                  else
+                  {
+                      Log.Debug($"[{containerName}] [{partitionName}] Loading partclone content map from cache");
+                      return mappingFromCache;
+                  }
+              });
         }
 
         public long Length
@@ -120,56 +136,34 @@ namespace libPartclone
             }
         }
 
-        void DeduceContiguousRanges()
+        static List<ContiguousRange> DeduceContiguousRanges(byte[] Bitmap, BitmapMode bitmapMode, uint blockSize, ushort checksumSize, uint blocksPerChecksum, long startOfContent, long totalLength)
         {
-            if (Bitmap == null) return;
-
-
             long blockIndex = 0;
             long populatedBlockIndex = 0;
 
-            var blockSize = ImageDescV1?.FileSystemInfoV1?.BlockSize ?? ImageDescV2?.FileSystemInfoV2?.BlockSize;
-            if (blockSize == null) return;
-
-            ushort checksumSize = ImageDescV2?.ImageOptionsV2?.ChecksumSize ?? 4;   //ImageDescV1 always uses 4 bytes for the checksum. See partclone.h, or search partclone.c for "void set_image_options_v1"
-            uint blocksPerChecksum = ImageDescV2?.ImageOptionsV2?.BlocksPerChecksum ?? 1;   //ImageDescV1 always uses 1 block per checksum. Search partclone.c for "void set_image_options_v1"
-
-            //BitArray? bmp = null;
             IEnumerable<bool>? bmp = null;
 
-            if (ImageDescV1 != null)
+            switch (bitmapMode)
             {
-                //ImageDescV1 uses bitmap_mode = BM_BYTE
+                case BitmapMode.BM_BIT:
+                    bmp = Bitmap.SelectMany(byt => byt.GetBits().Reverse());
+                    break;
 
-                bmp = Bitmap
-                        .Select(byt => byt != 0x0)
-                        .Concat(new[] { false });
+                case BitmapMode.BM_BYTE:
+
+                    bmp = Bitmap
+                            .Select(byt => byt != 0x0)
+                            .Concat(new[] { false });
+                    break;
+
+                default:
+                    throw new Exception($"Unsupported BitmapMode: {bitmapMode}");
             }
-            if (ImageDescV2 != null)
-            {
-                //ImageDescV2 has a flag for bitmap mode
-                switch (ImageDescV2.ImageOptionsV2?.BitmapMode)
-                {
-                    case BitmapMode.BM_BIT:
-                        bmp = Bitmap.SelectMany(byt => byt.GetBits().Reverse());
-                        break;
-
-                    case BitmapMode.BM_BYTE:
-
-                        bmp = Bitmap
-                                .Select(byt => byt != 0x0)
-                                .Concat(new[] { false });
-                        break;
-
-                    case BitmapMode.BM_NONE:
-                        throw new Exception($"Unsupported BitmapMode: {ImageDescV2.ImageOptionsV2?.BitmapMode}");
-                }
-            }
-
-            if (bmp == null) return;
 
             ContiguousRange? currentRange = null;
             ContiguousRange? lastPopulatedRange = null;
+
+            var result = new List<ContiguousRange>();
 
             foreach (bool blockIsPopulated in bmp)
             {
@@ -180,7 +174,7 @@ namespace libPartclone
                 {
                     var contentRange = new ByteRange()
                     {
-                        StartByte = blockIndex * blockSize.Value
+                        StartByte = blockIndex * blockSize
                     };
                     ByteRange? partcloneContentRange = null;
 
@@ -190,7 +184,7 @@ namespace libPartclone
 
                         if (lastPopulatedRange == null)
                         {
-                            partcloneContentRange.StartByte = StartOfContent;
+                            partcloneContentRange.StartByte = startOfContent;
                         }
                         else
                         {
@@ -208,7 +202,7 @@ namespace libPartclone
 
                     var newContiguousRange = new ContiguousRange(partcloneContentRange, contentRange);
 
-                    PartcloneContentMapping.Add(newContiguousRange);
+                    result.Add(newContiguousRange);
                     currentRange = newContiguousRange;
                     if (newContiguousRange.IsPopulated)
                     {
@@ -216,7 +210,7 @@ namespace libPartclone
                     }
                 }
 
-                currentRange.OutputFileRange.EndByte = ((blockIndex + 1) * blockSize.Value) - 1;
+                currentRange.OutputFileRange.EndByte = ((blockIndex + 1) * blockSize) - 1;
                 blockIndex++;
 
                 if (blockIsPopulated && currentRange.PartcloneContentRange != null)
@@ -225,11 +219,13 @@ namespace libPartclone
                     populatedBlockIndex++;
                 }
 
-                if (currentRange.OutputFileRange.EndByte > Length)
+                if (currentRange.OutputFileRange.EndByte > totalLength)
                 {
-                    currentRange.OutputFileRange.EndByte = Length - 1;
+                    currentRange.OutputFileRange.EndByte = totalLength - 1;
                 }
             }
+
+            return result;
         }
     }
 }

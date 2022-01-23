@@ -30,6 +30,7 @@ namespace libCommon
 
             using var stdoutWaitHandle = new AutoResetEvent(false);
             using var stderrWaitHandle = new AutoResetEvent(false);
+
             p.OutputDataReceived += (sender, e) =>
             {
                 // attach event handler

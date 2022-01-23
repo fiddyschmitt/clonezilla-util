@@ -1,6 +1,7 @@
 ﻿using lib7Zip;
 using libClonezilla.Decompressors;
 using libClonezilla.Partitions;
+using libClonezilla.VFS;
 using libCommon;
 using libCommon.Streams;
 using libCommon.Streams.Seekable;
@@ -18,7 +19,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class ImageFile : PartitionContainer
     {
-        public ImageFile(string filename, bool willPerformRandomSeeking)
+        public ImageFile(string filename, bool willPerformRandomSeeking, IVFS vfs)
         {
             Stream mainFileStream = File.OpenRead(filename);
 
@@ -38,7 +39,10 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             }
             else
             {
-                container = new CompressedImage(filename, compressionInUse, willPerformRandomSeeking);
+                //To inspect compressed images, we need a virtual temp folder.
+                //Let's get one from the VFS.
+                var tempFolder = vfs.CreateTempFolder();
+                container = new CompressedImage(filename, willPerformRandomSeeking, tempFolder);
             }
 
             Partitions = container.Partitions;

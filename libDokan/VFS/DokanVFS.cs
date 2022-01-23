@@ -1,5 +1,6 @@
 ﻿using DokanNet;
 using libCommon;
+using libDokan.Processes;
 using libDokan.VFS;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
@@ -18,10 +19,10 @@ namespace libDokan
 {
     public class DokanVFS : IDokanOperations
     {
-        readonly Folder Root;
+        readonly RootFolder Root;
         private readonly string VolumeLabel;
 
-        public DokanVFS(string volumeLabel, Folder root)
+        public DokanVFS(string volumeLabel, RootFolder root)
         {
             Root = root;
             VolumeLabel = volumeLabel;
@@ -99,7 +100,7 @@ namespace libDokan
                     switch (mode)
                     {
                         case FileMode.Open:
-                            if (Root.GetEntryFromPath(filePath) is not Folder)
+                            if (Root.GetEntryFromPath(filePath, info.ProcessId) is not Folder)
                             {
                                 return Trace(nameof(CreateFile), fileName, info, access, share, mode, options,
                                     attributes, DokanResult.PathNotFound);
@@ -126,7 +127,7 @@ namespace libDokan
                 var readWriteAttributes = (access & DataAccess) == 0;
                 var readAccess = (access & DataWriteAccess) == 0;
 
-                var fileSystemEntry = Root.GetEntryFromPath(filePath);
+                var fileSystemEntry = Root.GetEntryFromPath(filePath, info.ProcessId);
                 pathExists = fileSystemEntry != null;
                 pathIsDirectory = fileSystemEntry is Folder;
 
@@ -259,7 +260,7 @@ namespace libDokan
 
             if (info.Context == null) // memory mapped read
             {
-                var fileSystemEntry = Root.GetEntryFromPath(fileName);
+                var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId);
                 if (fileSystemEntry is FileEntry file)
                 {
                     using var stream = file.GetStream();
@@ -344,7 +345,7 @@ namespace libDokan
 
             // may be called with info.Context == null, but usually it isn't
 
-            var fileSystemEntry = Root.GetEntryFromPath(fileName);
+            var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId);
 
             if (fileSystemEntry == null)
             {
@@ -360,7 +361,7 @@ namespace libDokan
         {
             // This function is not called because FindFilesWithPattern is implemented
             // Return DokanResult.NotImplemented in FindFilesWithPattern to make FindFiles called
-            files = FindFilesHelper(fileName, "*");
+            files = FindFilesHelper(fileName, "*", info.ProcessId);
 
             return Trace(nameof(FindFiles), fileName, info, DokanResult.Success);
         }
@@ -471,7 +472,7 @@ namespace libDokan
         public NtStatus GetDiskFreeSpace(out long freeBytesAvailable, out long totalNumberOfBytes, out long totalNumberOfFreeBytes, IDokanFileInfo info)
         {
             long totalInUse = 0;
-            _ = new[] { Root }
+            _ = new Folder[] { Root }
                 .Recurse(folder =>
                 {
                     var totalFileSizes = folder
@@ -552,20 +553,27 @@ namespace libDokan
             return Trace(nameof(FindStreams), fileName, info, DokanResult.NotImplemented);
         }
 
-        public IList<FileInformation> FindFilesHelper(string fileName, string searchPattern)
+        public IList<FileInformation> FindFilesHelper(string fileName, string searchPattern, int requestingPID)
         {
             //Console.WriteLine($"FindFilesHelper: {fileName}                     {searchPattern}");
 
-            var fileSystemEntry = Root.GetEntryFromPath(fileName);
+            var fileSystemEntry = Root.GetEntryFromPath(fileName, requestingPID);
+
+            var result = new List<FileInformation>();
+
+            if (fileSystemEntry != null && fileSystemEntry.IsAccessibleToProcess(requestingPID))
+            {
+                return result;
+            }
 
             var wildcardMatcher = new FindFilesPatternToRegex();
 
-            List<FileInformation> result = new();
             if (fileSystemEntry is Folder folder)
             {
                 result = folder
                             .Children
                             .Where(child => wildcardMatcher.FindFilesEmulator(searchPattern, new[] { child.Name }).Any())
+                            .Where(child => child is not UnlistedFolder)
                             .Select(entry => entry.ToFileInformation())
                             .ToList();
             }
@@ -582,14 +590,14 @@ namespace libDokan
         public NtStatus FindFilesWithPattern(string fileName, string searchPattern, out IList<FileInformation> files,
             IDokanFileInfo info)
         {
-            files = FindFilesHelper(fileName, searchPattern);
+            files = FindFilesHelper(fileName, searchPattern, info.ProcessId);
 
             return Trace(nameof(FindFilesWithPattern), fileName, info, DokanResult.Success);
         }
 
         public static void Test()
         {
-            var rootFolder = new Folder("", null);
+            var rootFolder = new RootFolder(@"X:\");
             var subfolder1 = new Folder("2021-12-28-13-img_PB-DEVOPS1_gz", rootFolder);
             var subfolder2 = new Folder("extracted", subfolder1);
 
@@ -606,7 +614,8 @@ namespace libDokan
                                 {
                                     var stream = File.OpenRead(filename);
                                     return stream;
-                                }
+                                },
+                                fi.Length
                                 )
                             {
                                 Length = fi.Length,
@@ -622,7 +631,7 @@ namespace libDokan
 
             var testFS = new DokanVFS("DokanVFS", rootFolder);
 
-            testFS.Mount(@"X:\");
+            testFS.Mount(rootFolder.MountPoint);
         }
 
     }

@@ -9,8 +9,6 @@ namespace libCommon.Streams.Seekable
 {
     public class SeekableStreamUsingRestarts : Stream
     {
-        long position = 0;
-        long? length = null;
         Stream underlyingStream;
 
         public SeekableStreamUsingRestarts(Func<Stream> resetStream, long? length)
@@ -26,6 +24,7 @@ namespace libCommon.Streams.Seekable
 
         public override bool CanWrite => false;
 
+        long? length = null;
         public override long Length
         {
             get
@@ -39,7 +38,7 @@ namespace libCommon.Streams.Seekable
                     else
                     {
                         var originalPosition = Position;
-                        Extensions.CopyTo(underlyingStream, Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+                        Extensions.CopyTo(this, Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
                         length = Position;
                         //We are now at the end of the stream. Let's go back to the original position
                         Seek(originalPosition, SeekOrigin.Begin);
@@ -50,6 +49,7 @@ namespace libCommon.Streams.Seekable
             }
         }
 
+        long position = 0;
         public override long Position
         {
             get => position;

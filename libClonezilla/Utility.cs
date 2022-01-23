@@ -11,6 +11,9 @@ using Serilog;
 using System.Threading.Tasks;
 using System.Threading;
 using DokanNet;
+using libClonezilla.Partitions;
+using libClonezilla.VFS;
+using static libClonezilla.Partitions.MountedPartitionImage;
 
 namespace libClonezilla
 {
@@ -33,50 +36,36 @@ namespace libClonezilla
             }
         }
 
-        public static void MountPartitionsAsImageFiles(string programName, PartitionContainer container, string mountPoint, Folder containersRoot, Folder rootToMount) =>
-            MountPartitionsAsImageFiles(
-                programName, 
-                new List<PartitionContainer>() { container}, 
-                mountPoint, 
-                containersRoot, 
-                rootToMount);
-
-            public static void MountPartitionsAsImageFiles(string programName, List<PartitionContainer> containers, string mountPoint, Folder containersRoot, Folder rootToMount)
+        public static List<MountedContainer> PopulateVFS(IVFS vfs, Folder containersRoot, List<PartitionContainer> containers, DesiredContent desiredContent)
         {
-            //tell each partition to create a virtual file
-            containers
-                .ForEach(container =>
-                {
-                    Folder containerFolder;
+            var result = containers
+                            .Select(container =>
+                            {
+                                Folder containerFolder;
 
-                    if (containers.Count == 1)
-                    {
-                        containerFolder = containersRoot;
-                    }
-                    else
-                    {
-                        containerFolder = new Folder(container.ContainerName, containersRoot);
-                    }
+                                if (containers.Count == 1)
+                                {
+                                    containerFolder = containersRoot;
+                                }
+                                else
+                                {
+                                    containerFolder = new Folder(container.ContainerName, containersRoot);
+                                }
 
-                    container
-                        .Partitions
-                        .ForEach(partition =>
-                        {
-                            partition.AddPartitionImageToVirtualFolder(mountPoint, containerFolder);
-                        });
-                });
+                                var mountedContainer = new MountedContainer(container, containerFolder, vfs, desiredContent);
+                                return mountedContainer;
+                            })
+                            .ToList();
 
-            var vfs = new DokanVFS(programName, rootToMount);
-            Task.Factory.StartNew(() => vfs.Mount(mountPoint, DokanOptions.WriteProtection, 64, new DokanNet.Logging.NullLogger()));
-            WaitForMountPointToBeAvailable(mountPoint);
+            return result;
         }
 
-        private static void WaitForMountPointToBeAvailable(string mountPoint)
+        public static void WaitForFolderToExist(string folderPath)
         {
-            Log.Information($"Waiting for {mountPoint} to be available.");
+            Log.Information($"Waiting for {folderPath} to be available.");
             while (true)
             {
-                if (Directory.Exists(mountPoint))
+                if (Directory.Exists(folderPath))
                 {
                     break;
                 }

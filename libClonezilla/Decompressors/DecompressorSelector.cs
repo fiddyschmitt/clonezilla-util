@@ -33,6 +33,7 @@ namespace libClonezilla.Decompressors
                                         partitionCache ?? throw new Exception($"{nameof(GzDecompressor)} requires a partition cache.")),
 
                 Compression.Zstandard => new ZstDecompressor(CompressedStream, uncompressedLength),
+                Compression.xz => new xzDecompressor(CompressedStream),
                 Compression.None => new NoChangeDecompressor(CompressedStream),
                 _ => throw new Exception($"Could not initialise a decompressor for {StreamName}"),
             };

@@ -31,11 +31,11 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
         public void SetupFromStream(Stream rawImageStream, IEnumerable<ArchiveEntry> archiveEntries, bool willPerformRandomSeeking)
         {
-            var firstArchiveEntry = archiveEntries.First();
+            var firstArchiveEntry = archiveEntries.FirstOrDefault();
 
             //we have to work out if this is a drive image, or a partition image
 
-            var isDriveImage = !firstArchiveEntry.IsFolder && Path.GetFileNameWithoutExtension(firstArchiveEntry.Path).Equals("0") && firstArchiveEntry.Offset != null;
+            var isDriveImage = firstArchiveEntry != null && !firstArchiveEntry.IsFolder && Path.GetFileNameWithoutExtension(firstArchiveEntry.Path).Equals("0") && firstArchiveEntry.Offset != null;
 
             PartitionContainer container;
             if (isDriveImage)

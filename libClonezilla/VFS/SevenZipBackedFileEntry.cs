@@ -1,5 +1,5 @@
-﻿using clonezilla_util.Extractors;
-using lib7Zip;
+﻿using lib7Zip;
+using libClonezilla.Extractors;
 using libDokan;
 using libDokan.VFS;
 using libDokan.VFS.Files;

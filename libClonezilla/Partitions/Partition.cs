@@ -24,21 +24,21 @@ namespace libClonezilla.Partitions
     {
         public Stream? FullPartitionImage { get; protected set; }
         public PartitionContainer Container { get; protected set; }
-        public string Name { get; protected set; }
+        public string PartitionName { get; protected set; }
         public IPartitionCache? PartitionCache { get; protected set; }
 
         public Partition(PartitionContainer container, string partitionName, IPartitionCache? partitionCache)
         {
             Container = container;
-            Name = partitionName;
+            PartitionName = partitionName;
             PartitionCache = partitionCache;
         }
 
         public void ExtractToFile(string outputFilename, bool makeSparse)
         {
-            if (FullPartitionImage == null) throw new Exception($"[{Container.ContainerName}] [{Name}] Cannot extract. {nameof(FullPartitionImage)} has not been intialised.");
+            if (FullPartitionImage == null) throw new Exception($"[{Container.ContainerName}] [{PartitionName}] Cannot extract. {nameof(FullPartitionImage)} has not been intialised.");
 
-            ExtractToFile(Container.ContainerName, Name, FullPartitionImage, outputFilename, makeSparse);
+            ExtractToFile(Container.ContainerName, PartitionName, FullPartitionImage, outputFilename, makeSparse);
         }
 
         public static void ExtractToFile(string containerName, string partitionName, Stream stream, string outputFilename, bool makeSparse)
@@ -90,62 +90,6 @@ namespace libClonezilla.Partitions
                         Log.Information($"[{containerName}] [{partitionName}] Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
                     });
             }
-        }
-
-        public IEnumerable<ArchiveEntry> GetFilesInPartition()
-        {
-            IEnumerable<ArchiveEntry>? archiveFiles = PartitionCache?.GetFileList();
-
-            bool saveToCache = false;
-            if (archiveFiles == null)
-            {
-                if (PhysicalImageFilename == null) throw new Exception($"[{Container.ContainerName}] [{Name}] Cannot retrieve files. {nameof(PhysicalImageFilename)} has not been intialised.");
-
-                archiveFiles = SevenZipUtility.GetArchiveEntries(PhysicalImageFilename, false, true);
-                saveToCache = true;
-            };
-
-            var fullListOfFiles = new List<ArchiveEntry>();
-
-            foreach (var archiveEntry in archiveFiles)
-            {
-                if (Path.GetFileName(archiveEntry.Path).Equals("desktop.ini", StringComparison.CurrentCultureIgnoreCase)) continue; //a micro-optimisation to stop Windows from requesting this file and causing a lot of unecessary IO
-
-                fullListOfFiles.Add(archiveEntry);
-                yield return archiveEntry;
-            }
-
-            if (saveToCache)
-            {
-                PartitionCache?.SetFileList(fullListOfFiles);
-            }
-        }
-
-        public string? PhysicalImageFilename { get; protected set; }
-
-        public void AddPartitionImageToVirtualFolder(string mountPoint, Folder folder)
-        {
-            var virtualImageFilename = Path.Combine(folder.FullPath, $"{Name}.img");
-            PhysicalImageFilename = Path.Combine(mountPoint, virtualImageFilename);
-
-            var virtualFileName = Path.GetFileName(virtualImageFilename);
-
-            if (FullPartitionImage == null) throw new Exception($"[{Container.ContainerName}] [{Name}] Cannot extract file. {nameof(FullPartitionImage)} has not been intialised.");
-
-            var fileEntry = new StreamBackedFileEntry(
-                virtualFileName,
-                folder,
-                () =>
-                {
-                    var stream = FullPartitionImage;
-                    return stream;
-                })
-            {
-                Created = DateTime.Now,
-                Accessed = DateTime.Now,
-                Modified = DateTime.Now,
-                Length = FullPartitionImage.Length,
-            };
         }
     }
 }

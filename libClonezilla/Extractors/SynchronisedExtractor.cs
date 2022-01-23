@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace clonezilla_util.Extractors
+namespace libClonezilla.Extractors
 {
     public class SynchronisedExtractor : IExtractor
     {

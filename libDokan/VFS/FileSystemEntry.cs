@@ -1,5 +1,6 @@
 ﻿using DokanNet;
 using libCommon;
+using libDokan.Processes;
 using libDokan.VFS.Folders;
 using System;
 using System.Collections.Generic;
@@ -43,7 +44,7 @@ namespace libDokan.VFS
 
         protected abstract FileInformation ToFileInfo();
 
-        public string FullPath
+        public List<FileSystemEntry> Ancestors
         {
             get
             {
@@ -52,12 +53,42 @@ namespace libDokan.VFS
                                     .Reverse()
                                     .ToList();
 
-                var result = ancestors
-                                .Where(a => !string.IsNullOrEmpty(a.Name))
+                return ancestors;
+            }
+        }
+
+        public bool IsAccessibleToProcess(int requestPID)
+        {
+            //check if any of the ancestors are restricted
+
+            var restrictedAncestors = Ancestors
+                                        .OfType<RestrictedFolderByPID>()
+                                        .ToList();
+
+            var procInfo = new ProcInfo(requestPID);
+
+            bool isRestricted = restrictedAncestors
+                                    .Any(ancestor => !ancestor.IsProcessPermitted(procInfo));
+
+            return isRestricted;
+        }
+
+        public string FullPath
+        {
+            get
+            {
+                var folderPath = Ancestors
+                                .Where(a => a is not RootFolder)
                                 .Select(a => a.Name)
                                 .ToString("\\");
 
-                return result;
+                var root = Ancestors
+                            .OfType<RootFolder>()
+                            .FirstOrDefault()?.MountPoint ?? "";
+
+                var fullPath = Path.Combine(root, folderPath);
+
+                return fullPath;
             }
         }
 

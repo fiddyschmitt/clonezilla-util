@@ -7,6 +7,8 @@ using System.Text;
 using System.Linq;
 using lib7Zip;
 using libClonezilla.PartitionContainers.ImageFiles;
+using libDokan.VFS.Folders;
+using libClonezilla.VFS;
 
 namespace libClonezilla.PartitionContainers
 {
@@ -16,7 +18,7 @@ namespace libClonezilla.PartitionContainers
 
         public abstract string ContainerName { get; protected set; }
 
-        public static PartitionContainer FromPath(string path, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking)
+        public static PartitionContainer FromPath(string path, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking, IVFS vfs)
         {
             PartitionContainer? result = null;
 
@@ -42,7 +44,7 @@ namespace libClonezilla.PartitionContainers
                 }
                 else
                 {
-                    result = new ImageFile(path, willPerformRandomSeeking);
+                    result = new ImageFile(path, willPerformRandomSeeking, vfs);
                 }
             }
 
@@ -54,10 +56,10 @@ namespace libClonezilla.PartitionContainers
             return result;
         }
 
-        public static List<PartitionContainer> FromPaths(List<string> paths, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking)
+        public static List<PartitionContainer> FromPaths(List<string> paths, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking, IVFS vfs)
         {
             var result = paths
-                            .Select(path => FromPath(path, cacheFolder, partitionsToLoad, willPerformRandomSeeking))
+                            .Select(path => FromPath(path, cacheFolder, partitionsToLoad, willPerformRandomSeeking, vfs))
                             .ToList();
 
             return result;

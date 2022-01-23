@@ -13,47 +13,36 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class CompressedImage : PartitionContainer
     {
-        public CompressedImage(string filename, Compression compressionInUse, bool willPerformRandomSeeking)
+        public CompressedImage(string filename, bool willPerformRandomSeeking, Folder tempFolder)
         {
             ContainerName = Path.GetFileNameWithoutExtension(filename);
 
-            Stream compressedStream = File.OpenRead(filename);
+            var currentFilename = filename;
 
-            //protect this stream from concurrent access
-            compressedStream = Stream.Synchronized(compressedStream);
-
-            //this is a compressed drive image, let's decompress it and work out what to do
-            var decompressorSelector = new DecompressorSelector(ContainerName, compressedStream, null, compressionInUse, null);
-
-            //we have to mount the uncompressed file, so we can inspect its contents
-            var tempContainer = new RawImage(filename, ContainerName, willPerformRandomSeeking);
-            var tempMountPoint = libDokan.Utility.GetAvailableDriveLetter();
-
-            //todo: just pass in a container root from the very top
-            var root = new Folder("", null);
-            var containerRoot = new Folder("image", root)
+            while (true)
             {
-                Hidden = true
-            };
+                Stream streamToInspect = File.OpenRead(currentFilename);
 
-            var decompressedStream = decompressorSelector.GetSeekableStream();
-            var virtualDecompressedFile = new StreamBackedFileEntry(Path.GetFileName(filename), containerRoot, () =>
-            {
-                return decompressedStream;
-            });
+                //protect this stream from concurrent access
+                streamToInspect = Stream.Synchronized(streamToInspect);
 
-            Utility.MountPartitionsAsImageFiles(
-                "",
-                tempContainer,
-                tempMountPoint,
-                containerRoot,
-                root);
+                var compression = IDecompressor.GetCompressionType(streamToInspect);
 
-            //get the list of files inside this
-            var physicalDecompressedFile = Path.Combine(tempMountPoint, virtualDecompressedFile.FullPath);
+                if (compression == Compression.None)
+                {
+                    //finally dealing with uncompressed content
+                    break;
+                }
 
-            //we now have the uncompressed image file
-            var container = new RawImage(physicalDecompressedFile, ContainerName, willPerformRandomSeeking);
+                var decompressorSelector = new DecompressorSelector(ContainerName, streamToInspect, null, compression, null);
+                var decompressedStream = decompressorSelector.GetSeekableStream();
+
+                var virtualDecompressedFile = new StreamBackedFileEntry(Guid.NewGuid().ToString(), tempFolder, decompressedStream);
+
+                currentFilename = virtualDecompressedFile.FullPath;
+            }
+
+            var container = new RawImage(currentFilename, ContainerName, willPerformRandomSeeking);
 
             Partitions = container.Partitions;
         }

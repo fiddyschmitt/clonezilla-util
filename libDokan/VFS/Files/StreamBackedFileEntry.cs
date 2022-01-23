@@ -15,11 +15,13 @@ namespace libDokan.VFS.Files
         public StreamBackedFileEntry(string name, Folder? folder, Stream stream) : base(name, folder)
         {
             Stream = stream;
+            Length = stream.Length;
         }
 
-        public StreamBackedFileEntry(string name, Folder? folder, Func<Stream> streamFactory) : base(name, folder)
+        public StreamBackedFileEntry(string name, Folder? folder, Func<Stream> streamFactory, long fileSize) : base(name, folder)
         {
             StreamFactory = streamFactory;
+            Length = fileSize;
         }
 
         public override Stream GetStream()
