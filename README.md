@@ -1,15 +1,13 @@
 # clonezilla-util
-A tool for working with drive images.
+* Mount drive images in Windows.
+
+* Extract individual files from a Clonezilla archive, without extracting the full archive.
 
 ## Supported formats
     Clonezilla archive
     Partclone
     Raw drive image     (eg. sda.img)
     Raw partition image (eg. sda1.img)
-
-It lets you extract an individual file from a Clonezilla archive, without extracting the full archive.
-<br />
-<br />
 
 ## Where to download
 Releases can be found over in the [releases](https://github.com/fiddyschmitt/clonezilla-util/releases) section.
