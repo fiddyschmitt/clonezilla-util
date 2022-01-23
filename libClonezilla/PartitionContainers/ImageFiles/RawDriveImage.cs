@@ -14,7 +14,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class RawDriveImage : PartitionContainer
     {
-        public RawDriveImage(string containerName, string filename)
+        public RawDriveImage(string containerName, string filename, List<string> partitionsToLoad)
         {
             ContainerName = containerName;
 
@@ -22,16 +22,16 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
             var rawDriveStream = File.OpenRead(filename);
 
-            SetupFromStream(rawDriveStream, partitionImageFiles);
+            SetupFromStream(rawDriveStream, partitionImageFiles, partitionsToLoad);
         }
 
-        public RawDriveImage(string containerName, Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles)
+        public RawDriveImage(string containerName, List<string> partitionsToLoad, Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles)
         {
             ContainerName = containerName;
-            SetupFromStream(rawDriveStream, partitionImageFiles);
+            SetupFromStream(rawDriveStream, partitionImageFiles, partitionsToLoad);
         }
 
-        void SetupFromStream(Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles)
+        void SetupFromStream(Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles, List<string> partitionsToLoad)
         {
             var readLock = new object();
 
@@ -40,11 +40,21 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                             .Sandwich()
                             .Select(partitionImageFile =>
                             {
-                                var partitionName = $"partition{Path.GetFileNameWithoutExtension(partitionImageFile.Current.Path)}";
+                                var startByte = partitionImageFile.Current.Offset!.Value;
+                                var length = partitionImageFile.Current.Size;
+                                var endByte = startByte + length;
 
-                                var partitionStart = partitionImageFile.Current.Offset!.Value;
-                                var partitionLength = partitionImageFile.Current.Size;
-                                var partitionEnd = partitionStart + partitionLength;
+                                return new
+                                {
+                                    PartitionName = $"partition{Path.GetFileNameWithoutExtension(partitionImageFile.Current.Path)}",
+                                    StartByte = startByte,
+                                    PartitionLength = length,
+                                    EndByte = endByte
+                                };
+                            })
+                            .Where(partitionInfo => partitionsToLoad.Contains(partitionInfo.PartitionName))
+                            .Select(partitionInfo =>
+                            {
 
                                 //The strange thing is that partitionEnd can be beyond the length of the original file.
                                 //In the case of the sda2.img test file, it is 868,352 bytes beyond the end.
@@ -54,7 +64,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                                 //have to give a clean stream to the SubStream, otherwise multiple readers can interfere with each other. (Not possible to address using Stream.Synchronised because any position tracking is thwarted by the fact that Seek and Read can be called by another thread )
 
                                 var independentStream = new IndependentStream(rawDriveStream, readLock);
-                                var partitionStream = new SubStream(independentStream, partitionStart, partitionEnd);
+                                var partitionStream = new SubStream(independentStream, partitionInfo.StartByte, partitionInfo.EndByte);
 
                                 //Stream stream = new SeekableStreamUsingRestarts(() =>
                                 //{
@@ -81,7 +91,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
                                 //stream = new CachingStream(stream, null, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
 
-                                Partition partition = new ImageFilePartition(this, partitionName, partitionStream, partitionLength, Compression.None, null, true);
+                                Partition partition = new ImageFilePartition(this, partitionInfo.PartitionName, partitionStream, partitionInfo.PartitionLength, Compression.None, null, true);
                                 return partition;
                             })
                             .ToList();

@@ -13,7 +13,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class CompressedImage : PartitionContainer
     {
-        public CompressedImage(string filename, bool willPerformRandomSeeking, Folder tempFolder)
+        public CompressedImage(string filename, List<string> partitionsToLoad, bool willPerformRandomSeeking, Folder tempFolder)
         {
             ContainerName = Path.GetFileNameWithoutExtension(filename);
 
@@ -42,7 +42,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 currentFilename = virtualDecompressedFile.FullPath;
             }
 
-            var container = new RawImage(currentFilename, ContainerName, willPerformRandomSeeking);
+            var container = new RawImage(currentFilename, partitionsToLoad, ContainerName, willPerformRandomSeeking);
 
             Partitions = container.Partitions;
         }

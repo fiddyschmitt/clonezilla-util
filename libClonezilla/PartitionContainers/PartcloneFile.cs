@@ -14,7 +14,7 @@ namespace libClonezilla.PartitionContainers
     {
         public string Filename { get; }
 
-        public PartcloneFile(string filename, bool willPerformRandomSeeking)
+        public PartcloneFile(string filename, List<string> partitionsToLoad, bool willPerformRandomSeeking)
         {
             Filename = filename;
 
@@ -25,11 +25,12 @@ namespace libClonezilla.PartitionContainers
             var partcloneInfo = new PartcloneImageInfo(ContainerName, partitionName, partcloneStream, null);
             var uncompressedLength = partcloneInfo.Length;
 
-            var partition = new PartclonePartition(this, partitionName, partcloneStream, uncompressedLength, Compression.None, null, null, willPerformRandomSeeking);
+            Partitions = new();
 
-            Partitions = new List<Partition>
+            if (partitionsToLoad.Contains(partitionName))
             {
-                partition
+                var partition = new PartclonePartition(this, partitionName, partcloneStream, uncompressedLength, Compression.None, null, null, willPerformRandomSeeking);
+                Partitions.Add(partition);
             };
         }
 

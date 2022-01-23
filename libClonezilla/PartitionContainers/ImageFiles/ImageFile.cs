@@ -19,7 +19,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class ImageFile : PartitionContainer
     {
-        public ImageFile(string filename, bool willPerformRandomSeeking, IVFS vfs)
+        public ImageFile(string filename, List<string> partitionsToLoad, bool willPerformRandomSeeking, IVFS vfs)
         {
             Stream mainFileStream = File.OpenRead(filename);
 
@@ -35,14 +35,14 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
             if (compressionInUse == Compression.None)
             {
-                container = new RawImage(filename, ContainerName, willPerformRandomSeeking);
+                container = new RawImage(filename, partitionsToLoad, ContainerName, willPerformRandomSeeking);
             }
             else
             {
                 //To inspect compressed images, we need a virtual temp folder.
                 //Let's get one from the VFS.
                 var tempFolder = vfs.CreateTempFolder();
-                container = new CompressedImage(filename, willPerformRandomSeeking, tempFolder);
+                container = new CompressedImage(filename, partitionsToLoad, willPerformRandomSeeking, tempFolder);
             }
 
             Partitions = container.Partitions;

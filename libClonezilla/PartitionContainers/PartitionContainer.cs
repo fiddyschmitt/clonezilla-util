@@ -40,11 +40,11 @@ namespace libClonezilla.PartitionContainers
 
                 if (magic.Equals("partclone-image"))
                 {
-                    result = new PartcloneFile(path, willPerformRandomSeeking);
+                    result = new PartcloneFile(path, partitionsToLoad, willPerformRandomSeeking);
                 }
                 else
                 {
-                    result = new ImageFile(path, willPerformRandomSeeking, vfs);
+                    result = new ImageFile(path, partitionsToLoad, willPerformRandomSeeking, vfs);
                 }
             }
 

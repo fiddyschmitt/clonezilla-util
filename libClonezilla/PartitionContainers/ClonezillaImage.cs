@@ -17,7 +17,7 @@ namespace libClonezilla.PartitionContainers
     {
         public string ClonezillaArchiveFolder { get; }
 
-        public ClonezillaImage(string clonezillaArchiveFolder, IClonezillaCacheManager cacheManager, IEnumerable<string>? partitionsToLoad, bool willPerformRandomSeeking)
+        public ClonezillaImage(string clonezillaArchiveFolder, IClonezillaCacheManager cacheManager, List<string> partitionsToLoad, bool willPerformRandomSeeking)
         {
             ClonezillaArchiveFolder = clonezillaArchiveFolder;
 
@@ -32,22 +32,7 @@ namespace libClonezilla.PartitionContainers
                             .ReadAllText(partsFilename)
                             .Split(' ')
                             .Select(partitionName => partitionName.Trim())
-                            .Where(partitionName =>
-                            {
-                                if (partitionsToLoad == null || !partitionsToLoad.Any())
-                                {
-                                    //the user did not specify any particular partitions
-                                    return true;
-                                }
-
-                                if (partitionsToLoad.Any(p => p.Equals(partitionName)))
-                                {
-                                    //the user specified some partitions, and this is one of them
-                                    return true;
-                                }
-
-                                return false;
-                            })
+                            .Where(partitionName => partitionsToLoad.Contains(partitionName))
                             .Select(partitionName =>
                             {
                                 var driveName = new string(partitionName.TakeWhile(c => !char.IsNumber(c)).ToArray());
@@ -58,8 +43,6 @@ namespace libClonezilla.PartitionContainers
                                 long? partitionSizeInBytes = null;
                                 try
                                 {
-
-
                                     if (!File.Exists(drivePartitionsFilename))
                                     {
                                         throw new Exception($"Could not find the drive partitions file: {drivePartitionsFilename}");

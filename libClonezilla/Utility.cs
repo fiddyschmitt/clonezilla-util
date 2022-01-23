@@ -38,6 +38,14 @@ namespace libClonezilla
 
         public static List<MountedContainer> PopulateVFS(IVFS vfs, Folder containersRoot, List<PartitionContainer> containers, DesiredContent desiredContent)
         {
+            var totalPartitions = containers.Sum(container => container.Partitions.Count);
+
+            if (totalPartitions == 0)
+            {
+                Log.Error("No partitions to mount. Exiting.");
+                Environment.Exit(1);
+            }
+
             var result = containers
                             .Select(container =>
                             {

@@ -12,16 +12,18 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class RawPartitionImage : PartitionContainer
     {
-        public RawPartitionImage(string containerName, string partitionName, Stream rawStream)
+        public RawPartitionImage(string containerName, List<string> partitionsToLoad, string partitionName, Stream rawStream)
         {
             ContainerName = containerName;
             rawStream.Seek(0, SeekOrigin.Begin);
 
             var partition = new ImageFilePartition(this, partitionName, rawStream, rawStream.Length, Compression.None, null, true);
 
-            Partitions = new()
+            Partitions = new();
+
+            if (partitionsToLoad.Contains(partitionName))
             {
-                partition
+                Partitions.Add(partition);
             };
         }
 

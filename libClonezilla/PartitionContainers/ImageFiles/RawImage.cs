@@ -10,8 +10,9 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class RawImage : PartitionContainer
     {
-        public RawImage(string filename, string containerName, bool willPerformRandomSeeking)
+        public RawImage(string filename, List<string> partitionsToLoad, string containerName, bool willPerformRandomSeeking)
         {
+            PartitionsToLoad = partitionsToLoad;
             ContainerName = containerName;
 
             var archiveEntries = SevenZipUtility.GetArchiveEntries(
@@ -23,8 +24,9 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             SetupFromStream(rawImageStream, archiveEntries, willPerformRandomSeeking);
         }
 
-        public RawImage(Stream rawImageStream, string containerName, IEnumerable<ArchiveEntry> archiveEntries, bool willPerformRandomSeeking)
+        public RawImage(Stream rawImageStream, List<string> partitionsToLoad, string containerName, IEnumerable<ArchiveEntry> archiveEntries, bool willPerformRandomSeeking)
         {
+            PartitionsToLoad = partitionsToLoad;
             ContainerName = containerName;
             SetupFromStream(rawImageStream, archiveEntries, willPerformRandomSeeking);
         }
@@ -42,16 +44,17 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             {
                 var partitionImageFiles = archiveEntries.ToList();
 
-                container = new RawDriveImage(ContainerName, rawImageStream, partitionImageFiles);
+                container = new RawDriveImage(ContainerName, PartitionsToLoad, rawImageStream, partitionImageFiles);
             }
             else
             {
-                container = new RawPartitionImage(ContainerName, "partition0", rawImageStream);
+                container = new RawPartitionImage(ContainerName, PartitionsToLoad, "partition0", rawImageStream);
             }
 
             Partitions = container.Partitions;
         }
 
+        public List<string> PartitionsToLoad { get; }
         public override string ContainerName { get; protected set; }
     }
 }

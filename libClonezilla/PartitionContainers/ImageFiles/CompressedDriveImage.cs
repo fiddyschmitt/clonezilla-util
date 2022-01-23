@@ -14,7 +14,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class CompressedDriveImage : PartitionContainer
     {
-        public CompressedDriveImage(string containerName, string filename, Compression compressionInuse)
+        public CompressedDriveImage(string containerName, string filename, List<string> partitionsToLoad, Compression compressionInuse)
         {
             ContainerName = containerName;
 
@@ -25,7 +25,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
             var rawDriveStream = decompressorSelector.GetSeekableStream();
 
-            var container = new RawDriveImage(containerName, rawDriveStream, partitionImageFiles);
+            var container = new RawDriveImage(containerName, partitionsToLoad, rawDriveStream, partitionImageFiles);
 
             Partitions = container.Partitions;
         }
