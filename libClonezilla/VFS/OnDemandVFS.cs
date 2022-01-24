@@ -24,7 +24,7 @@ namespace libClonezilla.VFS
                 //start the Virtual File System
                 var root = new RootFolder(MountPoint);
                 var vfs = new DokanVFS(ProgramName, root);
-                Task.Factory.StartNew(() => vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 64, new DokanNet.Logging.NullLogger()));
+                Task.Factory.StartNew(() => vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger()));
                 Utility.WaitForFolderToExist(root.MountPoint);
 
                 //Didn't get this to work
