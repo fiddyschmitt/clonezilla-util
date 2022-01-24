@@ -27,7 +27,7 @@ namespace libClonezilla.PartitionContainers
 
             Partitions = new();
 
-            if (partitionsToLoad.Contains(partitionName))
+            if (partitionsToLoad.Count == 0 || partitionsToLoad.Contains(partitionName))
             {
                 var partition = new PartclonePartition(this, partitionName, partcloneStream, uncompressedLength, Compression.None, null, null, willPerformRandomSeeking);
                 Partitions.Add(partition);

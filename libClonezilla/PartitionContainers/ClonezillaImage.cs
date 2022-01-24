@@ -32,7 +32,7 @@ namespace libClonezilla.PartitionContainers
                             .ReadAllText(partsFilename)
                             .Split(' ')
                             .Select(partitionName => partitionName.Trim())
-                            .Where(partitionName => partitionsToLoad.Contains(partitionName))
+                            .Where(partitionName => partitionsToLoad.Count == 0 || partitionsToLoad.Contains(partitionName))
                             .Select(partitionName =>
                             {
                                 var driveName = new string(partitionName.TakeWhile(c => !char.IsNumber(c)).ToArray());

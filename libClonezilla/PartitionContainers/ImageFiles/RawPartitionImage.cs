@@ -21,7 +21,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
             Partitions = new();
 
-            if (partitionsToLoad.Contains(partitionName))
+            if (partitionsToLoad.Count == 0 || partitionsToLoad.Contains(partitionName))
             {
                 Partitions.Add(partition);
             };

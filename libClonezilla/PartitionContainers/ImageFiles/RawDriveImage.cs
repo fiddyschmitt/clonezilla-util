@@ -52,7 +52,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                                     EndByte = endByte
                                 };
                             })
-                            .Where(partitionInfo => partitionsToLoad.Contains(partitionInfo.PartitionName))
+                            .Where(partitionInfo => partitionsToLoad.Count == 0 || partitionsToLoad.Contains(partitionInfo.PartitionName))
                             .Select(partitionInfo =>
                             {
 
