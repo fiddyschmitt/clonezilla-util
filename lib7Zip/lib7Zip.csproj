@@ -33,10 +33,20 @@
     <None Update="ext\7-Zip\win-x64\7zFM.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="ext\7-Zip\win-x86\7z.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="ext\7-Zip\win-x86\7z.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="ext\7-Zip\win-x86\7zFM.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="ext\7-Zip\linux-x64\" />
+    <Folder Include="ext\7-Zip\win-x86\" />
   </ItemGroup>
 
   <ItemGroup>

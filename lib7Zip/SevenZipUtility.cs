@@ -8,7 +8,9 @@ namespace lib7Zip
     {
         public static string SevenZipExe()
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return @"ext\7-Zip\win-x64\7z.exe";
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Environment.Is64BitOperatingSystem) return @"ext\7-Zip\win-x64\7z.exe";
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !Environment.Is64BitOperatingSystem) return @"ext\7-Zip\win-x86\7z.exe";
+
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return @"ext/7-Zip/linux-x64/7zz";
 
             throw new Exception("OS not supported yet.");
@@ -16,7 +18,8 @@ namespace lib7Zip
 
         public static string SevenZipDll()
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return @"ext\7-Zip\win-x64\7z.dll";
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Environment.Is64BitOperatingSystem) return @"ext\7-Zip\win-x64\7z.dll";
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !Environment.Is64BitOperatingSystem) return @"ext\7-Zip\win-x86\7z.dll";
 
             throw new Exception("OS not supported yet.");
         }

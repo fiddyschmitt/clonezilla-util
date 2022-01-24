@@ -11,6 +11,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="ext\gztool\win-x86\**" />
+    <EmbeddedResource Remove="ext\gztool\win-x86\**" />
+    <None Remove="ext\gztool\win-x86\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.IO.RecyclableMemoryStream" Version="2.2.0" />
     <PackageReference Include="Serilog" Version="2.10.0" />
   </ItemGroup>
@@ -28,6 +34,9 @@
     </None>
     <None Update="ext\gztool\gztool_0.10.9.exe">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
+    <None Update="ext\gztool\win-x86_64\gztool-Windows.x86_64.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 
