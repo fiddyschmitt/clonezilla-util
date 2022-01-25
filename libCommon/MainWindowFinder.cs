@@ -18,8 +18,8 @@ namespace libCommon
             bestHandle = IntPtr.Zero;
             this.processId = processId;
 
-            NativeMethods.EnumThreadWindowsCallback callback = new(EnumWindowsCallback);
-            NativeMethods.EnumWindows(callback, IntPtr.Zero);
+            EnumThreadWindowsCallback callback = new(EnumWindowsCallback);
+            EnumWindows(callback, IntPtr.Zero);
 
             GC.KeepAlive(callback);
             return bestHandle;
@@ -30,9 +30,9 @@ namespace libCommon
             bestHandle = IntPtr.Zero;
             this.processId = processId;
 
-            NativeMethods.EnumDesktopWindows(desktopHandle, (handle, lParam) =>
+            EnumDesktopWindows(desktopHandle, (handle, lParam) =>
             {
-                NativeMethods.GetWindowThreadProcessId(new HandleRef(this, handle), out int processId);
+                _ = GetWindowThreadProcessId(new HandleRef(this, handle), out int processId);
                 if (processId == this.processId)
                 {
                     if (IsMainWindow(handle))
@@ -50,7 +50,7 @@ namespace libCommon
         bool IsMainWindow(IntPtr handle)
         {
 
-            if (NativeMethods.GetWindow(new HandleRef(this, handle), NativeMethods.GW_OWNER) != IntPtr.Zero || !NativeMethods.IsWindowVisible(new HandleRef(this, handle)))
+            if (GetWindow(new HandleRef(this, handle), GW_OWNER) != IntPtr.Zero || !IsWindowVisible(new HandleRef(this, handle)))
                 return false;
 
             // Microsoft: should we use no window title to mean not a main window? (task man does)
@@ -69,7 +69,7 @@ namespace libCommon
 
         bool EnumWindowsCallback(IntPtr handle, IntPtr extraParameter)
         {
-            NativeMethods.GetWindowThreadProcessId(new HandleRef(this, handle), out int processId);
+            _ = GetWindowThreadProcessId(new HandleRef(this, handle), out int processId);
             if (processId == this.processId)
             {
                 if (IsMainWindow(handle))
@@ -83,23 +83,23 @@ namespace libCommon
 
         //Copied from: C:\Users\fiddy\Desktop\dev\cs\referencesource-master\System\compmod\microsoft\win32\NativeMethods.cs
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        public static extern int GetWindowThreadProcessId(HandleRef handle, out int processId);
+        static extern int GetWindowThreadProcessId(HandleRef handle, out int processId);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        public static extern bool EnumWindows(EnumThreadWindowsCallback callback, IntPtr extraData);
+        static extern bool EnumWindows(EnumThreadWindowsCallback callback, IntPtr extraData);
 
-        public delegate bool EnumThreadWindowsCallback(IntPtr hWnd, IntPtr lParam);
+        delegate bool EnumThreadWindowsCallback(IntPtr hWnd, IntPtr lParam);
 
         [DllImport("user32.dll", ExactSpelling = true, CharSet = CharSet.Auto)]
-        public static extern IntPtr GetWindow(HandleRef hWnd, int uCmd);
+        static extern IntPtr GetWindow(HandleRef hWnd, int uCmd);
 
         public const int GW_OWNER = 4;
 
         [DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
-        public static extern bool IsWindowVisible(HandleRef hWnd);
+        static extern bool IsWindowVisible(HandleRef hWnd);
 
         [DllImport("user32.dll", EntryPoint = "EnumDesktopWindows", ExactSpelling = false, CharSet = CharSet.Auto, SetLastError = true)]
-        public static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDelegate lpEnumCallbackFunction, IntPtr lParam);
+        static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDelegate lpEnumCallbackFunction, IntPtr lParam);
 
         public delegate bool EnumDelegate(IntPtr hWnd, int lParam);
     }

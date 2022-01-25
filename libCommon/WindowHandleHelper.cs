@@ -5,7 +5,6 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
-using static libCommon.NativeMethods;
 
 namespace libUIHelpers
 {
@@ -14,19 +13,19 @@ namespace libUIHelpers
         public delegate bool Win32Callback(IntPtr hwnd, IntPtr lParam);
 
         [DllImport("user32.dll")]
-        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
         [DllImport("user32.Dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool EnumChildWindows(IntPtr parentHandle, Win32Callback callback, IntPtr lParam);
+        static extern bool EnumChildWindows(IntPtr parentHandle, Win32Callback callback, IntPtr lParam);
 
         const int WM_GETTEXT = 0x0D;
         const int WM_SETTEXT = 0x000C;
 
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern int SendMessage(IntPtr hWnd, int msg, int Param, StringBuilder text);
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        static extern int SendMessage(IntPtr hWnd, int msg, int Param, StringBuilder text);
 
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
         public static IntPtr? GetRootWindowByTitle(int pid, IntPtr? desktopHandle, Func<string, bool> condition)
@@ -117,7 +116,7 @@ namespace libUIHelpers
             List<IntPtr> dsProcRootWindows = new();
             foreach (IntPtr hWnd in rootWindows)
             {
-                GetWindowThreadProcessId(hWnd, out uint lpdwProcessId);
+                _ = GetWindowThreadProcessId(hWnd, out uint lpdwProcessId);
                 if (lpdwProcessId == pid)
                 {
                     dsProcRootWindows.Add(hWnd);
@@ -165,7 +164,7 @@ namespace libUIHelpers
         public static string GetClassName(IntPtr handle)
         {
             var sb = new StringBuilder(256);
-            GetClassName(handle, sb, sb.Capacity);
+            _ = GetClassName(handle, sb, sb.Capacity);
 
             var result = sb.ToString();
             return result;
@@ -176,13 +175,13 @@ namespace libUIHelpers
         {
             var sb = new StringBuilder();
             sb.Append(text);
-            SendMessage(handle, WM_SETTEXT, 0, sb);
+            _ = SendMessage(handle, WM_SETTEXT, 0, sb);
         }
 
         public static string GetWindowText(IntPtr handle)
         {
             var sb = new StringBuilder(255);
-            SendMessage(handle, WM_GETTEXT, sb.Capacity, sb);
+            _ = SendMessage(handle, WM_GETTEXT, sb.Capacity, sb);
 
             var result = sb.ToString();
             return result;
@@ -230,7 +229,7 @@ namespace libUIHelpers
         }
 
         [DllImport("user32.dll", EntryPoint = "EnumDesktopWindows", ExactSpelling = false, CharSet = CharSet.Auto, SetLastError = true)]
-        public static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDelegate lpEnumCallbackFunction, IntPtr lParam);
+        static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDelegate lpEnumCallbackFunction, IntPtr lParam);
 
         public delegate bool EnumDelegate(IntPtr hWnd, int lParam);
     }

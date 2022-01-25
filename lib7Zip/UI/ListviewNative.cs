@@ -38,7 +38,7 @@ namespace lib7Zip.UI
         {
             var colCount = GetColumnCount();
 
-            GetWindowThreadProcessId(hListview, out uint pid);
+            _ = GetWindowThreadProcessId(hListview, out uint pid);
 
             var result = Enumerable.Range(0, colCount)
                             .Select(colIndex => HeaderHelper.GetListViewColumn(hListview, pid, colIndex) ?? "Unknown")
@@ -72,7 +72,7 @@ namespace lib7Zip.UI
         {
             // get the ID of the process who owns the list view
             uint processId = 0;
-            WinAPI.GetWindowThreadProcessId(hListview, ref processId);
+            _ = WinAPI.GetWindowThreadProcessId(hListview, ref processId);
 
             // open the process
             var processHandle = WinAPI.OpenProcess(
@@ -139,7 +139,7 @@ namespace lib7Zip.UI
             // convert the byte array to a string. assume the remote process uses Unicode
             var text = Encoding.Unicode.GetString(localTextBuffer);
             // the trailing zeros are not cleared automatically
-            text = text.Substring(0, text.IndexOf('\0'));
+            text = text[..text.IndexOf('\0')];
 
             // finally free all the memory we allocated, and close the process handle we opened
             WinAPI.VirtualFreeEx(processHandle, textBufferPtr, 0, WinAPI.AllocationType.Release);
@@ -172,7 +172,7 @@ namespace lib7Zip.UI
         {
             //This doesn't focus on the item
             //AutoIt.AutoItX.ControlListView(hWnd, hListview, "Select", "" + itemIndex, null);
-            GetWindowThreadProcessId(hListview, out uint pid);
+            _ = GetWindowThreadProcessId(hListview, out uint pid);
             SelectHelper.SelectItem(hListview, pid, itemIndex);
         }
 
