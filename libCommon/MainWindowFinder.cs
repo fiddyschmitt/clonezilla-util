@@ -15,10 +15,10 @@ namespace libCommon
 
         public IntPtr FindMainWindow(int processId)
         {
-            bestHandle = (IntPtr)0;
+            bestHandle = IntPtr.Zero;
             this.processId = processId;
 
-            NativeMethods.EnumThreadWindowsCallback callback = new NativeMethods.EnumThreadWindowsCallback(this.EnumWindowsCallback);
+            NativeMethods.EnumThreadWindowsCallback callback = new(EnumWindowsCallback);
             NativeMethods.EnumWindows(callback, IntPtr.Zero);
 
             GC.KeepAlive(callback);
@@ -27,7 +27,7 @@ namespace libCommon
 
         public IntPtr FindMainWindow(int processId, IntPtr desktopHandle)
         {
-            bestHandle = (IntPtr)0;
+            bestHandle = IntPtr.Zero;
             this.processId = processId;
 
             NativeMethods.EnumDesktopWindows(desktopHandle, (handle, lParam) =>
@@ -50,7 +50,7 @@ namespace libCommon
         bool IsMainWindow(IntPtr handle)
         {
 
-            if (NativeMethods.GetWindow(new HandleRef(this, handle), NativeMethods.GW_OWNER) != (IntPtr)0 || !NativeMethods.IsWindowVisible(new HandleRef(this, handle)))
+            if (NativeMethods.GetWindow(new HandleRef(this, handle), NativeMethods.GW_OWNER) != IntPtr.Zero || !NativeMethods.IsWindowVisible(new HandleRef(this, handle)))
                 return false;
 
             // Microsoft: should we use no window title to mean not a main window? (task man does)
@@ -69,8 +69,7 @@ namespace libCommon
 
         bool EnumWindowsCallback(IntPtr handle, IntPtr extraParameter)
         {
-            int processId;
-            NativeMethods.GetWindowThreadProcessId(new HandleRef(this, handle), out processId);
+            NativeMethods.GetWindowThreadProcessId(new HandleRef(this, handle), out int processId);
             if (processId == this.processId)
             {
                 if (IsMainWindow(handle))
@@ -81,11 +80,8 @@ namespace libCommon
             }
             return true;
         }
-    }
 
-    //Copied from: C:\Users\fiddy\Desktop\dev\cs\referencesource-master\System\compmod\microsoft\win32\NativeMethods.cs
-    public class NativeMethods
-    {
+        //Copied from: C:\Users\fiddy\Desktop\dev\cs\referencesource-master\System\compmod\microsoft\win32\NativeMethods.cs
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         public static extern int GetWindowThreadProcessId(HandleRef handle, out int processId);
 
@@ -102,8 +98,7 @@ namespace libCommon
         [DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
         public static extern bool IsWindowVisible(HandleRef hWnd);
 
-        [DllImport("user32.dll", EntryPoint = "EnumDesktopWindows",
-ExactSpelling = false, CharSet = CharSet.Auto, SetLastError = true)]
+        [DllImport("user32.dll", EntryPoint = "EnumDesktopWindows", ExactSpelling = false, CharSet = CharSet.Auto, SetLastError = true)]
         public static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDelegate lpEnumCallbackFunction, IntPtr lParam);
 
         public delegate bool EnumDelegate(IntPtr hWnd, int lParam);

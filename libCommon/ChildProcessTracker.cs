@@ -45,18 +45,22 @@ namespace libCommon
             // The job name is optional (and can be null) but it helps with diagnostics.
             //  If it's not null, it has to be unique. Use SysInternals' Handle command-line
             //  utility: handle -a ChildProcessTracker
-            string jobName = "ChildProcessTracker" + Process.GetCurrentProcess().Id;
+            string jobName = "ChildProcessTracker" + Environment.ProcessId;
             s_jobHandle = CreateJobObject(IntPtr.Zero, jobName);
 
-            var info = new JOBOBJECT_BASIC_LIMIT_INFORMATION();
+            var info = new JOBOBJECT_BASIC_LIMIT_INFORMATION
+            {
 
-            // This is the key flag. When our process is killed, Windows will automatically
-            //  close the job handle, and when that happens, we want the child processes to
-            //  be killed, too.
-            info.LimitFlags = JOBOBJECTLIMIT.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                // This is the key flag. When our process is killed, Windows will automatically
+                //  close the job handle, and when that happens, we want the child processes to
+                //  be killed, too.
+                LimitFlags = JOBOBJECTLIMIT.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            };
 
-            var extendedInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
-            extendedInfo.BasicLimitInformation = info;
+            var extendedInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+            {
+                BasicLimitInformation = info
+            };
 
             int length = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
             IntPtr extendedInfoPtr = Marshal.AllocHGlobal(length);
@@ -105,15 +109,15 @@ namespace libCommon
     [StructLayout(LayoutKind.Sequential)]
     public struct JOBOBJECT_BASIC_LIMIT_INFORMATION
     {
-        public Int64 PerProcessUserTimeLimit;
-        public Int64 PerJobUserTimeLimit;
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
         public JOBOBJECTLIMIT LimitFlags;
         public UIntPtr MinimumWorkingSetSize;
         public UIntPtr MaximumWorkingSetSize;
-        public UInt32 ActiveProcessLimit;
-        public Int64 Affinity;
-        public UInt32 PriorityClass;
-        public UInt32 SchedulingClass;
+        public uint ActiveProcessLimit;
+        public long Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
     }
 
     [Flags]
@@ -125,12 +129,12 @@ namespace libCommon
     [StructLayout(LayoutKind.Sequential)]
     public struct IO_COUNTERS
     {
-        public UInt64 ReadOperationCount;
-        public UInt64 WriteOperationCount;
-        public UInt64 OtherOperationCount;
-        public UInt64 ReadTransferCount;
-        public UInt64 WriteTransferCount;
-        public UInt64 OtherTransferCount;
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -42,8 +42,7 @@ namespace libDokan
             return fileName;
         }
 
-        protected static NtStatus Trace(string method, string? fileName, IDokanFileInfo? info, NtStatus result,
-            params object[]? parameters)
+        protected static NtStatus Trace(string method, string? fileName, IDokanFileInfo? info, NtStatus result, params object?[] parameters)
         {
             var extraParameters = parameters != null && parameters.Length > 0
                 ? ", " + string.Join(", ", parameters.Select(x => string.Format(DefaultFormatProvider, "{0}", x)))
@@ -65,7 +64,7 @@ namespace libDokan
             return result;
         }
 
-        ConcurrentDictionary<int, string> pidToProcessName = new();
+        readonly ConcurrentDictionary<int, string> pidToProcessName = new();
 
         const long STATUS_FILE_IS_A_DIRECTORY = 0xC00000BAL;
 
@@ -390,8 +389,7 @@ namespace libDokan
             }
         }
 
-        public NtStatus SetFileTime(string fileName, DateTime? creationTime, DateTime? lastAccessTime,
-            DateTime? lastWriteTime, IDokanFileInfo info)
+        public NtStatus SetFileTime(string fileName, DateTime? creationTime, DateTime? lastAccessTime, DateTime? lastWriteTime, IDokanFileInfo info)
         {
             return Trace(nameof(SetFileTime), fileName, info, DokanResult.NotImplemented, creationTime, lastAccessTime, lastWriteTime);
         }

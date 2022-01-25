@@ -202,7 +202,7 @@ namespace libUIHelpers
 
         public static List<IntPtr> GetChildWindows(IntPtr parentHandle)
         {
-            List<IntPtr> result = new List<IntPtr>();
+            var result = new List<IntPtr>();
             GCHandle listHandle = GCHandle.Alloc(result);
             try
             {
@@ -220,8 +220,7 @@ namespace libUIHelpers
         private static bool EnumWindow(IntPtr handle, IntPtr pointer)
         {
             GCHandle gch = GCHandle.FromIntPtr(pointer);
-            List<IntPtr> list = gch.Target as List<IntPtr>;
-            if (list == null)
+            if (gch.Target is not List<IntPtr> list)
             {
                 throw new InvalidCastException("GCHandle Target could not be cast as List<IntPtr>");
             }
@@ -229,5 +228,10 @@ namespace libUIHelpers
             //  You can modify this to check to see if you want to cancel the operation, then return a null here
             return true;
         }
+
+        [DllImport("user32.dll", EntryPoint = "EnumDesktopWindows", ExactSpelling = false, CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDelegate lpEnumCallbackFunction, IntPtr lParam);
+
+        public delegate bool EnumDelegate(IntPtr hWnd, int lParam);
     }
 }

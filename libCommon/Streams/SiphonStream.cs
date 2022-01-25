@@ -44,7 +44,7 @@ namespace MountDocushare.Streams
             });
         }
 
-        Task pump;
+        readonly Task pump;
 
         public long position = 0;
         public override bool CanRead => true;

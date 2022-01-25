@@ -13,7 +13,7 @@ namespace libCommon
 {
     public static class DesktopUtility
     {
-        static List<IntPtr> DesktopsCreated = new List<IntPtr>();
+        static readonly List<IntPtr> DesktopsCreated = new();
 
         public static void Cleanup()
         {
@@ -61,13 +61,12 @@ namespace libCommon
         static extern uint GetWindowThreadProcessId(IntPtr hWnd, ref int lpdwProcessId);
 
         [DllImport("user32.dll")]
-        public static extern bool CloseDesktop(IntPtr handle);
+        static extern bool CloseDesktop(IntPtr handle);
 
-        [DllImport("user32.dll")]
-        public static extern IntPtr CreateDesktop(string lpszDesktop, IntPtr lpszDevice, IntPtr pDevmode, int dwFlags,
-    uint dwDesiredAccess, IntPtr lpsa);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern IntPtr CreateDesktop(string lpszDesktop, IntPtr lpszDevice, IntPtr pDevmode, int dwFlags, uint dwDesiredAccess, IntPtr lpsa);
 
-        [DllImport("kernel32.dll")]
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         private static extern bool CreateProcess(
             string? lpApplicationName,
             string lpCommandLine,

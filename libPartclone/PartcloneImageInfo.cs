@@ -143,22 +143,14 @@ namespace libPartclone
 
             IEnumerable<bool>? bmp = null;
 
-            switch (bitmapMode)
+            bmp = bitmapMode switch
             {
-                case BitmapMode.BM_BIT:
-                    bmp = Bitmap.SelectMany(byt => byt.GetBits().Reverse());
-                    break;
-
-                case BitmapMode.BM_BYTE:
-
-                    bmp = Bitmap
-                            .Select(byt => byt != 0x0)
-                            .Concat(new[] { false });
-                    break;
-
-                default:
-                    throw new Exception($"Unsupported BitmapMode: {bitmapMode}");
-            }
+                BitmapMode.BM_BIT => Bitmap.SelectMany(byt => byt.GetBits().Reverse()),
+                BitmapMode.BM_BYTE => Bitmap
+                                        .Select(byt => byt != 0x0)
+                                        .Concat(new[] { false }),
+                _ => throw new Exception($"Unsupported BitmapMode: {bitmapMode}"),
+            };
 
             ContiguousRange? currentRange = null;
             ContiguousRange? lastPopulatedRange = null;

@@ -9,12 +9,10 @@ namespace lib7Zip.UI
 {
     public class ListviewNative
     {
-        private readonly IntPtr hWnd;
         private readonly IntPtr hListview;
 
-        public ListviewNative(IntPtr hWnd, IntPtr hListview)
+        public ListviewNative(IntPtr hListview)
         {
-            this.hWnd = hWnd;
             this.hListview = hListview;
         }
 
@@ -178,11 +176,6 @@ namespace lib7Zip.UI
             SelectHelper.SelectItem(hListview, pid, itemIndex);
         }
 
-        public void Send(string keys)
-        {
-            //AutoIt.AutoItX.ControlSend(hWnd, hListview, keys);
-        }
-
         public List<Dictionary<string, string>> GetRows()
         {
             var colNames = GetColumnNames();
@@ -328,7 +321,6 @@ namespace lib7Zip.UI
             //const int LVCF_FMT = 0x00000001;
             const int LVCF_TEXT = 0x00000004;
 
-            int bytesWrittenOrRead = 0;
             LV_COLUMN lvCol;
             string? retval;
             bool bSuccess;
@@ -354,13 +346,13 @@ namespace lib7Zip.UI
                 lvCol.IOrder = Column;
                 lvCol.iSubItem = Column;
 
-                bSuccess = WriteProcessMemory(hProcess, lpRemoteBuffer, ref lvCol, (uint)Marshal.SizeOf(typeof(LV_COLUMN)), out bytesWrittenOrRead);
+                bSuccess = WriteProcessMemory(hProcess, lpRemoteBuffer, ref lvCol, (uint)Marshal.SizeOf(typeof(LV_COLUMN)), out _);
                 if (!bSuccess)
                     throw new SystemException("Failed to write to process memory");
 
                 SendMessage(hwnd, LVM_GETCOLUMNW, (IntPtr)Column, lpRemoteBuffer);
 
-                bSuccess = ReadProcessMemory(hProcess, lpRemoteBuffer, lpLocalBuffer, dwBufferSize, out bytesWrittenOrRead);
+                bSuccess = ReadProcessMemory(hProcess, lpRemoteBuffer, lpLocalBuffer, dwBufferSize, out _);
 
                 if (!bSuccess)
                     throw new SystemException("Failed to read from process memory");
@@ -477,8 +469,8 @@ namespace lib7Zip.UI
             if (lvCount > 0)
             {
                 IntPtr processHandle = IntPtr.Zero;
-                IntPtr lvMemItem = IntPtr.Zero;
-                LV_ITEM lvLocalItem = new LV_ITEM();
+                IntPtr lvMemItem;
+                LV_ITEM lvLocalItem = new();
 
                 try
                 {
@@ -491,15 +483,13 @@ namespace lib7Zip.UI
                     lvLocalItem.stateMask = LVIS_SELECTED;
                     lvLocalItem.state = 0;
 
-                    int tmpOut = 0;  //dummy pointer
-
                     lvMemItem = VirtualAllocEx(processHandle, IntPtr.Zero, (uint)Marshal.SizeOf(lvLocalItem), Win32AllocationTypes.MEM_COMMIT, Win32MemoryProtection.PAGE_READWRITE);
                     if (lvMemItem == IntPtr.Zero)
                         throw new SystemException("Failed to allocate memory in remote process");
 
                     lvMemItem = VirtualAllocEx(processHandle, IntPtr.Zero, (uint)Marshal.SizeOf(lvLocalItem), Win32AllocationTypes.MEM_COMMIT, Win32MemoryProtection.PAGE_READWRITE); // alloc memory for my whole ListviewItem
 
-                    WriteProcessMemory(processHandle, lvMemItem, ref lvLocalItem, (uint)Marshal.SizeOf(lvLocalItem), out tmpOut);
+                    WriteProcessMemory(processHandle, lvMemItem, ref lvLocalItem, (uint)Marshal.SizeOf(lvLocalItem), out int tmpOut);
 
                     for (int i = 0; i < lvCount; i++) // unhighlight all
                     {

@@ -11,6 +11,7 @@ using libCommon.Streams;
 using libCommon.Streams.Sparse;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
+using System.Runtime.Versioning;
 
 namespace libCommon
 {
@@ -280,18 +281,18 @@ namespace libCommon
             yield return (previous, current, afterLast);
         }
 
-        [SupportedOSPlatform("windows")]
         [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern bool DeviceIoControl(
-    SafeFileHandle hDevice,
-    int dwIoControlCode,
-    IntPtr InBuffer,
-    int nInBufferSize,
-    IntPtr OutBuffer,
-    int nOutBufferSize,
-    ref int pBytesReturned,
-    [In] ref NativeOverlapped lpOverlapped);
+            SafeFileHandle hDevice,
+            int dwIoControlCode,
+            IntPtr InBuffer,
+            int nInBufferSize,
+            IntPtr OutBuffer,
+            int nOutBufferSize,
+            ref int pBytesReturned,
+            [In] ref NativeOverlapped lpOverlapped);
 
+        [SupportedOSPlatform("windows")]
         public static void MarkAsSparse(this SafeFileHandle fileHandle)
         {
             int bytesReturned = 0;

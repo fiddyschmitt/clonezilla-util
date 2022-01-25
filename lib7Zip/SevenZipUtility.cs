@@ -95,9 +95,9 @@ namespace lib7Zip
                     if (line.StartsWith($"Offset =")) currentEntry.Offset = long.Parse(line.Replace("Offset = ", ""));
                 }
 
-                if (line.StartsWith($"Modified =")) DateTime.TryParse(line.Replace("Modified = ", ""), out currentEntry.Modified);
-                if (line.StartsWith($"Created =")) DateTime.TryParse(line.Replace("Created = ", ""), out currentEntry.Created);
-                if (line.StartsWith($"Accessed =")) DateTime.TryParse(line.Replace("Accessed = ", ""), out currentEntry.Accessed);
+                if (line.StartsWith($"Modified =")) _ = DateTime.TryParse(line.Replace("Modified = ", ""), out currentEntry.Modified);
+                if (line.StartsWith($"Created =")) _ = DateTime.TryParse(line.Replace("Created = ", ""), out currentEntry.Created);
+                if (line.StartsWith($"Accessed =")) _ = DateTime.TryParse(line.Replace("Accessed = ", ""), out currentEntry.Accessed);
             }
         }
 

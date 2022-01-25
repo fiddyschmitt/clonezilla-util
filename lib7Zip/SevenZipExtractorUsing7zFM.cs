@@ -21,7 +21,7 @@ namespace lib7Zip
         public IntPtr? desktopHandle;
         public IntPtr hWndFM;
 
-        private readonly object usageLock = new object();
+        private readonly object usageLock = new();
 
         public SevenZipExtractorUsing7zFM(string filename)
         {
@@ -167,7 +167,7 @@ namespace lib7Zip
                     var listviewControl = fmControls.FirstOrDefault(c => c.ClassNN.Equals("SysListView321"));
                     if (listviewControl == default) throw new Exception("Can't find main listview in 7-Zip File Manager window");
 
-                    var lv = new ListviewNative(hWndFM, listviewControl.Handle);
+                    var lv = new ListviewNative(listviewControl.Handle);
 
                     //wait for rows to finish loading
                     while (true)
@@ -345,12 +345,6 @@ namespace lib7Zip
             return (proc.Id, desktopHandle, hWndFM);
         }
 
-
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-
-
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string? lpszWindow);
 
@@ -360,18 +354,5 @@ namespace lib7Zip
 
         [DllImport("user32.dll")]
         private static extern int ShowWindow(IntPtr hwnd, int nCmdShow);
-    }
-
-    class WinHandle
-    {
-        public IntPtr? Handle;
-        public List<WinHandle> Children = new List<WinHandle>();
-        public string? Text;
-
-        public override string ToString()
-        {
-            var result = $"{Handle}: {Text} ({Children.Count:N0} children";
-            return result;
-        }
     }
 }
