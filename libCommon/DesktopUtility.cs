@@ -52,7 +52,7 @@ namespace libCommon
             CreateProcess(null, command, IntPtr.Zero, IntPtr.Zero, true, NormalPriorityClass, IntPtr.Zero, null, ref si, ref pi);
 
             IntPtr? windowToReturn = waitForWindow?.Invoke((pi.dwProcessId, hNewDesktop));
-            
+
             return (pi.dwProcessId, hNewDesktop, windowToReturn);
         }
 
@@ -65,7 +65,10 @@ namespace libCommon
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         static extern IntPtr CreateDesktop(string lpszDesktop, IntPtr lpszDevice, IntPtr pDevmode, int dwFlags, uint dwDesiredAccess, IntPtr lpsa);
 
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+#pragma warning disable CA2101 // Specify marshaling for P/Invoke string arguments
+        //[DllImport("kernel32.dll", CharSet = CharSet.Unicode)]    //This causes 7zFM.exe not to run. Unsure why
+        [DllImport("kernel32.dll")]
+#pragma warning restore CA2101 // Specify marshaling for P/Invoke string arguments
         private static extern bool CreateProcess(
             string? lpApplicationName,
             string lpCommandLine,

@@ -12,7 +12,7 @@ namespace libClonezilla.Extractors
 {
     public class ExtractorUsing7zFM : IExtractor
     {
-        SevenZipExtractorUsing7zFM FileManagerExtractor;
+        readonly SevenZipExtractorUsing7zFM FileManagerExtractor;
 
         public ExtractorUsing7zFM(string archiveFilename)
         {
