@@ -24,7 +24,7 @@ namespace libUIHelpers
         const int WM_SETTEXT = 0x000C;
 
         [DllImport("user32.dll", SetLastError = true)]
-        public static extern int SendMessage(IntPtr hWnd, int msg, int Param, System.Text.StringBuilder text);
+        public static extern int SendMessage(IntPtr hWnd, int msg, int Param, StringBuilder text);
 
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);

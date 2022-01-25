@@ -80,8 +80,7 @@ namespace libCommon
         static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string name);
 
         [DllImport("kernel32.dll")]
-        static extern bool SetInformationJobObject(IntPtr job, JobObjectInfoType infoType,
-            IntPtr lpJobObjectInfo, uint cbJobObjectInfoLength);
+        static extern bool SetInformationJobObject(IntPtr job, JobObjectInfoType infoType, IntPtr lpJobObjectInfo, uint cbJobObjectInfoLength);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);

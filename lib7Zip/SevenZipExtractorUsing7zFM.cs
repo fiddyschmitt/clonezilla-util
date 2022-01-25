@@ -358,8 +358,6 @@ namespace lib7Zip
         [return: MarshalAs(UnmanagedType.Bool)]
         static extern bool IsWindow(IntPtr hWnd);
 
-        const int SW_HIDE = 0;
-
         [DllImport("user32.dll")]
         private static extern int ShowWindow(IntPtr hwnd, int nCmdShow);
     }
