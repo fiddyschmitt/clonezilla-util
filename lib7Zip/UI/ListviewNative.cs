@@ -43,7 +43,7 @@ namespace lib7Zip.UI
             GetWindowThreadProcessId(hListview, out uint pid);
 
             var result = Enumerable.Range(0, colCount)
-                            .Select(colIndex => HeaderHelper.GetListViewColumn(hListview, pid, colIndex))
+                            .Select(colIndex => HeaderHelper.GetListViewColumn(hListview, pid, colIndex) ?? "Unknown")
                             .ToList();
 
             return result;
@@ -319,7 +319,7 @@ namespace lib7Zip.UI
             return columnCount;
         }
 
-        public static string GetListViewColumn(IntPtr hwnd, uint processId, int Column)
+        public static string? GetListViewColumn(IntPtr hwnd, uint processId, int Column)
         {
             const int dwBufferSize = 2048;
             const int LVM_FIRST = 0x1000;
@@ -330,7 +330,7 @@ namespace lib7Zip.UI
 
             int bytesWrittenOrRead = 0;
             LV_COLUMN lvCol;
-            string retval;
+            string? retval;
             bool bSuccess;
             IntPtr hProcess = IntPtr.Zero;
             IntPtr lpRemoteBuffer = IntPtr.Zero;

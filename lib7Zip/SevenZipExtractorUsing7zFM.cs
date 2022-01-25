@@ -118,7 +118,7 @@ namespace lib7Zip
                                 using var fs = File.OpenRead(extractedFilename);
                                 break;
                             }
-                            catch (Exception ex) { }
+                            catch { }
                             Thread.Sleep(100);
                         }
 
