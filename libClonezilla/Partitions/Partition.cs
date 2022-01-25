@@ -59,7 +59,10 @@ namespace libClonezilla.Partitions
                 sparseAwareInput.StopReadingWhenRemainderOfFileIsNull = true;
 
                 //tell the output stream to create a sparse file
-                fileStream.SafeFileHandle.MarkAsSparse();
+                if (OperatingSystem.IsWindows())
+                {
+                    fileStream.SafeFileHandle.MarkAsSparse();
+                }
                 fileStream.SetLength(inputStream.Length);
 
                 //tell the writer not to bother writing the null bytes to the file (because it's already sparse)

@@ -42,8 +42,8 @@ namespace libDokan
             return fileName;
         }
 
-        protected static NtStatus Trace(string method, string fileName, IDokanFileInfo info, NtStatus result,
-            params object[] parameters)
+        protected static NtStatus Trace(string method, string? fileName, IDokanFileInfo? info, NtStatus result,
+            params object[]? parameters)
         {
             var extraParameters = parameters != null && parameters.Length > 0
                 ? ", " + string.Join(", ", parameters.Select(x => string.Format(DefaultFormatProvider, "{0}", x)))
@@ -393,8 +393,7 @@ namespace libDokan
         public NtStatus SetFileTime(string fileName, DateTime? creationTime, DateTime? lastAccessTime,
             DateTime? lastWriteTime, IDokanFileInfo info)
         {
-            return Trace(nameof(SetFileTime), fileName, info, DokanResult.NotImplemented, creationTime, lastAccessTime,
-                    lastWriteTime);
+            return Trace(nameof(SetFileTime), fileName, info, DokanResult.NotImplemented, creationTime, lastAccessTime, lastWriteTime);
         }
 
         public NtStatus DeleteFile(string fileName, IDokanFileInfo info)
@@ -515,7 +514,7 @@ namespace libDokan
                 "out " + features.ToString(), "out " + fileSystemName);
         }
 
-        public NtStatus GetFileSecurity(string fileName, out FileSystemSecurity security, AccessControlSections sections,
+        public NtStatus GetFileSecurity(string fileName, out FileSystemSecurity? security, AccessControlSections sections,
             IDokanFileInfo info)
         {
             security = null;

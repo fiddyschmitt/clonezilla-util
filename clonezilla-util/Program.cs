@@ -26,6 +26,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using static libClonezilla.Partitions.MountedPartitionImage;
@@ -35,7 +36,7 @@ namespace clonezilla_util
     class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "1.5";
+        const string PROGRAM_VERSION = "1.5.1";
 
         private enum ReturnCode
         {
@@ -259,6 +260,7 @@ namespace clonezilla_util
             Log.Error(msg);
         }
 
+        [SupportedOSPlatform("windows")]
         public static void TestSeeking(Stream rawPartitionStream, FileStream outputStream)
         {
             //var chunkSizes = 10 * 1024 * 1024;

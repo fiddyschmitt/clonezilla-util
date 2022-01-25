@@ -280,6 +280,7 @@ namespace libCommon
             yield return (previous, current, afterLast);
         }
 
+        [SupportedOSPlatform("windows")]
         [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
         private static extern bool DeviceIoControl(
     SafeFileHandle hDevice,

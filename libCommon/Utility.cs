@@ -11,18 +11,8 @@ namespace libCommon
     {
         public static long GetTotalRamSizeBytes()
         {
-            ObjectQuery wql = new ObjectQuery("SELECT * FROM Win32_OperatingSystem");
-            ManagementObjectSearcher searcher = new ManagementObjectSearcher(wql);
-            ManagementObjectCollection results = searcher.Get();
-
-            long res = 0;
-
-            foreach (ManagementObject result in results)
-            {
-                res = Convert.ToInt64(result["TotalVisibleMemorySize"]) * 1024;
-            }
-
-            return res;
+            var gcMemoryInfo = GC.GetGCMemoryInfo();
+            return gcMemoryInfo.TotalAvailableMemoryBytes;
         }
 
         public static bool IsOnNTFS(string filename)
