@@ -567,9 +567,28 @@ namespace libDokan
 
             if (fileSystemEntry is Folder folder)
             {
+                //This was too slow for L:\partition1\Windows\WinSxS. External applications would get 'Insufficient resources' timeouts because it took longer than 20 seconds to run.
+                /*
                 result = folder
                             .Children
-                            .Where(child => wildcardMatcher.FindFilesEmulator(searchPattern, new[] { child.Name }).Any())
+                            .Where(child => FindFilesPatternToRegex.FindFilesEmulator(searchPattern, child.Name))   //This is slow, because it has to compile the Regex object for every single file in the folder
+                            .Where(child => child is not UnlistedFolder)
+                            .Select(entry => entry.ToFileInformation())
+                            .ToList();
+                */
+
+                IList<FileSystemEntry> matchingChildren;
+                if (searchPattern.Equals("*"))
+                {
+                    matchingChildren = folder.Children.ToList();
+                }
+                else
+                {
+                    matchingChildren = FindFilesPatternToRegex
+                                        .FindFilesEmulator(searchPattern, folder.Children, item => item.Name);   //This is much faster, because it only has to compile the Regex object once for the folder
+                }
+
+                result = matchingChildren
                             .Where(child => child is not UnlistedFolder)
                             .Select(entry => entry.ToFileInformation())
                             .ToList();

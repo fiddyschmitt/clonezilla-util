@@ -9,26 +9,23 @@ namespace rextractor
 {
     public class FindFilesPatternToRegex
     {
-        private static Regex HasQuestionMarkRegEx = new Regex(@"\?", RegexOptions.Compiled);
-        private static Regex IllegalCharactersRegex = new Regex("[" + @"\/:<>|" + "\"]", RegexOptions.Compiled);
-        private static Regex CatchExtentionRegex = new Regex(@"^\s*.+\.([^\.]+)\s*$", RegexOptions.Compiled);
-        private static string NonDotCharacters = @"[^.]*";
+        private static readonly Regex HasQuestionMarkRegEx = new(@"\?", RegexOptions.Compiled);
+        private static readonly Regex IllegalCharactersRegex = new("[" + @"\/:<>|" + "\"]", RegexOptions.Compiled);
+        private static readonly Regex CatchExtensionRegex = new(@"^\s*.+\.([^\.]+)\s*$", RegexOptions.Compiled);
+        private static readonly string NonDotCharacters = @"[^.]*";
         public static Regex Convert(string pattern)
         {
-            if (pattern == null)
-            {
-                throw new ArgumentNullException();
-            }
-            pattern = pattern.Trim();
-            if (pattern.Length == 0)
+            if (string.IsNullOrEmpty(pattern))
             {
                 throw new ArgumentException("Pattern is empty.");
             }
+
             if (IllegalCharactersRegex.IsMatch(pattern))
             {
                 throw new ArgumentException("Pattern contains illegal characters.");
             }
-            bool hasExtension = CatchExtentionRegex.IsMatch(pattern);
+
+            bool hasExtension = CatchExtensionRegex.IsMatch(pattern);
             bool matchExact = false;
             if (HasQuestionMarkRegEx.IsMatch(pattern))
             {
@@ -36,21 +33,57 @@ namespace rextractor
             }
             else if (hasExtension)
             {
-                matchExact = CatchExtentionRegex.Match(pattern).Groups[1].Length != 3;
+                matchExact = CatchExtensionRegex.Match(pattern).Groups[1].Length != 3;
             }
+
             string regexString = Regex.Escape(pattern);
             regexString = "^" + Regex.Replace(regexString, @"\\\*", ".*");
             regexString = Regex.Replace(regexString, @"\\\?", ".");
+
             if (!matchExact && hasExtension)
             {
                 regexString += NonDotCharacters;
             }
+
             regexString += "$";
-            Regex regex = new Regex(regexString, RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            var regex = new Regex(regexString, RegexOptions.Compiled | RegexOptions.IgnoreCase);
             return regex;
         }
 
-        public string[] FindFilesEmulator(string pattern, string[] names)
+        public static IList<T> FindFilesEmulator<T>(string pattern, IEnumerable<T> items, Func<T, string> nameRetriever)
+        {
+            var directMatch = items
+                                .Where(item =>
+                                {
+                                    var name = nameRetriever(item);
+                                    return name.Equals(pattern, StringComparison.CurrentCultureIgnoreCase);
+                                });
+
+            if (directMatch.Any())
+            {
+                return directMatch.ToArray();
+            }
+
+            try
+            {
+                var regex = Convert(pattern);
+
+                var matches = items
+                                .Where(item =>
+                                {
+                                    var name = nameRetriever(item);
+                                    return regex.IsMatch(name);
+                                })
+                                .ToList();
+
+                return matches;
+            }
+            catch { }
+
+            return new List<T>();
+        }
+
+        public static IList<string> FindFilesEmulator(string pattern, IList<string> names)
         {
             var directMatch = names.Where(name => name.Equals(pattern, StringComparison.CurrentCultureIgnoreCase));
             if (directMatch.Any())
@@ -60,20 +93,39 @@ namespace rextractor
 
             try
             {
-                var matches = new List<string>();
-                Regex regex = Convert(pattern);
-                foreach (string s in names)
-                {
-                    if (regex.IsMatch(s))
-                    {
-                        matches.Add(s);
-                    }
-                }
-                return matches.ToArray();
+                var regex = Convert(pattern);
+
+                var matches = names
+                                .Where(name => regex.IsMatch(name))
+                                .ToList();
+
+                return matches;
             }
             catch { }
 
-            return new string[0];
+            return Array.Empty<string>();
+        }
+
+        //Warning, this is slow because it has to generate a Regex every time
+        public static bool FindFilesEmulator(string pattern, string name)
+        {
+            var directMatch = name.Equals(pattern, StringComparison.CurrentCultureIgnoreCase);
+            if (directMatch)
+            {
+                return directMatch;
+            }
+
+            try
+            {
+                var regex = Convert(pattern);
+                if (regex.IsMatch(name))
+                {
+                    return true;
+                }
+            }
+            catch { }
+
+            return false;
         }
     }
 }
