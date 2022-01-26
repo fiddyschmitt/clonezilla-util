@@ -230,7 +230,7 @@ namespace lib7Zip
         {
             var psi = new ProcessStartInfo
             {
-                FileName = Path.GetFullPath(@"ext\7-Zip\win-x64\7zFM.exe"),
+                FileName = Utility.Absolutify(@"ext\7-Zip\win-x64\7zFM.exe"),
                 Arguments = $"\"{filename}\""
             };
 

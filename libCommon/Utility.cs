@@ -29,5 +29,11 @@ namespace libCommon
 
             return isNTFS;
         }
+
+        public static string Absolutify(string relativePath)
+        {
+            var result = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, relativePath);
+            return result;
+        }
     }
 }

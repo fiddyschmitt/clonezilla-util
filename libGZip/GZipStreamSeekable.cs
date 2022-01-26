@@ -16,7 +16,7 @@ namespace libGZip
         readonly long uncompressedTotalLength = 0;
         public List<Mapping> indexContents = new();
 
-        const string GZTOOL_EXE = "ext/gztool/win-x86_64/gztool-Windows.x86_64.exe";
+        public static string GZTOOL_EXE => libCommon.Utility.Absolutify("ext/gztool/win-x86_64/gztool-Windows.x86_64.exe");
 
         public static (long UncompressedTotalLength, List<Mapping> Mapping) GetIndexContent(Stream compressedStream, string indexFilename)
         {
