@@ -11,7 +11,7 @@ namespace libDokan.VFS.Folders
 {
     public class Folder : FileSystemEntry
     {
-        List<FileSystemEntry> children = new List<FileSystemEntry>();
+        readonly List<FileSystemEntry> children = new();
         public IEnumerable<FileSystemEntry> Children => children;
 
         public void AddChild(FileSystemEntry entry)

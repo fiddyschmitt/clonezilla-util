@@ -63,7 +63,7 @@ ChecksumMode: {ChecksumMode}
 ChecksumSize: {ChecksumSize}
 BlocksPerChecksum: {BlocksPerChecksum}
 ReseedChecksum: {ReseedChecksum}
-BitmapMode: {BitmapMode.ToString()}
+BitmapMode: {BitmapMode}
 
 ".Trim();
 

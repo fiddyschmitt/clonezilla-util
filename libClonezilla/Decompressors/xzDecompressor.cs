@@ -8,7 +8,9 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Decompressors
 {
+#pragma warning disable IDE1006 // Naming Styles
     public class xzDecompressor : IDecompressor
+#pragma warning restore IDE1006 // Naming Styles
     {
         public xzDecompressor(Stream compressedStream)
         {

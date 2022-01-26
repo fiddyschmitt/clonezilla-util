@@ -15,9 +15,9 @@ namespace libCommon.Streams.Seekable
     {
         long position = 0;
         long? length = null;
-        readonly List<Stream> Actioners = new List<Stream>();
+        readonly List<Stream> Actioners = new();
 
-        readonly Queue<(Stream Stream, long MarchDistance)> MarchesToPerform = new Queue<(Stream Stream, long MarchDistance)>();
+        readonly Queue<(Stream Stream, long MarchDistance)> MarchesToPerform = new();
         Task? marchTask;
 
         //FPS 04/01/2021: This was an attempt to make a generic wrapper for Streams that don't seek. The idea is to have many streams "ready to go" at all parts of the file, and use the closest one to make a read.

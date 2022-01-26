@@ -11,7 +11,7 @@ namespace libClonezilla.Extractors
 {
     public class CachedExtractor : IExtractor
     {
-        ConcurrentDictionary<string, Stream> AlreadyExtracted = new();
+        readonly ConcurrentDictionary<string, Stream> AlreadyExtracted = new();
 
         public CachedExtractor(IExtractor baseExtractor)
         {

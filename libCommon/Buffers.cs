@@ -15,6 +15,6 @@ namespace libCommon
         //See: https://adamsitnik.com/Array-Pool/
         //Always remember to return the array back into the pool.
         //Never trust buffer.Length
-        public static ArrayPool<byte> BufferPool = ArrayPool<byte>.Create(ARBITARY_LARGE_SIZE_BUFFER + 1, 50);
+        public static readonly ArrayPool<byte> BufferPool = ArrayPool<byte>.Create(ARBITARY_LARGE_SIZE_BUFFER + 1, 50);
     }
 }
