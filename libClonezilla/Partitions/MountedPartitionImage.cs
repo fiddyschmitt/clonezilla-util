@@ -68,6 +68,14 @@ namespace libClonezilla.Partitions
 
             Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
+            //check if 7-Zip can actually open this image file
+            var canBeOpenedBy7Zip = SevenZipUtility.IsArchive(ImageFileEntry.FullPath);
+            if (!canBeOpenedBy7Zip)
+            {
+                Log.Error($"[{container.ContainerName}] [{partitionName}] The image file for this partition ({ImageFileEntry.FullPath}) is not considered an archive by 7-Zip. Returning empty file list.");
+                return new List<FileSystemEntry>();
+            }
+
             var filesInArchive = GetFilesInPartition().ToList();
 
             //Do a performance test. If the archive can be opened quickly, then use 7z.exe which is slow but reliable. If it takes a long time, then use 7zFM which is fast but less reliable.
