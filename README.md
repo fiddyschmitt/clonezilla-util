@@ -40,7 +40,7 @@ First, install [this version](https://github.com/dokan-dev/dokany/releases/tag/v
 
 Now run the following command:
 
-`clonezilla-util.exe mount-as-image --input <clonzilla folder> --mount L:\`
+`clonezilla-util.exe mount-as-image-files --input <clonzilla folder> --mount L:\`
 
 A virtual drive is created, containing a file for each partition:
 
