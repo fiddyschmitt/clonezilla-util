@@ -111,6 +111,7 @@ namespace libClonezilla.PartitionContainers
             {
                 (Compression.Gzip, $"{partitionName}.*-ptcl-img.gz.*"),
                 (Compression.Zstandard, $"{partitionName}.*-ptcl-img.zst.*"),
+                (Compression.None, $"{partitionName}.*-ptcl-img.uncomp.*"),
             };
 
             foreach (var pattern in compressionPatterns)
