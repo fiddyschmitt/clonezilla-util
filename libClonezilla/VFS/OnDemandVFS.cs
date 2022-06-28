@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace libClonezilla.VFS
@@ -24,7 +25,23 @@ namespace libClonezilla.VFS
                 //start the Virtual File System
                 var root = new RootFolder(MountPoint);
                 var vfs = new DokanVFS(ProgramName, root);
-                Task.Factory.StartNew(() => vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger()));
+                Task.Factory.StartNew(() =>
+                {
+                    //vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger());
+
+                    using var dokan = new Dokan(null);
+                    var dokanBuilder = new DokanInstanceBuilder(dokan)
+                        .ConfigureOptions(options =>
+                        {
+                            options.Options = DokanOptions.DebugMode | DokanOptions.EnableNotificationAPI;
+                            options.MountPoint = mountPoint;
+                        });
+
+                    dokanBuilder.Build(vfs);
+
+                    new ManualResetEvent(false).WaitOne();
+                });
+
                 Utility.WaitForFolderToExist(root.MountPoint);
 
                 //Didn't get this to work

@@ -525,7 +525,7 @@ namespace libDokan
             return DokanResult.NotImplemented;
         }
 
-        public NtStatus Mounted(IDokanFileInfo info)
+        public NtStatus Mounted(string mountPoint, IDokanFileInfo info)
         {
             return Trace(nameof(Mounted), null, info, DokanResult.Success);
         }
@@ -647,8 +647,24 @@ namespace libDokan
 
             var testFS = new DokanVFS("DokanVFS", rootFolder);
 
-            testFS.Mount(rootFolder.MountPoint);
-        }
+            //testFS.Mount(rootFolder.MountPoint);
 
+            using (var mre = new System.Threading.ManualResetEvent(false))
+            using (var dokan = new Dokan(null))
+            {
+                Console.CancelKeyPress += (object? sender, ConsoleCancelEventArgs e) =>
+                {
+                    e.Cancel = true;
+                    mre.Set();
+                };
+
+                var dokanBuilder = new DokanInstanceBuilder(dokan);
+
+                using (var dokanInstance = dokanBuilder.Build(testFS))
+                {
+                    mre.WaitOne();
+                }
+            }
+        }
     }
 }
