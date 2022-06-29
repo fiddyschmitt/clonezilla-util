@@ -45,7 +45,12 @@ namespace libCommon
                     {
                         outputLines.CompleteAdding();
                     }
-                    stdoutWaitHandle.Set();
+
+                    try
+                    {
+                        stdoutWaitHandle.Set();
+                    }
+                    catch { }
                 }
                 else
                 {
@@ -69,7 +74,11 @@ namespace libCommon
             {
                 if (e.Data == null)
                 {
-                    stderrWaitHandle.Set();
+                    try
+                    {
+                        stderrWaitHandle.Set();
+                    }
+                    catch { }
                 }
                 else
                 {
