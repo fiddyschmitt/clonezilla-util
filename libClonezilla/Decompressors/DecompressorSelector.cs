@@ -34,6 +34,7 @@ namespace libClonezilla.Decompressors
 
                 Compression.Zstandard => new ZstDecompressor(CompressedStream, uncompressedLength),
                 Compression.xz => new xzDecompressor(CompressedStream),
+                Compression.bzip2 => new bzip2Decompressor(CompressedStream),
                 Compression.None => new NoChangeDecompressor(CompressedStream),
                 _ => throw new Exception($"Could not initialise a decompressor for {StreamName}"),
             };
@@ -96,13 +97,24 @@ namespace libClonezilla.Decompressors
             }
             else
             {
-                Log.Debug($"Using a seekable decompressor for this data.");
                 var seekableStream = Decompressor.GetSeekableStream();
-                uncompressedStream = seekableStream;
 
-                if (uncompressedStream is FileStream)
+                if (seekableStream == null)
                 {
-                    addCacheLayer = false;
+                    uncompressedStream = Stream.Null;
+                    Log.Error($"Could not get a seekable stream for {StreamName}, which uses {CompressionInUse} compression. Please first extract it using --extract-partition-image, then mount the extracted file.");
+                    Environment.Exit(1);
+                }
+                else
+                {
+                    Log.Debug($"Using a seekable decompressor for this data.");
+
+                    uncompressedStream = seekableStream;
+
+                    if (uncompressedStream is FileStream)
+                    {
+                        addCacheLayer = false;
+                    }
                 }
             }
 

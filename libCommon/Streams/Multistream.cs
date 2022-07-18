@@ -51,7 +51,6 @@ namespace libCommon.Streams
             throw new NotImplementedException();
         }
 
-        int currentIndex = -1;
 
         public override int Read(byte[] buffer, int offset, int count)
         {
@@ -61,11 +60,9 @@ namespace libCommon.Streams
             {
                 var substream = Substreams.FirstOrDefault(s => Position >= s.Start && Position < s.End);
 
-                if (substream == null) break;
-
-                if (substream.StreamIndex != currentIndex)
+                if (substream == null)
                 {
-                    currentIndex = substream.StreamIndex;
+                    break;
                 }
 
                 //determine where we should start reading in the substream
@@ -74,7 +71,7 @@ namespace libCommon.Streams
 
                 var bytesToRead = count - bytesRead;
 
-                var bytesActuallyRead = substream.Stream.Read(buffer, bytesRead, bytesToRead);
+                var bytesActuallyRead = substream.Stream.Read(buffer, offset, bytesToRead);
 
                 bytesRead += bytesActuallyRead;
                 position += bytesActuallyRead;

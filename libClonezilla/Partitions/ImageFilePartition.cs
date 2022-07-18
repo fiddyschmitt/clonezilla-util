@@ -13,7 +13,7 @@ namespace libClonezilla.Partitions
 {
     public class ImageFilePartition : Partition
     {
-        public ImageFilePartition(PartitionContainer container, string partitionName, Stream stream, long? uncompressedSize, Compression compressionInUse, IPartitionCache? partitionCache, bool willPerformRandomSeeking) : base(container, partitionName, partitionCache)
+        public ImageFilePartition(PartitionContainer container, string partitionName, Stream stream, long? uncompressedSize, Compression compressionInUse, IPartitionCache? partitionCache, bool willPerformRandomSeeking) : base(container, partitionName, partitionCache, stream)
         {
             var streamName = $"[{container.ContainerName}] [{partitionName}]";
 

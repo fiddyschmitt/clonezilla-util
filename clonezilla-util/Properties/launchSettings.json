@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "mount --input \"E:\\2022-06-27-20-img_smalldrive-uncompressed\" --mount L:\\"
+      "commandLineArgs": "mount --input \"E:\\2022-07-17-12-img_pb-devops1_xz\" --mount L:\\"
     }
   }
 }

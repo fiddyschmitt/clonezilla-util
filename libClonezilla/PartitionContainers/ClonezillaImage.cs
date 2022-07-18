@@ -111,6 +111,8 @@ namespace libClonezilla.PartitionContainers
             {
                 (Compression.Gzip, $"{partitionName}.*-ptcl-img.gz.*"),
                 (Compression.Zstandard, $"{partitionName}.*-ptcl-img.zst.*"),
+                (Compression.xz, $"{partitionName}.*-ptcl-img.xz.*"),
+                (Compression.bzip2, $"{partitionName}.*-ptcl-img.bz2.*"),
                 (Compression.None, $"{partitionName}.*-ptcl-img.uncomp.*"),
             };
 

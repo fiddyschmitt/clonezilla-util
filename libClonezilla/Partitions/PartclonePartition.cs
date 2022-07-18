@@ -21,8 +21,7 @@ namespace libClonezilla.Partitions
 {
     public class PartclonePartition : Partition
     {
-        public PartclonePartition(PartitionContainer container, string partitionName, Stream compressedPartcloneStream, long? uncompressedLength, Compression compressionInUse, IPartitionCache? partitionCache, IPartcloneCache? partcloneCache, bool willPerformRandomSeeking)
-            : base(container, partitionName, partitionCache)
+        public PartclonePartition(PartitionContainer container, string partitionName, Stream compressedPartcloneStream, long? uncompressedLength, Compression compressionInUse, IPartitionCache? partitionCache, IPartcloneCache? partcloneCache, bool willPerformRandomSeeking) : base(container, partitionName, partitionCache, compressedPartcloneStream)
         {
             var streamName = $"[{container.ContainerName}] [{partitionName}]";
             Log.Information($"{streamName} Finding optimal decompressor (seekable/sequential)");

@@ -27,29 +27,32 @@ namespace libClonezilla.Partitions
         public string PartitionName { get; protected set; }
         public IPartitionCache? PartitionCache { get; protected set; }
 
-        public Partition(PartitionContainer container, string partitionName, IPartitionCache? partitionCache)
+        protected Stream? CompressedContainer = null;
+
+        public Partition(PartitionContainer container, string partitionName, IPartitionCache? partitionCache, Stream? compressedContainer)
         {
             Container = container;
             PartitionName = partitionName;
             PartitionCache = partitionCache;
+            CompressedContainer = compressedContainer;
         }
 
         public void ExtractToFile(string outputFilename, bool makeSparse)
         {
             if (FullPartitionImage == null) throw new Exception($"[{Container.ContainerName}] [{PartitionName}] Cannot extract. {nameof(FullPartitionImage)} has not been intialised.");
 
-            ExtractToFile(Container.ContainerName, PartitionName, FullPartitionImage, outputFilename, makeSparse);
+            ExtractToFile(Container.ContainerName, PartitionName, FullPartitionImage, outputFilename, makeSparse, CompressedContainer);
         }
 
-        public static void ExtractToFile(string containerName, string partitionName, Stream stream, string outputFilename, bool makeSparse)
+        public static void ExtractToFile(string containerName, string partitionName, Stream stream, string outputFilename, bool makeSparse, Stream? compressedContainer)
         {
             Log.Information($"[{containerName}] [{partitionName}] Extracting partition to: {outputFilename}");
 
             using var fileStream = File.Create(outputFilename);
-            ExtractToFile(containerName, partitionName, stream, fileStream, makeSparse);
+            ExtractToFile(containerName, partitionName, stream, fileStream, makeSparse, compressedContainer);
         }
 
-        public static void ExtractToFile(string containerName, string partitionName, Stream inputStream, FileStream fileStream, bool makeSparse)
+        public static void ExtractToFile(string containerName, string partitionName, Stream inputStream, FileStream fileStream, bool makeSparse, Stream? compressedContainer)
         {
             if (libCommon.Utility.IsOnNTFS(fileStream.Name) && makeSparse && inputStream is ISparseAwareReader sparseAwareInput)
             {
@@ -76,7 +79,19 @@ namespace libClonezilla.Partitions
 
                         var totalCopiedStr = Extensions.BytesToString(totalCopied);
                         var totalStr = Extensions.BytesToString(inputStream.Length);
-                        Log.Information($"Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
+
+                        if (compressedContainer == null)
+                        {
+                            Log.Information($"Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
+                        }
+                        else
+                        {
+                            var perThroughCompressedSource = (double)compressedContainer.Position / compressedContainer.Length * 100;
+
+                            Log.Information($"Extracted {totalCopiedStr} / {totalStr}    ({perThroughCompressedSource:N0}% through source file)");
+                        }
+
+
                     });
             }
             else

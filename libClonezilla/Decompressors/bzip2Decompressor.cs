@@ -1,5 +1,6 @@
-﻿using libCommon.Streams;
-using SharpCompress.Compressors.Xz;
+﻿using libCommon;
+using Serilog;
+using SharpCompress.Compressors.BZip2;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -9,16 +10,14 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Decompressors
 {
-#pragma warning disable IDE1006 // Naming Styles
-    public class xzDecompressor : IDecompressor
-#pragma warning restore IDE1006 // Naming Styles
+    public class bzip2Decompressor : IDecompressor
     {
-        public xzDecompressor(Stream compressedStream)
+        public Stream CompressedStream { get; }
+
+        public bzip2Decompressor(Stream compressedStream)
         {
             CompressedStream = compressedStream;
         }
-
-        public Stream CompressedStream { get; }
 
         public Stream? GetSeekableStream()
         {
@@ -28,7 +27,7 @@ namespace libClonezilla.Decompressors
         public Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
-            var result = new XZStream(CompressedStream);
+            var result = new BZip2Stream(CompressedStream, SharpCompress.Compressors.CompressionMode.Decompress, false);
             return result;
         }
     }

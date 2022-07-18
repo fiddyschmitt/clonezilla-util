@@ -1,4 +1,5 @@
 ﻿using libCommon;
+using SharpCompress.Compressors.BZip2;
 using SharpCompress.Compressors.Xz;
 using System;
 using System.Collections.Generic;
@@ -14,17 +15,18 @@ namespace libClonezilla.Decompressors
     public interface IDecompressor
     {
         public Stream GetSequentialStream();
-        public Stream GetSeekableStream();
+        public Stream? GetSeekableStream();
 
         public static Compression GetCompressionType(Stream compressedStream)
         {
             Compression result = Compression.None;
 
-            var decompressors = new (Compression Compression, Stream Stream)[]
+            var decompressors = new (Compression Compression, Func<Stream> Stream)[]
             {
-                (Compression.Gzip, new GZipStream(compressedStream, CompressionMode.Decompress)),
-                (Compression.Zstandard, new DecompressionStream(compressedStream)),
-                (Compression.xz, new XZStream(compressedStream))
+                (Compression.Gzip, () => new GZipStream(compressedStream, CompressionMode.Decompress)),
+                (Compression.Zstandard, () => new DecompressionStream(compressedStream)),
+                (Compression.xz, () => new XZStream(compressedStream)),
+                (Compression.bzip2, () => new BZip2Stream(compressedStream, SharpCompress.Compressors.CompressionMode.Decompress, false))
             };
 
             foreach (var decompressor in decompressors)
@@ -34,7 +36,7 @@ namespace libClonezilla.Decompressors
                 try
                 {
                     //extract a little and see what happens
-                    decompressor.Stream.CopyTo(Stream.Null, 32, 32);
+                    decompressor.Stream().CopyTo(Stream.Null, 32, 32);
                     result = decompressor.Compression;
                     break;
                 }
@@ -52,6 +54,7 @@ namespace libClonezilla.Decompressors
         Gzip,
         Zstandard,
         xz,
+        bzip2,
         None
     }
 }
