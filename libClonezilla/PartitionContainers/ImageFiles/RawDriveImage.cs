@@ -46,6 +46,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
                                 return new
                                 {
+                                    PartitionFilename = partitionImageFile.Current,
                                     PartitionName = $"partition{Path.GetFileNameWithoutExtension(partitionImageFile.Current.Path)}",
                                     StartByte = startByte,
                                     PartitionLength = length,
@@ -55,7 +56,6 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                             .Where(partitionInfo => partitionsToLoad.Count == 0 || partitionsToLoad.Contains(partitionInfo.PartitionName))
                             .Select(partitionInfo =>
                             {
-
                                 //The strange thing is that partitionEnd can be beyond the length of the original file.
                                 //In the case of the sda2.img test file, it is 868,352 bytes beyond the end.
                                 //This is enough for 7-Zip to conclude it isn't an archive.
@@ -91,7 +91,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
                                 //stream = new CachingStream(stream, null, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
 
-                                Partition partition = new ImageFilePartition(this, partitionInfo.PartitionName, partitionStream, partitionInfo.PartitionLength, Compression.None, null, true);
+                                Partition partition = new ImageFilePartition(partitionInfo.PartitionFilename.Path, this, partitionInfo.PartitionName, partitionStream, partitionInfo.PartitionLength, Compression.None, null, true);
                                 return partition;
                             })
                             .ToList();

@@ -71,7 +71,7 @@ namespace libCommon.Streams
 
                 var bytesToRead = count - bytesRead;
 
-                var bytesActuallyRead = substream.Stream.Read(buffer, offset, bytesToRead);
+                var bytesActuallyRead = substream.Stream.Read(buffer, offset + bytesRead, bytesToRead);
 
                 bytesRead += bytesActuallyRead;
                 position += bytesActuallyRead;
@@ -126,7 +126,7 @@ namespace libCommon.Streams
         public Stream Stream;
         public int StreamIndex;
 
-        public Substream(long start, long end, Stream stream, int streamIndex)
+        public Substream(long start, long end, Stream stream, int streamIndex = 0)
         {
             Start = start;
             End = end;

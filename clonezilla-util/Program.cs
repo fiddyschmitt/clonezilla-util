@@ -7,6 +7,7 @@ using libClonezilla;
 using libClonezilla.Cache;
 using libClonezilla.PartitionContainers;
 using libClonezilla.Partitions;
+using libClonezilla.VFS;
 using libCommon;
 using libCommon.Streams;
 using libCommon.Streams.Seekable;
@@ -33,7 +34,7 @@ using static libClonezilla.Partitions.MountedPartitionImage;
 
 namespace clonezilla_util
 {
-    class Program
+    public class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
         const string PROGRAM_VERSION = "1.6.0";
@@ -47,7 +48,7 @@ namespace clonezilla_util
 
         public static string CacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
 
-        static int Main(string[] args)
+        public static int Main(string[] args)
         {
             AppDomain.CurrentDomain.ProcessExit += (sender, args) =>
             {
@@ -60,6 +61,8 @@ namespace clonezilla_util
                             .WriteTo.Console()
                             .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day)
                             .CreateLogger();
+
+            WholeFileCacheManager.Initialize(CacheFolder);
 
             Log.Debug("Start");
             PrintProgramVersion();

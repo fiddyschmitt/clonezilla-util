@@ -163,6 +163,14 @@ namespace libCommon.Streams
                 }
 
                 var bytesLeftInThisRange = cacheEntry.End - pos;
+
+                if (pos >= cacheEntry.End)
+                {
+                    //throw new Exception($"Position {pos:N0} is at or beyond the range of this cacheEntry {cacheEntry.End:N0}");
+                    //Log.Information($"Position {pos:N0} is at or beyond the range of this cacheEntry {cacheEntry.End:N0}");
+                    break;
+                }
+
                 var bytesToRead = (int)Math.Min(bytesToGo, bytesLeftInThisRange);
 
                 if (bytesToRead == 0)

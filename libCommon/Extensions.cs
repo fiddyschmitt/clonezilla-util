@@ -143,21 +143,37 @@ namespace libCommon
             return result;
         }
 
-        public static string BytesToString(this int byteCount)
+        public static string BytesToString(this uint bytes)
         {
-            string result = BytesToString((long)byteCount);
+            var result = BytesToString((ulong)bytes);
             return result;
         }
 
-        public static string BytesToString(this long byteCount)
+        public static string BytesToString(this int bytes)
         {
-            string[] suf = { " B", " KB", " MB", " GB", " TB", " PB", " EB" }; //Longs run out around EB
-            if (byteCount == 0)
-                return "0" + suf[0];
-            long bytes = Math.Abs(byteCount);
-            int place = Convert.ToInt32(Math.Floor(Math.Log(bytes, 1024)));
-            double num = Math.Round(bytes / Math.Pow(1024, place), 1);
-            return (Math.Sign(byteCount) * num).ToString() + suf[place];
+            var result = BytesToString((ulong)bytes);
+            return result;
+        }
+
+        public static string BytesToString(this long bytes)
+        {
+            var result = BytesToString((ulong)bytes);
+            return result;
+        }
+
+        public static string BytesToString(this ulong bytes)
+        {
+            string[] UNITS = new string[] { "B", "KB", "MB", "GB", "TB", "PB", "EB" };
+            int c = 0;
+            for (c = 0; c < UNITS.Length; c++)
+            {
+                ulong m = (ulong)1 << ((c + 1) * 10);
+                if (bytes < m)
+                    break;
+            }
+
+            double n = bytes / (double)((ulong)1 << (c * 10));
+            return string.Format("{0:0.##} {1}", n, UNITS[c]);
         }
 
         public static string ToHexString(this byte[] ba)

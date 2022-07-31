@@ -7,22 +7,19 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Decompressors
 {
-    public class NoChangeDecompressor : IDecompressor
+    public class NoChangeDecompressor : Decompressor
     {
-        public NoChangeDecompressor(Stream compressedStream)
+        public NoChangeDecompressor(Stream compressedStream) : base(compressedStream)
         {
-            CompressedStream = compressedStream;
         }
 
-        public Stream CompressedStream { get; }
-
-        public Stream GetSeekableStream()
+        public override Stream? GetSeekableStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
             return CompressedStream;
         }
 
-        public Stream GetSequentialStream()
+        public override Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
             return CompressedStream;

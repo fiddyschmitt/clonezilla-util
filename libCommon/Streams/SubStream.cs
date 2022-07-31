@@ -51,7 +51,7 @@ namespace libCommon.Streams
             var bytesLeftInVirtualFile = Length - Position;
             //var bytesLeftInBaseStream = BaseStream.Length - BaseStream.Position;
 
-            if (Position >= BaseStream.Length)
+            if (BaseStream.Length != 0 && Position >= BaseStream.Length)
             {
                 //we are beyond the original stream. Just return blanks
                 var toClear = (int)Math.Min(bytesLeftInVirtualFile, count);
@@ -61,7 +61,6 @@ namespace libCommon.Streams
 
             var toRead = count;
             toRead = (int)Math.Min(toRead, bytesLeftInVirtualFile);
-            //toRead = (int)Math.Min(toRead, bytesLeftInBaseStream);
 
             var result = BaseStream.Read(buffer, offset, toRead);
             return result;

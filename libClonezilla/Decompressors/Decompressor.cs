@@ -12,10 +12,17 @@ using ZstdNet;
 
 namespace libClonezilla.Decompressors
 {
-    public interface IDecompressor
+    public abstract class Decompressor
     {
-        public Stream GetSequentialStream();
-        public Stream? GetSeekableStream();
+        public Stream CompressedStream { get; }
+
+        public abstract Stream GetSequentialStream();
+        public abstract Stream? GetSeekableStream();
+
+        public Decompressor(Stream compressedStream)
+        {
+            CompressedStream = compressedStream;
+        }
 
         public static Compression GetCompressionType(Stream compressedStream)
         {

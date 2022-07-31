@@ -26,7 +26,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 //protect this stream from concurrent access
                 streamToInspect = Stream.Synchronized(streamToInspect);
 
-                var compression = IDecompressor.GetCompressionType(streamToInspect);
+                var compression = Decompressor.GetCompressionType(streamToInspect);
 
                 if (compression == Compression.None)
                 {
@@ -34,7 +34,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                     break;
                 }
 
-                var decompressorSelector = new DecompressorSelector(ContainerName, streamToInspect, null, compression, null);
+                var decompressorSelector = new DecompressorSelector(filename, ContainerName, streamToInspect, null, compression, null);
                 var decompressedStream = decompressorSelector.GetSeekableStream();
 
                 var virtualDecompressedFile = new StreamBackedFileEntry(Guid.NewGuid().ToString(), tempFolder, decompressedStream);

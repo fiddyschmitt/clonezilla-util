@@ -92,7 +92,7 @@ namespace libClonezilla.PartitionContainers
 
                                 try
                                 {
-                                    result = new PartclonePartition(this, partitionName, compressedPartcloneStream, partitionSizeInBytes, compressionInUse, partitionCache, partcloneCache, willPerformRandomSeeking);
+                                    result = new PartclonePartition(clonezillaArchiveFolder, this, partitionName, compressedPartcloneStream, partitionSizeInBytes, compressionInUse, partitionCache, partcloneCache, willPerformRandomSeeking);
                                 }
                                 catch (Exception ex)
                                 {

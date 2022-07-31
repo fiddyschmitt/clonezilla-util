@@ -4,6 +4,7 @@ using System.Management;
 using System.Text;
 using System.Linq;
 using System.IO;
+using System.Security.Cryptography;
 
 namespace libCommon
 {
@@ -34,6 +35,28 @@ namespace libCommon
         {
             var result = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, relativePath);
             return result;
+        }
+
+        public static string CalculateMD5(string filename)
+        {
+            using var md5 = MD5.Create();
+            using var stream = File.OpenRead(filename);
+            var hash = md5.ComputeHash(stream);
+            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+        }
+
+        public static string CalculateMD5(Stream stream)
+        {
+            using var md5 = MD5.Create();
+            var hash = md5.ComputeHash(stream);
+            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+        }
+
+        public static string CalculateMD5(byte[] bytes)
+        {
+            using var md5 = MD5.Create();
+            var hash = md5.ComputeHash(bytes);
+            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
         }
     }
 }

@@ -11,33 +11,36 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Decompressors
 {
-    public class GzDecompressor : IDecompressor
+    public class GzDecompressor : Decompressor
     {
-        public GzDecompressor(Stream compressedStream, long? uncompressedLength, IPartitionCache partitionCache)
+        public GzDecompressor(Stream compressedStream, IPartitionCache? partitionCache) : base(compressedStream)
         {
-            CompressedStream = compressedStream;
-            UncompressedLength = uncompressedLength;
             PartitionCache = partitionCache;
         }
 
-        public Stream CompressedStream { get; }
-        public long? UncompressedLength { get; }
-        public IPartitionCache PartitionCache { get; }
+        public IPartitionCache? PartitionCache { get; }
 
-        public Stream GetSeekableStream()
+        public override Stream? GetSeekableStream()
         {
-            //this is faster for random seeks (eg. serving the full image (or file contents) in a Virtual File System)
-            //Uses gztool to create an index for fast seek, plus a cache layer to avoid using gztool for small reads
+            if (PartitionCache == null)
+            {
+                return null;
+            }
+            else
+            {
+                //this is faster for random seeks (eg. serving the full image (or file contents) in a Virtual File System)
+                //Uses gztool to create an index for fast seek, plus a cache layer to avoid using gztool for small reads
 
-            var gztoolIndexFilename = PartitionCache.GetGztoolIndexFilename();
-            var tempgztoolIndexFilename = gztoolIndexFilename + ".wip";
+                var gztoolIndexFilename = PartitionCache.GetGztoolIndexFilename();
+                var tempgztoolIndexFilename = gztoolIndexFilename + ".wip";
 
-            var gzipStreamSeekable = new GZipStreamSeekable(CompressedStream, tempgztoolIndexFilename, gztoolIndexFilename);
+                var gzipStreamSeekable = new GZipStreamSeekable(CompressedStream, tempgztoolIndexFilename, gztoolIndexFilename);
 
-            return gzipStreamSeekable;
+                return gzipStreamSeekable;
+            }
         }
 
-        public Stream GetSequentialStream()
+        public override Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
             var uncompressedStream = new GZipStream(CompressedStream, CompressionMode.Decompress);

@@ -46,6 +46,9 @@ namespace libClonezilla.PartitionContainers
                 {
                     result = new ImageFile(path, partitionsToLoad, willPerformRandomSeeking, vfs);
                 }
+            } else
+            {
+                throw new Exception($"File not found: {path}");
             }
 
             if (result == null)

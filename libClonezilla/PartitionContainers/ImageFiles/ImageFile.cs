@@ -27,7 +27,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             mainFileStream = Stream.Synchronized(mainFileStream);
 
             ContainerName = Path.GetFileNameWithoutExtension(filename);
-            var compressionInUse = IDecompressor.GetCompressionType(mainFileStream);
+            var compressionInUse = Decompressor.GetCompressionType(mainFileStream);
 
             //we have to work out if the image file is compressed or not
 

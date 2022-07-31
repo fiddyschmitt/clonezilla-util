@@ -21,7 +21,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             var partitionImageFiles = SevenZipUtility.GetArchiveEntries(filename, false, true).ToList();
 
             var compressedStream = File.OpenRead(filename);
-            var decompressorSelector = new DecompressorSelector(ContainerName, compressedStream, null, compressionInuse, null);
+            var decompressorSelector = new DecompressorSelector(filename, ContainerName, compressedStream, null, compressionInuse, null);
 
             var rawDriveStream = decompressorSelector.GetSeekableStream();
 

@@ -12,6 +12,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
     {
         public RawImage(string filename, List<string> partitionsToLoad, string containerName, bool willPerformRandomSeeking)
         {
+            Filename = filename;
             PartitionsToLoad = partitionsToLoad;
             ContainerName = containerName;
 
@@ -24,8 +25,9 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             SetupFromStream(rawImageStream, archiveEntries, willPerformRandomSeeking);
         }
 
-        public RawImage(Stream rawImageStream, List<string> partitionsToLoad, string containerName, IEnumerable<ArchiveEntry> archiveEntries, bool willPerformRandomSeeking)
+        public RawImage(string filename, Stream rawImageStream, List<string> partitionsToLoad, string containerName, IEnumerable<ArchiveEntry> archiveEntries, bool willPerformRandomSeeking)
         {
+            Filename = filename;
             PartitionsToLoad = partitionsToLoad;
             ContainerName = containerName;
             SetupFromStream(rawImageStream, archiveEntries, willPerformRandomSeeking);
@@ -48,12 +50,13 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             }
             else
             {
-                container = new RawPartitionImage(ContainerName, PartitionsToLoad, "partition0", rawImageStream);
+                container = new RawPartitionImage(Filename, ContainerName, PartitionsToLoad, "partition0", rawImageStream);
             }
 
             Partitions = container.Partitions;
         }
 
+        public string Filename { get; }
         public List<string> PartitionsToLoad { get; }
         public override string ContainerName { get; protected set; }
     }

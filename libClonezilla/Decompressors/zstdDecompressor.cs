@@ -11,22 +11,18 @@ using ZstdNet;
 
 namespace libClonezilla.Decompressors
 {
-    public class ZstDecompressor : IDecompressor
+    public class zstdDecompressor : Decompressor
     {
-        public ZstDecompressor(Stream compressedStream, long? uncompressedLength)
+        public zstdDecompressor(Stream compressedStream) : base(compressedStream)
         {
-            CompressedStream = compressedStream;
-            UncompressedLength1 = uncompressedLength;
+
         }
 
-        public Stream CompressedStream { get; }
-        public long? UncompressedLength1 { get; }
-        public long UncompressedLength { get; }
-
-        public Stream GetSeekableStream()
+        public override Stream? GetSeekableStream()
         {
+            return null;
             //For now, let's extract it to a file so that we can have fast seeking
-
+            /*
             Log.Information($"Zstandard doesn't support random seeking. Extracting to a temporary file.");
 
             var decompressor = new DecompressionStream(CompressedStream);
@@ -42,6 +38,7 @@ namespace libClonezilla.Decompressors
                 });
 
             return tempFileStream;
+            */
 
 
             //FPS 04/01/2021: An experiment to park partially processed streams all over the file. Unfortunately this was still too slow
@@ -60,8 +57,7 @@ namespace libClonezilla.Decompressors
             uncompressedStream = new SeekableStreamUsingNearestActioner(zstdDecompressorGenerator, totalLength, 1 * 1024 * 1024);   //stations should be within one second of an actioner.
             */
         }
-
-        public Stream GetSequentialStream()
+        public override Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
             var uncompressedStream = new DecompressionStream(CompressedStream);

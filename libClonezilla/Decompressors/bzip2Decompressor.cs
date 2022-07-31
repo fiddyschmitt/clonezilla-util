@@ -10,21 +10,19 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Decompressors
 {
-    public class bzip2Decompressor : IDecompressor
+    public class bzip2Decompressor : Decompressor
     {
-        public Stream CompressedStream { get; }
-
-        public bzip2Decompressor(Stream compressedStream)
+        public bzip2Decompressor(Stream compressedStream) : base(compressedStream)
         {
-            CompressedStream = compressedStream;
+
         }
 
-        public Stream? GetSeekableStream()
+        public override Stream? GetSeekableStream()
         {
             return null;
         }
 
-        public Stream GetSequentialStream()
+        public override Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
             var result = new BZip2Stream(CompressedStream, SharpCompress.Compressors.CompressionMode.Decompress, false);

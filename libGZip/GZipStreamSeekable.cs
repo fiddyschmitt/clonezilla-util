@@ -227,7 +227,8 @@ namespace libGZip
 
         public override string ToString()
         {
-            var uncompressedSizeStr = (UncompressedEndByte - UncompressedStartByte).BytesToString();
+            var uncompressedSize = (ulong)(UncompressedEndByte - UncompressedStartByte);
+            var uncompressedSizeStr = uncompressedSize.BytesToString();
             string result = $"Compressed {CompressedStartByte:N0} == Uncompressed {UncompressedStartByte:N0} ({uncompressedSizeStr} uncompressed data)";
             return result;
         }

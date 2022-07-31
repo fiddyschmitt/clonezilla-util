@@ -1,4 +1,5 @@
-﻿using System;
+﻿using libCommon;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -51,7 +52,7 @@ DeviceSize: {DeviceSizeBytes:N0} ({DeviceSizeBytes.BytesToString()})
 TotalBlocks: {TotalBlocks:N0}
 UsedBlocks: {UsedBlocks:N0}
 UsedBitmap: {UsedBitmapBlocks:N0}
-BlockSize: {BlockSize:N0} ({((ulong)BlockSize).BytesToString()})
+BlockSize: {BlockSize:N0} ({BlockSize.BytesToString()})
 ".Trim();
 
 			return result;

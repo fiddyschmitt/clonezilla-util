@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -24,7 +25,17 @@ namespace libClonezilla.VFS
                 //start the Virtual File System
                 var root = new RootFolder(MountPoint);
                 var vfs = new DokanVFS(ProgramName, root);
-                Task.Factory.StartNew(() => vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger()));
+                Task.Factory.StartNew(() =>
+                {
+                    try
+                    {
+                        //This seems to prevent the Mount() method from having issues with previous instances of Dokan
+                        Dokan.RemoveMountPoint(root.MountPoint);
+                    }
+                    catch { }
+
+                    vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger());
+                });
                 Utility.WaitForFolderToExist(root.MountPoint);
 
                 //Didn't get this to work
