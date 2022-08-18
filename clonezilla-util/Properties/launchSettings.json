@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "mount --input \"E:\\clonezilla-util-test resources\\clonezilla images\\2022-08-16-10-img_luks_test_500GB_ext4_gz\\ocs_luks_OLi.ext4-ptcl-img.gz\" --mount L:\\"
+      "commandLineArgs": "mount --input \"E:\\clonezilla-util-test resources\\clonezilla images\\2022-08-16-20-img_luks_test_6GB_ext4_zst\" --mount L:\\"
     }
   }
 }

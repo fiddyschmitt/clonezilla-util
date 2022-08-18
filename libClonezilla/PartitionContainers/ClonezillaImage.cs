@@ -76,11 +76,41 @@ namespace libClonezilla.PartitionContainers
                                 var partitionCache = cacheManager.GetPartitionCache(partitionName);
                                 var partcloneCache = partitionCache as IPartcloneCache;
 
-                                var splitFilenames = Directory
+
+                                var splitFilenames = new List<string>();
+
+                                var luksInfoFile = Path.Combine(clonezillaArchiveFolder, "luks-dev.list");
+                                if (File.Exists(luksInfoFile))
+                                {
+                                    var luksFilename = File
+                                                        .ReadAllLines(luksInfoFile)
+                                                        .First(line => line.StartsWith($"/dev/{partitionName}"))
+                                                        .Split(new[] { "/" }, StringSplitOptions.None)
+                                                        .LastOrDefault();
+
+                                    splitFilenames = Directory
+                                                        .GetFiles(clonezillaArchiveFolder, $"*{luksFilename}.*-ptcl-img*")
+                                                        .ToList();
+                                }
+                                else
+                                {
+                                    splitFilenames = Directory
                                                         .GetFiles(clonezillaArchiveFolder, $"{partitionName}.*-ptcl-img*")
                                                         .ToList();
+                                }
 
-                                var compressionInUse = GetCompressionInUse(clonezillaArchiveFolder, partitionName);
+
+
+                                //var compressionInUse = GetCompressionInUse(clonezillaArchiveFolder, partitionName);
+                                var compressionInUse = Path.GetExtension(splitFilenames.First()) switch
+                                {
+                                    ".bz2" => Compression.bzip2,
+                                    ".gz" => Compression.Gzip,
+                                    ".uncomp" => Compression.None,
+                                    ".xz" => Compression.xz,
+                                    ".zst" => Compression.Zstandard,
+                                    _ => throw new Exception($"Partition compression not handled: {splitFilenames.First()}")
+                                };
 
                                 var splitFileStreams = splitFilenames
                                                         .Select(filename => new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))

@@ -11,6 +11,7 @@ namespace clonezilla_util_tests.Tests
     {
         public static void Test(string exeUnderTest)
         {
+            TestLuksClonezillaImages(exeUnderTest);
             TestLuksParcloneImages(exeUnderTest);
             TestExt4(exeUnderTest);
 
@@ -24,6 +25,52 @@ namespace clonezilla_util_tests.Tests
 
             TestLargeClonezillaPartitions(exeUnderTest);
             TestLargeDriveImages(exeUnderTest);
+        }
+
+        public static void TestLuksClonezillaImages(string exeUnderTest)
+        {
+            //20GB ntfs -> luks -> partclone -> zst
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-15-img_luks_test_20GB_ntfs" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\howdy.txt", "f521b93b9a4f632a537163f599ded439"),
+                    new FileDetails(@"L:\second_file.txt", "b1946ac92492d2347c6235b4d2611184"),
+                });
+
+            //6GB ext4 -> luks -> partclone -> zst
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-20-img_luks_test_6GB_ext4_zst" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\another_file.txt", "42690a6bf443aa07821ccc51e58e950c"),
+                    new FileDetails(@"L:\hello.txt", "ce55c98ac24d4c7764877fa58ab441ef"),
+                });
+
+            //500 GB ext4 -> luks -> partclone -> gz
+            //Disabled. Because it calculates the whole file can be open in under 10 seconds
+            /*
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-10-img_luks_test_500GB_ext4_gz" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
+                    new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
+                });
+            */
+
+
+            //500GB ext4 -> luks -> partclone -> zst
+            //Disabled. Because it calculates the whole file can be open in under 10 seconds
+            /*
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-10-img_luks_test_500GB_ext4_gz" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
+                    new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
+                });
+            */
         }
 
         public static void TestLuksParcloneImages(string exeUnderTest)
