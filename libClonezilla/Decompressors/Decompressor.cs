@@ -1,4 +1,5 @@
 ﻿using libCommon;
+using libPartclone;
 using SharpCompress.Compressors.BZip2;
 using SharpCompress.Compressors.Xz;
 using System;
@@ -30,10 +31,10 @@ namespace libClonezilla.Decompressors
 
             var decompressors = new (Compression Compression, Func<Stream> Stream)[]
             {
+                (Compression.bzip2, () => new BZip2Stream(compressedStream, SharpCompress.Compressors.CompressionMode.Decompress, false)),
                 (Compression.Gzip, () => new GZipStream(compressedStream, CompressionMode.Decompress)),
-                (Compression.Zstandard, () => new DecompressionStream(compressedStream)),
                 (Compression.xz, () => new XZStream(compressedStream)),
-                (Compression.bzip2, () => new BZip2Stream(compressedStream, SharpCompress.Compressors.CompressionMode.Decompress, false))
+                (Compression.Zstandard, () => new DecompressionStream(compressedStream)),
             };
 
             foreach (var decompressor in decompressors)

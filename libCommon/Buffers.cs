@@ -8,8 +8,35 @@ namespace libCommon
     public static class Buffers
     {
         public const int ARBITARY_MEDIUM_SIZE_BUFFER = 5 * 1024 * 1024;
-        public const int ARBITARY_LARGE_SIZE_BUFFER = ARBITARY_MEDIUM_SIZE_BUFFER * 10;
-        public const int ARBITARY_HUGE_SIZE_BUFFER = ARBITARY_LARGE_SIZE_BUFFER * 10;
+        public static int ARBITARY_LARGE_SIZE_BUFFER
+        {
+            get
+            {
+                if (Environment.Is64BitProcess)
+                {
+                    return ARBITARY_MEDIUM_SIZE_BUFFER * 10;
+                }
+                else
+                {
+                    return ARBITARY_MEDIUM_SIZE_BUFFER;
+                }
+            }
+        }
+
+        public static int ARBITARY_HUGE_SIZE_BUFFER
+        {
+            get
+            {
+                if (Environment.Is64BitProcess)
+                {
+                    return ARBITARY_LARGE_SIZE_BUFFER * 10;
+                }
+                else
+                {
+                    return ARBITARY_MEDIUM_SIZE_BUFFER;
+                }
+            }
+        }
 
         //Initialised to something big, because otherwise it defaults to 1MB and smaller.
         //See: https://adamsitnik.com/Array-Pool/

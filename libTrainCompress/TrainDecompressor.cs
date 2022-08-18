@@ -191,6 +191,11 @@ namespace libTrainCompress
 
             end = Math.Min(Length, end);
 
+            if (start >= end)
+            {
+                return (start, end);
+            }
+
             var startIndexPoint = Carriages.Last(ent => start >= ent.UncompressedStartByte);
             var endIndexPoint = Carriages.First(ent => end <= ent.UncompressedEndByte);
 

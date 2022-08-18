@@ -309,6 +309,12 @@ namespace libDokan
                     }
                     */
 
+                    var toRead = buffer.Length;
+                    if (!Environment.Is64BitOperatingSystem)
+                    {
+                        toRead = Math.Min(toRead, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
+                    }
+
                     stream.Position = offset;
                     bytesRead = stream.Read(buffer, 0, buffer.Length);
                 }

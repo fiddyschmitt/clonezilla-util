@@ -4,6 +4,7 @@ using libCommon.Streams;
 using libCommon.Streams.Seekable;
 using libCommon.Streams.Sparse;
 using libGZip;
+using libPartclone;
 using libTrainCompress;
 using libTrainCompress.Compressors;
 using Newtonsoft.Json.Linq;
@@ -32,10 +33,10 @@ namespace libClonezilla.Decompressors
 
             Decompressor = CompressionInUse switch
             {
-                Compression.Gzip =>  new GzDecompressor(CompressedStream, partitionCache),
-                Compression.Zstandard => new zstdDecompressor(CompressedStream),
-                Compression.xz => new xzDecompressor(CompressedStream),
                 Compression.bzip2 => new bzip2Decompressor(CompressedStream),
+                Compression.Gzip => new GzDecompressor(CompressedStream, partitionCache),
+                Compression.xz => new xzDecompressor(CompressedStream),
+                Compression.Zstandard => new zstdDecompressor(CompressedStream),
                 Compression.None => new NoChangeDecompressor(CompressedStream),
                 _ => throw new Exception($"Could not initialise a decompressor for {StreamName}"),
             };
@@ -78,6 +79,7 @@ namespace libClonezilla.Decompressors
             bool addCacheLayer = true;
             Stream uncompressedStream;
             if (predictedSecondsToReadEntireFile < 10)
+            //if (false)
             {
                 Log.Debug($"Using a sequential decompressor for this data.");
 
@@ -187,7 +189,8 @@ namespace libClonezilla.Decompressors
                                             var perThroughCompressedSource = (double)CompressedStream.Position / CompressedStream.Length * 100;
 
                                             Log.Information($"{StreamName} Cached {progress.BytesToString()}. ({perThroughCompressedSource:N0}% through source file)");
-                                        } catch
+                                        }
+                                        catch
                                         {
                                             //just in case the Close() call below causes the percentage calculation to fail
                                         }

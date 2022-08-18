@@ -37,7 +37,7 @@ namespace clonezilla_util
     public class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "1.6.0";
+        const string PROGRAM_VERSION = "1.7.0";
 
         private enum ReturnCode
         {
@@ -249,8 +249,10 @@ namespace clonezilla_util
                                 outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{container.ContainerName}.{partition.PartitionName}.img");
                             }
 
+                            //TestFullCopy(partition.FullPartitionImage, Stream.Null, File.OpenRead(@"E:\Temp\2022-08-16-20-img_luks_test_6GB_ext4_zst\ocs_luks_0Yy.ext4.img_from_real_partclone"));
+
                             var makeSparse = !extractPartitionImageOptions.NoSparseOutput;
-                            partition.ExtractToFile(outputFilename, makeSparse);
+                            partition.ExtractToFile(outputFilename, makeSparse);                            
                         });
                 });
         }
@@ -263,60 +265,7 @@ namespace clonezilla_util
             Log.Error(msg);
         }
 
-        [SupportedOSPlatform("windows")]
-        public static void TestSeeking(Stream rawPartitionStream, FileStream outputStream)
-        {
-            //var chunkSizes = 10 * 1024 * 1024;
-            var chunkSizes = 8000;
-            var buffer = Buffers.BufferPool.Rent(chunkSizes);
-
-            var ranges = new List<ByteRange>();
-            var i = 0L;
-
-            //var totalSize = 415797084160L;
-            var totalSize = rawPartitionStream.Length;
-
-            var r = new Random();
-            while (i < totalSize)
-            {
-                var bytesLeft = totalSize - i;
-                var len = (long)r.Next(1, chunkSizes + 1);
-                len = Math.Min(len, bytesLeft - 1);
-
-                var range = new ByteRange()
-                {
-                    StartByte = i,
-                    EndByte = i + len
-                };
-                ranges.Add(range);
-
-                i += range.Length;
-            }
-
-            outputStream.SafeFileHandle.MarkAsSparse();
-            outputStream.SetLength(totalSize);
-
-            ulong totalBytesRead = 0;
-            ranges
-                .OrderBy(x => Guid.NewGuid())
-                .ToList()
-                .ForEach(range =>
-                {
-                    rawPartitionStream.Seek(range.StartByte, SeekOrigin.Begin);
-                    var bytesRead = rawPartitionStream.Read(buffer, 0, chunkSizes);
-
-                    outputStream.Seek(range.StartByte, SeekOrigin.Begin);
-                    outputStream.Write(buffer, 0, bytesRead);
-
-                    totalBytesRead += (ulong)bytesRead;
-                    var percentageComplete = totalBytesRead / (double)outputStream.Length * 100;
-                    Log.Information($"{totalBytesRead}    {percentageComplete:N2}%");
-                });
-
-            Buffers.BufferPool.Return(buffer);
-        }
-
-        public static void TestFullCopy(Stream partcloneStream, Stream outputStream)
+        public static void TestFullCopy(Stream partcloneStream, Stream outputStream, Stream compareStream)
         {
             var chunkSizes = 10 * 1024 * 1024;
             var buffer1 = Buffers.BufferPool.Rent(chunkSizes);
@@ -325,10 +274,13 @@ namespace clonezilla_util
             var lastReport = DateTime.MinValue;
             var totalRead = 0UL;
 
-            using (var compareStream = File.Open(@"E:\3_raw_cz.img", FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite))
+            //using (var compareStream = File.Open(@"E:\3_raw_cz.img", FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite))
             {
                 while (true)
                 {
+                    Array.Clear(buffer1);
+                    Array.Clear(buffer2);
+
                     var bytesRead1 = partcloneStream.Read(buffer1, 0, chunkSizes);
 
                     var bytesRead2 = compareStream.Read(buffer2, 0, chunkSizes);

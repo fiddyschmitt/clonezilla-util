@@ -203,6 +203,8 @@ namespace libCommon
 
         public static long Sparsify(this ISparseAwareReader input, ISparseAwareWriter output, int bufferSize, Action<long>? callBack)
         {
+            output.Stream.SetLength(input.Stream.Length);
+
             byte[] buffer = Buffers.BufferPool.Rent(bufferSize);
             long totalRead = 0;
             while (true)

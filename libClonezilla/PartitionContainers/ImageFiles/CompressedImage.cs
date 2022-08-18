@@ -2,6 +2,7 @@
 using libClonezilla.Decompressors;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
+using libPartclone;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -26,16 +27,27 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 //protect this stream from concurrent access
                 streamToInspect = Stream.Synchronized(streamToInspect);
 
+                var isPartcloneStream = PartcloneImageInfo.IsPartclone(streamToInspect);
+
                 var compression = Decompressor.GetCompressionType(streamToInspect);
 
-                if (compression == Compression.None)
+                if (compression == Compression.None && !isPartcloneStream)
                 {
                     //finally dealing with uncompressed content
                     break;
                 }
 
-                var decompressorSelector = new DecompressorSelector(filename, ContainerName, streamToInspect, null, compression, null);
-                var decompressedStream = decompressorSelector.GetSeekableStream();
+                Stream decompressedStream;
+
+                if (isPartcloneStream)
+                {
+                    decompressedStream = new PartcloneStream("", "", streamToInspect, null);
+                }
+                else
+                {
+                    var decompressorSelector = new DecompressorSelector(filename, ContainerName, streamToInspect, null, compression, null);
+                    decompressedStream = decompressorSelector.GetSeekableStream();
+                }
 
                 var virtualDecompressedFile = new StreamBackedFileEntry(Guid.NewGuid().ToString(), tempFolder, decompressedStream);
 

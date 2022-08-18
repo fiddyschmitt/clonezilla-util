@@ -286,11 +286,16 @@ namespace libClonezilla.Partitions
                 {
                     var parentFolder = pathLookup[fileSystemEntry];
 
-                    var parent = folderLookup[parentFolder];
+                    if (folderLookup.ContainsKey(parentFolder))
+                    {
+                        var parent = folderLookup[parentFolder];
 
-                    //if (parent == null) throw new Exception($"Parent not found for: {fileSystemEntry.FullPath}");
-
-                    fileSystemEntry.Parent = parent;
+                        fileSystemEntry.Parent = parent;
+                    }
+                    else
+                    {
+                        Log.Error($"Could not find {parentFolder} in {folderLookup}");
+                    }
                 });
 
             var tree = entries

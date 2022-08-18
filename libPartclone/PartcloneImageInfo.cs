@@ -79,10 +79,18 @@ namespace libPartclone
                     //var bytesUsedByBitmap = (int)Math.Ceiling(ImageDescV2.FileSystemInfoV2.TotalBlocks / 8M);
                     var bytesUsedByBitmap = (int)(ImageDescV2.FileSystemInfoV2.TotalBlocks / 8) + 1;
                     Bitmap = binaryReader.ReadBytes(bytesUsedByBitmap);
-                }
 
-                //skip something
-                binaryReader.ReadBytes(4);
+                    //skip something
+                    if (ImageDescV2.FileSystemInfoV2.FileSystemType?.Equals("EXTFS") ?? false)
+                    {
+                        //Not sure why this is different, or if it's anything related to EXTFS at all.
+                        binaryReader.ReadBytes(3);
+                    }
+                    else
+                    {
+                        binaryReader.ReadBytes(4);
+                    }
+                }
             }
             else
             {
@@ -217,6 +225,17 @@ namespace libPartclone
                 }
             }
 
+            return result;
+        }
+
+        public static bool IsPartclone(Stream? stream)
+        {
+            if (stream == null) return false;
+
+            var binaryReader = new BinaryReader(stream);
+            var magic = Encoding.ASCII.GetString(binaryReader.ReadBytes(16)).TrimEnd('\0');
+
+            var result = magic.Equals("partclone-image");
             return result;
         }
     }

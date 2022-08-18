@@ -34,19 +34,9 @@ namespace libClonezilla.PartitionContainers
             }
             else if (File.Exists(path))
             {
-                using var fileStream = File.OpenRead(path);
-                using var binaryReader = new BinaryReader(fileStream);
-                var magic = Encoding.ASCII.GetString(binaryReader.ReadBytes(16)).TrimEnd('\0');
-
-                if (magic.Equals("partclone-image"))
-                {
-                    result = new PartcloneFile(path, partitionsToLoad, willPerformRandomSeeking);
-                }
-                else
-                {
-                    result = new ImageFile(path, partitionsToLoad, willPerformRandomSeeking, vfs);
-                }
-            } else
+                result = new ImageFile(path, partitionsToLoad, willPerformRandomSeeking, vfs);
+            }
+            else
             {
                 throw new Exception($"File not found: {path}");
             }

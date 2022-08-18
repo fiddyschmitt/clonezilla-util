@@ -58,6 +58,7 @@ namespace libCommon.Streams
             var pos = position;
             var bufferPos = offset;
             var end = pos + count;
+            var totalBytesRead = 0;
 
             while (pos < end)
             {
@@ -78,8 +79,21 @@ namespace libCommon.Streams
                     {
                         recommendedRead = ReadSuggestor.GetRecommendation(pos, pos + bytesToGo);
                     }
+
+                    //Log.Information($"Want to read from {pos:N0} to {pos + bytesToGo:N0}. Was recommended to read {(recommendedRead.End - recommendedRead.Start).BytesToString()} from position {recommendedRead.Start:N0} to {recommendedRead.End:N0}");
+
                     var toRead = (int)Math.Min(recommendedRead.End - recommendedRead.Start, int.MaxValue);
-                    //Log.Information($"Recommended to read {toRead.BytesToString()} from position {recommendedRead.Start:N0}");
+
+                    if (toRead == 0)
+                    {
+                        break;
+                    }
+
+                    if (!Environment.Is64BitProcess)
+                    {
+                        toRead = Math.Min(toRead, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
+                    }
+
 
                     var buff = new byte[toRead];
 
@@ -188,11 +202,11 @@ namespace libCommon.Streams
 
                 bufferPos += bytesToRead;
                 pos += bytesToRead;
+                totalBytesRead += bytesToRead;
             }
 
             position = pos;
 
-            var totalBytesRead = count;
             return totalBytesRead;
         }
 

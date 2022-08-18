@@ -11,14 +11,80 @@ namespace clonezilla_util_tests.Tests
     {
         public static void Test(string exeUnderTest)
         {
+            TestLuksParcloneImages(exeUnderTest);
+            TestExt4(exeUnderTest);
+
             TestMisc(exeUnderTest);
-            //TestDifferentPartcloneVersions(exeUnderTest);
+            TestPartlcone(exeUnderTest);
 
-            //TestSmallClonezillaPartitions(exeUnderTest);
-            //TestSmallPartitionImages(exeUnderTest);
+            TestDifferentPartcloneVersions(exeUnderTest);
 
-            //TestLargeClonezillaPartitions(exeUnderTest);
-            //TestLargeDriveImages(exeUnderTest);
+            TestSmallClonezillaPartitions(exeUnderTest);
+            TestSmallPartitionImages(exeUnderTest);
+
+            TestLargeClonezillaPartitions(exeUnderTest);
+            TestLargeDriveImages(exeUnderTest);
+        }
+
+        public static void TestLuksParcloneImages(string exeUnderTest)
+        {
+            //20GB ntfs -> luks -> partclone -> zst
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-15-img_luks_test_20GB_ntfs\ocs_luks_esc.ntfs-ptcl-img.zst" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\howdy.txt", "f521b93b9a4f632a537163f599ded439"),
+                    new FileDetails(@"L:\second_file.txt", "b1946ac92492d2347c6235b4d2611184"),
+                });
+
+            //6GB ext4 -> luks -> partclone -> zst
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-20-img_luks_test_6GB_ext4_zst\ocs_luks_0Yy.ext4-ptcl-img.zst" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\another_file.txt", "42690a6bf443aa07821ccc51e58e950c"),
+                    new FileDetails(@"L:\hello.txt", "ce55c98ac24d4c7764877fa58ab441ef"),
+                });
+
+            //500 GB ext4 -> luks -> partclone -> gz
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-10-img_luks_test_500GB_ext4_gz\ocs_luks_OLi.ext4-ptcl-img.gz" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
+                    new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
+                });
+
+
+            //500GB ext4 -> luks -> partclone -> zst
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-10-img_luks_test_500GB_ext4_gz\ocs_luks_OLi.ext4-ptcl-img.gz" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
+                    new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
+                });
+        }
+
+        public static void TestExt4(string exeUnderTest)
+        {
+            //ext4
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\drive images\ext4\2022-08-16_ext4.img" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\hello.txt", "bad9425ff652b1bd52b49720abecf0ba"),
+                    new FileDetails(@"L:\config_files\test.xml", "81dfa8e288df74cebc654c582a3abebc"),
+                });
+
+            //ext4 zst
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\drive images\ext4\2022-08-16_ext4.img.zst" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\hello.txt", "bad9425ff652b1bd52b49720abecf0ba"),
+                    new FileDetails(@"L:\config_files\test.xml", "81dfa8e288df74cebc654c582a3abebc"),
+                });
         }
 
         public static void TestMisc(string exeUnderTest)
@@ -34,6 +100,17 @@ namespace clonezilla_util_tests.Tests
                     new FileDetails(@"L:\2021-12-28_pb-devops1_sda1.img\Recovery\WindowsRE\ReAgent.xml", "464bd66c6443e55b791f16cb6bc28c2e")
                 });
 
+            //latest clonezilla 29/06/2022
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-06-27-20-img_smalldrive" -m L:\ """,
+                new[] {
+                    new FileDetails(@"L:\sda1\sda1.txt", "c3f38733914d360530455ba3b4073868"),
+                });
+        }
+
+        public static void TestPartlcone(string exeUnderTest)
+        {
             //partclone image
             ConfirmFilesExist(
                 exeUnderTest,
@@ -42,12 +119,12 @@ namespace clonezilla_util_tests.Tests
                     new FileDetails(@"L:\Kingsley\Prototype 1\Temp\Images\logo.jpg", "0217ff1926ec5f82e1a120676eff70c3"),
                 });
 
-            //latest clonezilla 29/06/2022
+            //partclone image gz
             ConfirmFilesExist(
                 exeUnderTest,
-                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-06-27-20-img_smalldrive" -m L:\ """,
+                """mount --input "E:\clonezilla-util-test resources\partclone images\2022-07-17 - partclone file\sda1.ntfs-ptcl-img.gz" -m L:\ """,
                 new[] {
-                    new FileDetails(@"L:\sda1\sda1.txt", "c3f38733914d360530455ba3b4073868"),
+                    new FileDetails(@"L:\Recovery\Logs\Reload.xml", "f5a6df3c8f1ad69766afee3a25f7e376"),
                 });
         }
 
