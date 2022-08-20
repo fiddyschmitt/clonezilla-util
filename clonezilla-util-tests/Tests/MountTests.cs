@@ -65,7 +65,7 @@ namespace clonezilla_util_tests.Tests
             /*
             ConfirmFilesExist(
                 exeUnderTest,
-                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-10-img_luks_test_500GB_ext4_gz" --mount L:\ """,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-09-img_luks_test_500GB_ext4_zst" --mount L:\ """,
                 new[] {
                     new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
                     new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
@@ -94,6 +94,8 @@ namespace clonezilla_util_tests.Tests
                 });
 
             //500 GB ext4 -> luks -> partclone -> gz
+            //Disabled. Because it calculates the whole file can be open in under 10 seconds
+            /*
             ConfirmFilesExist(
                 exeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-10-img_luks_test_500GB_ext4_gz\ocs_luks_OLi.ext4-ptcl-img.gz" --mount L:\ """,
@@ -101,16 +103,20 @@ namespace clonezilla_util_tests.Tests
                     new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
                     new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
                 });
+            */
 
 
             //500GB ext4 -> luks -> partclone -> zst
+            //Disabled. Because it calculates the whole file can be open in under 10 seconds
+            /*
             ConfirmFilesExist(
                 exeUnderTest,
-                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-10-img_luks_test_500GB_ext4_gz\ocs_luks_OLi.ext4-ptcl-img.gz" --mount L:\ """,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-09-img_luks_test_500GB_ext4_zst\ocs_luks_pDw.ext4-ptcl-img.zst" --mount L:\ """,
                 new[] {
                     new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
                     new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
                 });
+            */
         }
 
         public static void TestExt4(string exeUnderTest)

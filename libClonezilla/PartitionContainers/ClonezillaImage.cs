@@ -77,6 +77,7 @@ namespace libClonezilla.PartitionContainers
                                 var partcloneCache = partitionCache as IPartcloneCache;
 
 
+                                Compression compressionInUse = Compression.None;
                                 var splitFilenames = new List<string>();
 
                                 var luksInfoFile = Path.Combine(clonezillaArchiveFolder, "luks-dev.list");
@@ -91,26 +92,18 @@ namespace libClonezilla.PartitionContainers
                                     splitFilenames = Directory
                                                         .GetFiles(clonezillaArchiveFolder, $"*{luksFilename}.*-ptcl-img*")
                                                         .ToList();
+
+                                    compressionInUse = GetCompressionInUse(clonezillaArchiveFolder, $"*{luksFilename}.*-ptcl-img");
                                 }
                                 else
                                 {
                                     splitFilenames = Directory
                                                         .GetFiles(clonezillaArchiveFolder, $"{partitionName}.*-ptcl-img*")
                                                         .ToList();
+
+                                    compressionInUse = GetCompressionInUse(clonezillaArchiveFolder, $"{partitionName}.*-ptcl-img");
                                 }
-
-
-
-                                //var compressionInUse = GetCompressionInUse(clonezillaArchiveFolder, partitionName);
-                                var compressionInUse = Path.GetExtension(splitFilenames.First()) switch
-                                {
-                                    ".bz2" => Compression.bzip2,
-                                    ".gz" => Compression.Gzip,
-                                    ".uncomp" => Compression.None,
-                                    ".xz" => Compression.xz,
-                                    ".zst" => Compression.Zstandard,
-                                    _ => throw new Exception($"Partition compression not handled: {splitFilenames.First()}")
-                                };
+                                
 
                                 var splitFileStreams = splitFilenames
                                                         .Select(filename => new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -135,15 +128,15 @@ namespace libClonezilla.PartitionContainers
                             .ToList();
         }
 
-        public static Compression GetCompressionInUse(string clonezillaArchiveFolder, string partitionName)
+        public static Compression GetCompressionInUse(string clonezillaArchiveFolder, string filenamePattern)
         {
             var compressionPatterns = new (Compression Compression, string FilenamePattern)[]
             {
-                (Compression.Gzip, $"{partitionName}.*-ptcl-img.gz.*"),
-                (Compression.Zstandard, $"{partitionName}.*-ptcl-img.zst.*"),
-                (Compression.xz, $"{partitionName}.*-ptcl-img.xz.*"),
-                (Compression.bzip2, $"{partitionName}.*-ptcl-img.bz2.*"),
-                (Compression.None, $"{partitionName}.*-ptcl-img.uncomp.*"),
+                (Compression.Gzip, $"{filenamePattern}.gz.*"),
+                (Compression.Zstandard, $"{filenamePattern}.zst.*"),
+                (Compression.xz, $"{filenamePattern}.xz.*"),
+                (Compression.bzip2, $"{filenamePattern}.bz2.*"),
+                (Compression.None, $"{filenamePattern}.uncomp.*"),
             };
 
             foreach (var pattern in compressionPatterns)
@@ -159,7 +152,7 @@ namespace libClonezilla.PartitionContainers
                     return result;
                 }
             }
-            throw new Exception($"Could not determine compression used by partition {partitionName} in: {clonezillaArchiveFolder}");
+            throw new Exception($"Could not determine compression used by partition {filenamePattern} in: {clonezillaArchiveFolder}");
         }
 
         string? containerName;
