@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "mount --input \"E:\\clonezilla-util-test resources\\clonezilla images\\2022-07-17-16-img_pb-devops1_gz\" \"E:\\clonezilla-util-test resources\\drive images\\ddrescue backups (even includes deleted)\\2021-12-28_pb-devops1_sda1.img.zst\" -p sda1 sdb1 partition0 --mount L:\\"
+      "commandLineArgs": "list --input \"E:\\clonezilla-util-test resources\\clonezilla images\\2022-07-17-12-img_pb-devops1_xz\" -p sda1 sdb1"
     }
   }
 }
