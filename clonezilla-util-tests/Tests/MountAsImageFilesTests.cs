@@ -30,6 +30,14 @@ namespace clonezilla_util_tests.Tests
                 });
             */
 
+            //6GB ext4 -> luks -> partclone -> zst
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount-as-image-files --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-20-img_luks_test_6GB_ext4_zst\ocs_luks_0Yy.ext4-ptcl-img.zst" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\partition0.img", "d9a64d07801cb9f5878a72da4c5d53fd"),
+                });
+
             //zst
             ConfirmFilesExist(
                 exeUnderTest,

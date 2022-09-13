@@ -59,10 +59,12 @@ namespace libClonezilla.Decompressors
 
     public enum Compression
     {
-        Gzip,
-        Zstandard,
-        xz,
         bzip2,
-        None
+        Gzip,
+        LZ4,
+        LZip,
+        None,        
+        xz,
+        Zstandard
     }
 }
