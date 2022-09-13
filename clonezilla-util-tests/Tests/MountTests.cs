@@ -38,7 +38,8 @@ namespace clonezilla_util_tests.Tests
                     new FileDetails(@"L:\second_file.txt", "b1946ac92492d2347c6235b4d2611184"),
                 });
 
-            //6GB ext4 -> luks -> partclone -> zst
+            
+
             ConfirmFilesExist(
                 exeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-20-img_luks_test_6GB_ext4_zst" --mount L:\ """,
@@ -358,12 +359,31 @@ namespace clonezilla_util_tests.Tests
                     new FileDetails(@"L:\sdb1\Kingsley\Prototype 1\Temp\Images\logo.jpg", "0217ff1926ec5f82e1a120676eff70c3"),
                 });
 
-            //uncompressed
+            //none
             ConfirmFilesExist(
                 exeUnderTest,
-                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-06-27-20-img_smalldrive-uncompressed" -m L:\ -p sda1 sdb1""",
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-06-27-20-img_smalldrive-uncompressed" -m L:\""",
                 new[] {
-                    new FileDetails(@"L:\sda1.txt", "c3f38733914d360530455ba3b4073868"),
+                    new FileDetails(@"L:\sda1\sda1.txt", "c3f38733914d360530455ba3b4073868"),
+                    new FileDetails(@"L:\sda2\sda2.txt", "b80328235f5d991c6dc8982e1d1876bc"),
+                });
+
+            //LZ4
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-09-12-20-img_small_drive_using_lz4" -m L:\""",
+                new[] {
+                    new FileDetails(@"L:\sda1\sda1.txt", "c3f38733914d360530455ba3b4073868"),
+                    new FileDetails(@"L:\sda2\sda2.txt", "b80328235f5d991c6dc8982e1d1876bc"),
+                });
+
+            //LZip
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-09-12-20-img_small_drive_using_lzip" -m L:\""",
+                new[] {
+                    new FileDetails(@"L:\sda1\sda1.txt", "c3f38733914d360530455ba3b4073868"),
+                    new FileDetails(@"L:\sda2\sda2.txt", "b80328235f5d991c6dc8982e1d1876bc"),
                 });
 
             //xz

@@ -103,7 +103,7 @@ namespace libClonezilla.PartitionContainers
 
                                     compressionInUse = GetCompressionInUse(clonezillaArchiveFolder, $"{partitionName}.*-ptcl-img");
                                 }
-                                
+
 
                                 var splitFileStreams = splitFilenames
                                                         .Select(filename => new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -132,11 +132,13 @@ namespace libClonezilla.PartitionContainers
         {
             var compressionPatterns = new (Compression Compression, string FilenamePattern)[]
             {
-                (Compression.Gzip, $"{filenamePattern}.gz.*"),
-                (Compression.Zstandard, $"{filenamePattern}.zst.*"),
-                (Compression.xz, $"{filenamePattern}.xz.*"),
                 (Compression.bzip2, $"{filenamePattern}.bz2.*"),
+                (Compression.Gzip, $"{filenamePattern}.gz.*"),
+                (Compression.LZ4, $"{filenamePattern}.lz4.*"),
+                (Compression.LZip, $"{filenamePattern}.lzip.*"),
                 (Compression.None, $"{filenamePattern}.uncomp.*"),
+                (Compression.xz, $"{filenamePattern}.xz.*"),
+                (Compression.Zstandard, $"{filenamePattern}.zst.*"),
             };
 
             foreach (var pattern in compressionPatterns)
