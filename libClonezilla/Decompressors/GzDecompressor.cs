@@ -1,6 +1,5 @@
 ﻿using libClonezilla.Cache;
 using libCommon.Streams.Seekable;
-using libGZip;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -22,6 +21,7 @@ namespace libClonezilla.Decompressors
 
         public override Stream? GetSeekableStream()
         {
+            /*
             if (PartitionCache == null)
             {
                 return null;
@@ -38,6 +38,8 @@ namespace libClonezilla.Decompressors
 
                 return gzipStreamSeekable;
             }
+            */
+            return null;
         }
 
         public override Stream GetSequentialStream()

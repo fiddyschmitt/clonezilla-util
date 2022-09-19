@@ -3,7 +3,6 @@ using libCommon;
 using libCommon.Streams;
 using libCommon.Streams.Seekable;
 using libCommon.Streams.Sparse;
-using libGZip;
 using libPartclone;
 using libTrainCompress;
 using libTrainCompress.Compressors;
@@ -167,7 +166,7 @@ namespace libClonezilla.Decompressors
                             {
                                 //extract it (no compression)
                                 /*
-                                using (var fs = File.Create("C:\\Temp\\decompressed.b"))
+                                using (var fs = File.Create(@"C:\Temp\decompressed.b"))
                                 {
                                     var decompressedStreamSparseAware = new SparseAwareReader(decompressedStream);
                                     StreamUtility.ExtractToFile(StreamName, Decompressor.CompressedStream, decompressedStreamSparseAware, fs, true);
@@ -175,7 +174,7 @@ namespace libClonezilla.Decompressors
                                 */
 
                                 /*
-                                using (var fs = File.Create("C:\\Temp\\decompressed.b"))
+                                using (var fs = File.Create(@"C:\Temp\decompressed.b"))
                                 {
                                     decompressedStream.CopyTo(fs, 50 * 1024 * 1024);
                                 }
@@ -231,7 +230,7 @@ namespace libClonezilla.Decompressors
                     uncompressedStream = new TrainDecompressor(cachedTrain, compressors);
 
                     /*
-                    using (var fs = File.Create("C:\\Temp\\decompressed.bin"))
+                    using (var fs = File.Create(@"C:\Temp\decompressed.bin"))
                     {
                         uncompressedStream.CopyTo(fs, 50 * 1024 * 1024);
                     }

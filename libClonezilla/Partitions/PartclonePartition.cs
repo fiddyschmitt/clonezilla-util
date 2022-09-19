@@ -4,7 +4,6 @@ using libClonezilla.PartitionContainers;
 using libCommon;
 using libCommon.Streams;
 using libCommon.Streams.Seekable;
-using libGZip;
 using libPartclone;
 using libPartclone.Cache;
 using Serilog;

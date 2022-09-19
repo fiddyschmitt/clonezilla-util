@@ -97,8 +97,6 @@ namespace libPartclone
                 throw new Exception($"Unknown partclone image version: {imageVersion}");
             }
 
-            //File.WriteAllBytes($"C:\\Temp\\{clonezillaArchiveName}\\{partitionName}.bitmap", Bitmap);
-
             StartOfContent = binaryReader.BaseStream.Position;
 
             if (ImageDescV1 != null) Log.Debug(ImageDescV1.ToString());

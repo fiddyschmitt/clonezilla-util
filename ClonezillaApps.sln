@@ -11,8 +11,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "libClonezilla", "libClonezi
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "libCommon", "libCommon\libCommon.csproj", "{14B97386-07E9-42B4-A0B8-9459E0D29B85}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "libGZip", "libGZip\libGZip.csproj", "{A893993E-39BB-4137-AE63-FC88F4357AE7}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{9464A562-2170-4ADF-88B5-85F93945447D}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
@@ -48,10 +46,6 @@ Global
 		{14B97386-07E9-42B4-A0B8-9459E0D29B85}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{14B97386-07E9-42B4-A0B8-9459E0D29B85}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{14B97386-07E9-42B4-A0B8-9459E0D29B85}.Release|Any CPU.Build.0 = Release|Any CPU
-		{A893993E-39BB-4137-AE63-FC88F4357AE7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A893993E-39BB-4137-AE63-FC88F4357AE7}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A893993E-39BB-4137-AE63-FC88F4357AE7}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A893993E-39BB-4137-AE63-FC88F4357AE7}.Release|Any CPU.Build.0 = Release|Any CPU
 		{50CAC864-978A-44EF-BA23-06705E2FCA28}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{50CAC864-978A-44EF-BA23-06705E2FCA28}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{50CAC864-978A-44EF-BA23-06705E2FCA28}.Release|Any CPU.ActiveCfg = Release|Any CPU

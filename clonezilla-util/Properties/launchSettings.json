@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "mount --input \"E:\\clonezilla-util-test resources\\clonezilla images\\2022-09-13-12-img_ubuntu_22.04_default_filesystem\" -m L:\\"
+      "commandLineArgs": "list --input \"E:\\clonezilla-util-test resources\\clonezilla images\\2020-11-15-00-img_small_drive_new_partclone (clonezilla-live-2.6.6-15)\" \"E:\\clonezilla-util-test resources\\clonezilla images\\2020-05-23-23-img_small_drive_old_partclone (clonezilla-live-2.5.2-31)\""
     }
   }
 }

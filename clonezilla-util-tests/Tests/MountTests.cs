@@ -14,6 +14,7 @@ namespace clonezilla_util_tests.Tests
             TestLuksClonezillaImages(exeUnderTest);
             TestLuksParcloneImages(exeUnderTest);
             TestExt4(exeUnderTest);
+            TestUbuntuFileSystems(exeUnderTest);
 
             TestMisc(exeUnderTest);
             TestPartlcone(exeUnderTest);
@@ -25,6 +26,27 @@ namespace clonezilla_util_tests.Tests
 
             TestLargeClonezillaPartitions(exeUnderTest);
             TestLargeDriveImages(exeUnderTest);
+        }
+
+        private static void TestUbuntuFileSystems(string exeUnderTest)
+        {
+            //default Ubuntu file system (ext4)
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-09-13-12-img_ubuntu_22.04_default_filesystem" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\sda2\EFI\ubuntu\grub.cfg", "51f2a19ab5455fc3b7e2e2a0af00b9c0"),
+                    new FileDetails(@"L:\sda3\etc\fstab", "ea6ab8635f91425f7b1566a2d2f9675b"),
+                });
+
+            //Ubuntu installed using LVM file system
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-09-13-12-img_ubuntu_22.04_lvm_filesystem" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\sda2\EFI\ubuntu\grub.cfg", "3d20729047129a9315aad73359090eab"),
+                    new FileDetails(@"L:\vgubuntu-root\etc\fstab", "8aa06a520842b37790b91ebe67ccba06"),
+                });
         }
 
         public static void TestLuksClonezillaImages(string exeUnderTest)

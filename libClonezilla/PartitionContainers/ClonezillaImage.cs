@@ -21,17 +21,9 @@ namespace libClonezilla.PartitionContainers
         {
             ClonezillaArchiveFolder = clonezillaArchiveFolder;
 
-            var partsFilename = Path.Combine(clonezillaArchiveFolder, "parts");
+            var partitionNames = PartitionsInFolder(clonezillaArchiveFolder);
 
-            if (!File.Exists(partsFilename))
-            {
-                throw new Exception($"Could not find the partitions list file: {partsFilename}");
-            }
-
-            Partitions = File
-                            .ReadAllText(partsFilename)
-                            .Split(' ')
-                            .Select(partitionName => partitionName.Trim())
+            Partitions = partitionNames
                             .Where(partitionName => partitionsToLoad.Count == 0 || partitionsToLoad.Contains(partitionName))
                             .Select(partitionName =>
                             {
@@ -78,31 +70,11 @@ namespace libClonezilla.PartitionContainers
 
 
                                 Compression compressionInUse = Compression.None;
-                                var splitFilenames = new List<string>();
-
-                                var luksInfoFile = Path.Combine(clonezillaArchiveFolder, "luks-dev.list");
-                                if (File.Exists(luksInfoFile))
-                                {
-                                    var luksFilename = File
-                                                        .ReadAllLines(luksInfoFile)
-                                                        .First(line => line.StartsWith($"/dev/{partitionName}"))
-                                                        .Split(new[] { "/" }, StringSplitOptions.None)
-                                                        .LastOrDefault();
-
-                                    splitFilenames = Directory
-                                                        .GetFiles(clonezillaArchiveFolder, $"*{luksFilename}.*-ptcl-img*")
-                                                        .ToList();
-
-                                    compressionInUse = GetCompressionInUse(clonezillaArchiveFolder, $"*{luksFilename}.*-ptcl-img");
-                                }
-                                else
-                                {
-                                    splitFilenames = Directory
+                                var splitFilenames = Directory
                                                         .GetFiles(clonezillaArchiveFolder, $"{partitionName}.*-ptcl-img*")
                                                         .ToList();
 
-                                    compressionInUse = GetCompressionInUse(clonezillaArchiveFolder, $"{partitionName}.*-ptcl-img");
-                                }
+                                compressionInUse = GetCompressionInUse(splitFilenames.First());
 
 
                                 var splitFileStreams = splitFilenames
@@ -128,33 +100,41 @@ namespace libClonezilla.PartitionContainers
                             .ToList();
         }
 
-        public static Compression GetCompressionInUse(string clonezillaArchiveFolder, string filenamePattern)
+        public static List<string> PartitionsInFolder(string clonezillaArchiveFolder)
         {
-            var compressionPatterns = new (Compression Compression, string FilenamePattern)[]
+            var partitionNames = Directory
+                            .GetFiles(clonezillaArchiveFolder, "*-ptcl-img*")
+                            .GroupBy(
+                                filename => Path.GetFileName(filename).Split('.').First(),
+                                filename => filename,
+                                (k, g) => k)
+                            .ToList();
+
+            return partitionNames;
+        }
+
+        public static Compression GetCompressionInUse(string filename)
+        {
+            var extension = Path.GetExtension(filename);
+            if (extension.Equals(".aa"))
             {
-                (Compression.bzip2, $"{filenamePattern}.bz2.*"),
-                (Compression.Gzip, $"{filenamePattern}.gz.*"),
-                (Compression.LZ4, $"{filenamePattern}.lz4.*"),
-                (Compression.LZip, $"{filenamePattern}.lzip.*"),
-                (Compression.None, $"{filenamePattern}.uncomp.*"),
-                (Compression.xz, $"{filenamePattern}.xz.*"),
-                (Compression.Zstandard, $"{filenamePattern}.zst.*"),
+                //when an image is split into multiple files, it gets filenames such as these. Inspect the extension to the left
+                extension = Path.GetExtension(Path.GetFileNameWithoutExtension(filename));
+            }
+
+            var result = extension switch
+            {
+                ".bz2" => Compression.bzip2,
+                ".gz" => Compression.Gzip,
+                ".lz4" => Compression.LZ4,
+                ".lzip" => Compression.LZip,
+                ".uncomp" => Compression.None,
+                ".xz" => Compression.xz,
+                ".zst" => Compression.Zstandard,
+                _ => throw new Exception($"Could not determine compression used by partition stored in {filename}")
             };
 
-            foreach (var pattern in compressionPatterns)
-            {
-                var files = Directory
-                                .GetFiles(clonezillaArchiveFolder, pattern.FilenamePattern)
-                                .OrderBy(filename => filename)
-                                .ToList();
-
-                if (files.Count > 0)
-                {
-                    var result = pattern.Compression;
-                    return result;
-                }
-            }
-            throw new Exception($"Could not determine compression used by partition {filenamePattern} in: {clonezillaArchiveFolder}");
+            return result;
         }
 
         string? containerName;

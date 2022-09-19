@@ -5,7 +5,6 @@ using System.Text;
 using System.Linq;
 using System.IO;
 using libCommon.Streams;
-using libGZip;
 using libCommon;
 using libClonezilla.Cache;
 using libClonezilla.Cache.FileSystem;
