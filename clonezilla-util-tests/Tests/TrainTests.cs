@@ -32,7 +32,7 @@ namespace clonezilla_util_tests.Tests
             };
 
             var compressedStream = new MemoryStream();
-            //var compressedStream = File.Create("C:\\Temp\\1 - compressed.train");
+            //var compressedStream = File.Create(@"C:\Temp\1 - compressed.train");
             using (var trainCompressor = new TrainCompressor(compressedStream, compressors, 10 * 1024 * 1024))
             {
                 var originalFileStream = File.OpenRead(filename);
@@ -45,7 +45,7 @@ namespace clonezilla_util_tests.Tests
 
 
             var uncompressedOutputStream = new MemoryStream();
-            //var uncompressedOutputStream = File.Create("C:\\Temp\\2 - decompressed.bin");
+            //var uncompressedOutputStream = File.Create(@"C:\Temp\2 - decompressed.bin");
             compressedStream.Seek(0, SeekOrigin.Begin);
             using (var trainDecompressor = new TrainDecompressor(compressedStream, compressors))
             {
@@ -91,7 +91,7 @@ namespace clonezilla_util_tests.Tests
             };
 
             var compressedStream = new MemoryStream();
-            //var compressedStream = File.Create("C:\\Temp\\1 - compressed.train");
+            //var compressedStream = File.Create(@"C:\Temp\1 - compressed.train");
             using (var trainCompressor = new TrainCompressor(compressedStream, compressors, 10 * 1024 * 1024))
             {
                 var originalFileStream = File.OpenRead(filename);
@@ -104,7 +104,7 @@ namespace clonezilla_util_tests.Tests
 
 
             var uncompressedOutputStream = new MemoryStream();
-            //var uncompressedOutputStream = File.Create("C:\\Temp\\2 - decompressed.bin");
+            //var uncompressedOutputStream = File.Create(@"C:\Temp\2 - decompressed.bin");
             compressedStream.Seek(0, SeekOrigin.Begin);
             using (var trainDecompressor = new TrainDecompressor(compressedStream, compressors))
             {
@@ -150,7 +150,7 @@ namespace clonezilla_util_tests.Tests
             };
 
             /*
-            using (var compressor = new ZstdNet.CompressionStream(File.OpenWrite("C:\\Temp\\compressed-zst.bin")))
+            using (var compressor = new ZstdNet.CompressionStream(File.OpenWrite(@"C:\Temp\compressed-zst.bin")))
             using (var inputFs = File.OpenRead(filename))
             {
                 inputFs.CopyTo(compressor, 50 * 1024 * 1024, progress =>
@@ -161,7 +161,7 @@ namespace clonezilla_util_tests.Tests
             */
 
             //var compressedStream = new MemoryStream();
-            var compressedStream = File.Create("E:\\Temp\\compressed.bin");
+            var compressedStream = File.Create(@"E:\Temp\compressed.bin");
             using (var trainCompressor = new TrainCompressor(compressedStream, compressors, 10 * 1024 * 1024))
             {
                 var originalFileStream = File.OpenRead(filename);
@@ -174,7 +174,7 @@ namespace clonezilla_util_tests.Tests
 
 
             //var uncompressedOutputStream = new MemoryStream();
-            var uncompressedOutputStream = File.Create("E:\\Temp\\decompressed.bin");
+            var uncompressedOutputStream = File.Create(@"E:\Temp\decompressed.bin");
             compressedStream.Seek(0, SeekOrigin.Begin);
 
             var sparseAwareTrainDecompressor = new SparseAwareReader(new TrainDecompressor(compressedStream, compressors));
@@ -216,12 +216,17 @@ namespace clonezilla_util_tests.Tests
 
 
             //test random seeking
-            uncompressedOutputStream = File.Create("E:\\Temp\\decompressed-2_random_seeking.bin");
+            uncompressedOutputStream = File.Create(@"E:\Temp\decompressed-2_random_seeking.bin");
             compressedStream.Seek(0, SeekOrigin.Begin);
             using (var trainDecompressor = new TrainDecompressor(compressedStream, compressors))
             {
                 Utility.TestSeeking(trainDecompressor, uncompressedOutputStream);
             }
+
+
+            File.Delete(@"E:\Temp\compressed.bin");
+            File.Delete(@"E:\Temp\decompressed.bin");
+            File.Delete(@"E:\Temp\decompressed-2_random_seeking.bin");
         }
     }
 }

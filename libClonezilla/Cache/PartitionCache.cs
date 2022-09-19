@@ -7,7 +7,6 @@ using System.IO;
 using System.Text;
 using Newtonsoft.Json;
 using libPartclone;
-using libGZip;
 using libCommon.Streams;
 using System.Collections.ObjectModel;
 using libPartclone.Cache;
