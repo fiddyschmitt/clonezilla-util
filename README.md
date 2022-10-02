@@ -4,10 +4,11 @@
 * Extract individual files from a Clonezilla archive, without extracting the full archive.
 
 ## Supported formats
-    Clonezilla archive
-    Partclone
-    Raw drive image     (eg. sda.img)
-    Raw partition image (eg. sda1.img)
+    Clonezilla archives
+    Partclone images
+    Drive images     (eg. sda.img)
+    Partition images (eg. sda1.img)
+    Compressed versions of the above (bzip2, GZip, LZ4, LZip, xz, ZStandard) 
 
 ## Where to download
 Releases can be found over in the [releases](https://github.com/fiddyschmitt/clonezilla-util/releases) section.
