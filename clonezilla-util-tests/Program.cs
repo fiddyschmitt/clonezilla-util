@@ -5,7 +5,7 @@ exeUnderTest = @"E:\Temp\release\clonezilla-util.exe";
 
 Console.WriteLine($"Testing: {exeUnderTest}");
 
-ListContentsTests.Test(exeUnderTest);
 MountTests.Test(exeUnderTest);
+ListContentsTests.Test(exeUnderTest);
 MountAsImageFilesTests.Test(exeUnderTest);
 TrainTests.Test();

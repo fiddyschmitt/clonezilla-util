@@ -1,4 +1,5 @@
 ﻿using DokanNet;
+using DokanNet.Logging;
 using libDokan;
 using libDokan.Processes;
 using libDokan.VFS.Folders;
@@ -10,6 +11,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using static DokanNet.Dokan;
 
 namespace libClonezilla.VFS
 {
@@ -31,13 +33,25 @@ namespace libClonezilla.VFS
                     try
                     {
                         //This seems to prevent the Mount() method from having issues with previous instances of Dokan
-                        Dokan.RemoveMountPoint(root.MountPoint);
+                        //Dokan.RemoveMountPoint(root.MountPoint);
                     }
                     catch { }
 
                     try
                     {
-                        vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger());
+                        //vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger());
+
+                        using var dokan = new Dokan(new NullLogger());
+                        var dokanBuilder = new DokanInstanceBuilder(dokan)
+                            .ConfigureOptions(options =>
+                            {
+                                options.Options = DokanOptions.WriteProtection;
+                                options.MountPoint = mountPoint;
+                            });
+                        using var dokanInstance = dokanBuilder.Build(vfs);
+
+                        using var mre = new System.Threading.ManualResetEvent(false);
+                        mre.WaitOne();
                     }
                     catch (Exception ex)
                     {
