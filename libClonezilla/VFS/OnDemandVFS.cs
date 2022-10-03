@@ -2,6 +2,7 @@
 using libDokan;
 using libDokan.Processes;
 using libDokan.VFS.Folders;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -34,7 +35,14 @@ namespace libClonezilla.VFS
                     }
                     catch { }
 
-                    vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger());
+                    try
+                    {
+                        vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger());
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex.ToString());
+                    }
                 });
                 Utility.WaitForFolderToExist(root.MountPoint);
 
