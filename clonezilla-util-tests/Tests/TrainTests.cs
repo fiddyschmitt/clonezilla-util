@@ -227,9 +227,9 @@ namespace clonezilla_util_tests.Tests
             compressedStream.Close();
             uncompressedOutputStream.Close();
             uncompressedOutputStream.Close();
-            File.Delete(@"E:\Temp\compressed.bin");
-            File.Delete(@"E:\Temp\decompressed.bin");
-            File.Delete(@"E:\Temp\decompressed-2_random_seeking.bin");
+            //File.Delete(@"E:\Temp\compressed.bin");
+            //File.Delete(@"E:\Temp\decompressed.bin");
+            //File.Delete(@"E:\Temp\decompressed-2_random_seeking.bin");
         }
     }
 }

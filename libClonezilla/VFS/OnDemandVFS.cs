@@ -33,7 +33,8 @@ namespace libClonezilla.VFS
                     try
                     {
                         //This seems to prevent the Mount() method from having issues with previous instances of Dokan
-                        //Dokan.RemoveMountPoint(root.MountPoint);
+                        using var dokan = new Dokan(new NullLogger());
+                        dokan.RemoveMountPoint(root.MountPoint);
                     }
                     catch { }
 

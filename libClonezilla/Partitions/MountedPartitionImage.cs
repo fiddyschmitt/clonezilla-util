@@ -126,9 +126,9 @@ namespace libClonezilla.Partitions
                 //This actually causes errors for FLP, because FLP uses more threads than are being served
                 /*
                 var extractors = new List<IExtractor>();
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i < 8; i++)
                 {
-                    var newExtractor = new ExtractorUsing7z(realImageFile);
+                    var newExtractor = new ExtractorUsing7z(ImageFileEntry.FullPath);
                     extractors.Add(newExtractor);
                 }
 

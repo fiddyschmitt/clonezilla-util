@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "mount --input \"E:\\clonezilla-util-test resources\\clonezilla images\\2022-07-16-22-img_pb-devops1_bzip2\" -m L:\\ -p sda1 sdb1"
+      "commandLineArgs": "mount --input \"E:\\clonezilla-util-test resources\\clonezilla images\\2022-06-27-20-img_smalldrive-uncompressed\" -m L:\\"
     }
   }
 }

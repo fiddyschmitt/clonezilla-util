@@ -1,35 +1,16 @@
 ﻿using clonezilla_util.CL.Verbs;
-using clonezilla_util.VFS;
 using CommandLine;
-using DokanNet;
-using lib7Zip;
-using libClonezilla;
 using libClonezilla.Cache;
 using libClonezilla.PartitionContainers;
-using libClonezilla.Partitions;
-using libClonezilla.VFS;
 using libCommon;
-using libCommon.Streams;
-using libCommon.Streams.Seekable;
-using libCommon.Streams.Sparse;
-using libDokan;
-using libDokan.VFS;
-using libDokan.VFS.Files;
-using libDokan.VFS.Folders;
 using libPartclone;
 using Serilog;
-using Serilog.Core;
 using System;
 using System.Buffers;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
-using System.Threading;
-using System.Threading.Tasks;
 using static libClonezilla.Partitions.MountedPartitionImage;
 
 namespace clonezilla_util
@@ -252,7 +233,7 @@ namespace clonezilla_util
                             //TestFullCopy(partition.FullPartitionImage, Stream.Null, File.OpenRead(@"E:\Temp\2022-08-16-20-img_luks_test_6GB_ext4_zst\ocs_luks_0Yy.ext4.img_from_real_partclone"));
 
                             var makeSparse = !extractPartitionImageOptions.NoSparseOutput;
-                            partition.ExtractToFile(outputFilename, makeSparse);                            
+                            partition.ExtractToFile(outputFilename, makeSparse);
                         });
                 });
         }
