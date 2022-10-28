@@ -18,7 +18,7 @@ namespace clonezilla_util
     public class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "1.8.1";
+        const string PROGRAM_VERSION = "2.0.0";
 
         private enum ReturnCode
         {
@@ -161,7 +161,7 @@ namespace clonezilla_util
         private static void MountAsImageFiles(MountAsImageFiles mountAsImageOptions)
         {
             if (mountAsImageOptions.InputPaths == null) throw new Exception($"{nameof(mountAsImageOptions.InputPaths)} not specified.");
-            if (mountAsImageOptions.MountPoint == null) mountAsImageOptions.MountPoint = libDokan.Utility.GetAvailableDriveLetter();
+            mountAsImageOptions.MountPoint ??= libDokan.Utility.GetAvailableDriveLetter();
 
             var mountPoint = mountAsImageOptions.MountPoint;
             var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
@@ -178,7 +178,7 @@ namespace clonezilla_util
         private static void MountAsFiles(MountAsFiles mountAsFilesOptions)
         {
             if (mountAsFilesOptions.InputPaths == null) throw new Exception($"{nameof(mountAsFilesOptions.InputPaths)} not specified.");
-            if (mountAsFilesOptions.MountPoint == null) mountAsFilesOptions.MountPoint = libDokan.Utility.GetAvailableDriveLetter();
+            mountAsFilesOptions.MountPoint ??= libDokan.Utility.GetAvailableDriveLetter();
 
             var mountPoint = mountAsFilesOptions.MountPoint;
             var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
