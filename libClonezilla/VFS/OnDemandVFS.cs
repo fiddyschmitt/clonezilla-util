@@ -1,7 +1,9 @@
 ﻿using DokanNet;
+using DokanNet.Logging;
 using libDokan;
 using libDokan.Processes;
 using libDokan.VFS.Folders;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -9,6 +11,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using static DokanNet.Dokan;
 
 namespace libClonezilla.VFS
 {
@@ -30,11 +33,31 @@ namespace libClonezilla.VFS
                     try
                     {
                         //This seems to prevent the Mount() method from having issues with previous instances of Dokan
-                        Dokan.RemoveMountPoint(root.MountPoint);
+                        using var dokan = new Dokan(new NullLogger());
+                        dokan.RemoveMountPoint(root.MountPoint);
                     }
                     catch { }
 
-                    vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger());
+                    try
+                    {
+                        //vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger());
+
+                        using var dokan = new Dokan(new NullLogger());
+                        var dokanBuilder = new DokanInstanceBuilder(dokan)
+                            .ConfigureOptions(options =>
+                            {
+                                options.Options = DokanOptions.WriteProtection;
+                                options.MountPoint = mountPoint;
+                            });
+                        using var dokanInstance = dokanBuilder.Build(vfs);
+
+                        using var mre = new System.Threading.ManualResetEvent(false);
+                        mre.WaitOne();
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex.ToString());
+                    }
                 });
                 Utility.WaitForFolderToExist(root.MountPoint);
 

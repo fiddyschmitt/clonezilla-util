@@ -11,6 +11,9 @@ namespace clonezilla_util_tests.Tests
     {
         public static void Test(string exeUnderTest)
         {
+            TestSmallClonezillaPartitions(exeUnderTest);
+            TestSmallPartitionImages(exeUnderTest);
+
             TestLuksClonezillaImages(exeUnderTest);
             TestLuksParcloneImages(exeUnderTest);
             TestExt4(exeUnderTest);
@@ -20,9 +23,6 @@ namespace clonezilla_util_tests.Tests
             TestPartlcone(exeUnderTest);
 
             TestDifferentPartcloneVersions(exeUnderTest);
-
-            TestSmallClonezillaPartitions(exeUnderTest);
-            TestSmallPartitionImages(exeUnderTest);
 
             TestLargeClonezillaPartitions(exeUnderTest);
             TestLargeDriveImages(exeUnderTest);
