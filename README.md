@@ -8,7 +8,7 @@
     Partclone images
     Drive images     (eg. sda.img)
     Partition images (eg. sda1.img)
-    Compressed versions of the above (bzip2, GZip, LZ4, LZip, xz, ZStandard) 
+    Compressed versions of the above (bzip2, GZip, LZ4, LZip, xz, Zstandard) 
 
 ## Where to download
 Releases can be found over in the [releases](https://github.com/fiddyschmitt/clonezilla-util/releases) section.
