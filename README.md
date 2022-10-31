@@ -17,7 +17,7 @@ Releases can be found over in the [releases](https://github.com/fiddyschmitt/clo
 
 ## Mount a Clonezilla archive in Windows
 
-First, install [this version](https://github.com/dokan-dev/dokany/releases/tag/v1.5.1.1000) of the Dokan Driver. This is required to create a Virtual Drive.
+First, install [this version](https://github.com/dokan-dev/dokany/releases/tag/v2.0.6.1000) of the Dokan Driver. This is required to create a Virtual Drive.
 
 Now run the following command:
 
@@ -37,7 +37,7 @@ A virtual drive is created, containing all the files in the Clonezilla archive:
 
 ## Mount a Clonezilla archive as partition image files
 
-First, install [this version](https://github.com/dokan-dev/dokany/releases/tag/v1.5.1.1000) of the Dokan Driver. This is required to create a Virtual Drive.
+First, install [this version](https://github.com/dokan-dev/dokany/releases/tag/v2.0.6.1000) of the Dokan Driver. This is required to create a Virtual Drive.
 
 Now run the following command:
 
