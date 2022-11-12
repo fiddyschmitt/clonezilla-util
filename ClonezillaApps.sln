@@ -24,6 +24,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "clonezilla-util-tests", "cl
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "libTrainCompress", "libTrainCompress\libTrainCompress.csproj", "{FB416BDB-7313-4165-A6A5-763ECEBCBFB5}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "libGZip", "libGZip\libGZip.csproj", "{7FBC3072-AEEE-45F9-93F2-9687905E227F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -62,6 +64,10 @@ Global
 		{FB416BDB-7313-4165-A6A5-763ECEBCBFB5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FB416BDB-7313-4165-A6A5-763ECEBCBFB5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FB416BDB-7313-4165-A6A5-763ECEBCBFB5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7FBC3072-AEEE-45F9-93F2-9687905E227F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7FBC3072-AEEE-45F9-93F2-9687905E227F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7FBC3072-AEEE-45F9-93F2-9687905E227F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7FBC3072-AEEE-45F9-93F2-9687905E227F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

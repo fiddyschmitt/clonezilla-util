@@ -263,6 +263,11 @@ namespace libClonezilla.Partitions
                                         PathInArchive = pathInArchive
                                     };
                                 })
+                                .GroupBy(
+                                    entry => entry.PathInArchive,
+                                    entry => entry,
+                                    (key, grp) => grp.First()
+                                )
                                 .ToList();
 
             var folderLookup = entries
