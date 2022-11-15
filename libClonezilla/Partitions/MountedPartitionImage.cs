@@ -299,7 +299,8 @@ namespace libClonezilla.Partitions
                     }
                     else
                     {
-                        Log.Error($"Could not find {parentFolder} in {folderLookup}");
+                        Log.Error($"Error while finding parent of {fileSystemEntry}");
+                        Log.Error($"Could not find {parentFolder} in {nameof(folderLookup)}");
                     }
                 });
 
