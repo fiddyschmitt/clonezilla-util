@@ -133,7 +133,7 @@ namespace libCommon
                 var allErrorsStr = errorLines
                                     .ToString(Environment.NewLine);
 
-                throw new Exception($"{cpath} {args}{Environment.NewLine}Process encountered errors: {allErrorsStr}");
+                Log.Error($"{cpath} {args}{Environment.NewLine}Process encountered errors: {allErrorsStr}");
             }
 
             if (verbose)
