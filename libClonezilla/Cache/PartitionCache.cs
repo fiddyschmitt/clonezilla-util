@@ -13,6 +13,7 @@ using libPartclone.Cache;
 using lib7Zip;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
+using Serilog;
 
 namespace libClonezilla.Cache
 {
@@ -54,8 +55,15 @@ namespace libClonezilla.Cache
 
         public void SetPartcloneContentMapping(List<ContiguousRange> contiguousRanges)
         {
-            var json = JsonConvert.SerializeObject(contiguousRanges, Formatting.Indented);
-            File.WriteAllText(PartcloneContentMappingFilename, json);
+            try
+            {
+                var json = JsonConvert.SerializeObject(contiguousRanges, Formatting.Indented);
+                File.WriteAllText(PartcloneContentMappingFilename, json);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Non-fatal. Error while caching Partclone Content Mapping to {PartcloneContentMappingFilename}: {ex}");
+            }
         }
 
         public List<ArchiveEntry>? GetFileList()
@@ -73,8 +81,15 @@ namespace libClonezilla.Cache
 
         public void SetFileList(List<ArchiveEntry> filenames)
         {
-            var json = JsonConvert.SerializeObject(filenames, Formatting.Indented);
-            File.WriteAllText(FileListFilename, json);
+            try
+            {
+                var json = JsonConvert.SerializeObject(filenames, Formatting.Indented);
+                File.WriteAllText(FileListFilename, json);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"Non-fatal. Error while caching File List to {FileListFilename}: {ex}");
+            }
         }
     }
 }
