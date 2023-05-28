@@ -179,7 +179,7 @@ namespace clonezilla_util_tests.Tests
             //latest clonezilla 29/06/2022
             ConfirmFilesExist(
                 exeUnderTest,
-                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-06-27-20-img_smalldrive" -m L:\ """,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-06-27-20-img_small_drive" -m L:\ """,
                 new[] {
                     new FileDetails(@"L:\sda1\sda1.txt", "c3f38733914d360530455ba3b4073868"),
                 });
@@ -221,7 +221,7 @@ namespace clonezilla_util_tests.Tests
             //latest clonezilla 29/06/2022
             ConfirmFilesExist(
                 exeUnderTest,
-                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-06-27-20-img_smalldrive" -m L:\ """,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-06-27-20-img_small_drive" -m L:\ """,
                 new[] {
                     new FileDetails(@"L:\sda1\sda1.txt", "c3f38733914d360530455ba3b4073868"),
                 });
@@ -384,7 +384,7 @@ namespace clonezilla_util_tests.Tests
             //none
             ConfirmFilesExist(
                 exeUnderTest,
-                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-06-27-20-img_smalldrive-uncompressed" -m L:\""",
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-06-27-20-img_small_drive-uncompressed" -m L:\""",
                 new[] {
                     new FileDetails(@"L:\sda1\sda1.txt", "c3f38733914d360530455ba3b4073868"),
                     new FileDetails(@"L:\sda2\sda2.txt", "b80328235f5d991c6dc8982e1d1876bc"),
