@@ -11,9 +11,9 @@ using ZstdNet;
 
 namespace libClonezilla.Decompressors
 {
-    public class zstdDecompressor : Decompressor
+    public class ZstdDecompressor : Decompressor
     {
-        public zstdDecompressor(Stream compressedStream) : base(compressedStream)
+        public ZstdDecompressor(Stream compressedStream) : base(compressedStream)
         {
 
         }

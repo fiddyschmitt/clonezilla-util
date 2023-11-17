@@ -32,13 +32,13 @@ namespace libClonezilla.Decompressors
 
             Decompressor = CompressionInUse switch
             {
-                Compression.bzip2 => new bzip2Decompressor(CompressedStream),
+                Compression.bzip2 => new Bzip2Decompressor(CompressedStream),
                 Compression.Gzip => new GzDecompressor(CompressedStream, partitionCache),
                 Compression.LZ4 => new LZ4Decompressor(CompressedStream),
                 Compression.LZip => new LZipDecompressor(CompressedStream),
                 Compression.None => new NoChangeDecompressor(CompressedStream),
                 Compression.xz => new xzDecompressor(CompressedStream),
-                Compression.Zstandard => new zstdDecompressor(CompressedStream),                
+                Compression.Zstandard => new ZstdDecompressor(CompressedStream),
                 _ => throw new Exception($"Could not initialise a decompressor for {StreamName}"),
             };
         }
@@ -181,24 +181,22 @@ namespace libClonezilla.Decompressors
                                 decompressedStream.Seek(0, SeekOrigin.Begin);
                                 */
 
-                                using (var trainCompressor = new TrainCompressor(wipStream, compressors, 10 * 1024 * 1024))
+                                using var trainCompressor = new TrainCompressor(wipStream, compressors, 10 * 1024 * 1024);
+                                decompressedStream.CopyTo(trainCompressor, Buffers.ARBITARY_LARGE_SIZE_BUFFER, progress =>
                                 {
-                                    decompressedStream.CopyTo(trainCompressor, Buffers.ARBITARY_LARGE_SIZE_BUFFER, progress =>
+                                    try
                                     {
-                                        try
-                                        {
-                                            var perThroughCompressedSource = (double)CompressedStream.Position / CompressedStream.Length * 100;
+                                        var perThroughCompressedSource = (double)CompressedStream.Position / CompressedStream.Length * 100;
 
-                                            Log.Information($"{StreamName} Cached {progress.BytesToString()}. ({perThroughCompressedSource:N0}% through source file)");
-                                        }
-                                        catch
-                                        {
-                                            //just in case the Close() call below causes the percentage calculation to fail
-                                        }
-                                    });
+                                        Log.Information($"{StreamName} Cached {progress.BytesToString()}. ({perThroughCompressedSource:N0}% through source file)");
+                                    }
+                                    catch
+                                    {
+                                        //just in case the Close() call below causes the percentage calculation to fail
+                                    }
+                                });
 
-                                    //trainCompressor.Close();
-                                }
+                                //trainCompressor.Close();
                             }
                             File.Move(wipFilename, cachedFilename);
 
@@ -209,7 +207,7 @@ namespace libClonezilla.Decompressors
                                 CacheInfo = new
                                 {
                                     OriginalLocation = OriginFilename,
-                                    StreamName = StreamName
+                                    StreamName
                                 }
                             }).ToString();
 

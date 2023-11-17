@@ -39,10 +39,7 @@ namespace libClonezilla.PartitionContainers
         {
             get
             {
-                if (containerName == null)
-                {
-                    containerName = Path.GetFileName(Filename) ?? throw new Exception($"Could not get container name from path: {Filename}");
-                }
+                containerName ??= Path.GetFileName(Filename) ?? throw new Exception($"Could not get container name from path: {Filename}");
 
                 return containerName;
             }

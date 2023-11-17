@@ -10,9 +10,9 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Decompressors
 {
-    public class bzip2Decompressor : Decompressor
+    public class Bzip2Decompressor : Decompressor
     {
-        public bzip2Decompressor(Stream compressedStream) : base(compressedStream)
+        public Bzip2Decompressor(Stream compressedStream) : base(compressedStream)
         {
 
         }
