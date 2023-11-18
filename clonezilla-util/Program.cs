@@ -27,7 +27,7 @@ namespace clonezilla_util
             GeneralException = 2,
         }
 
-        public static string CacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
+        static readonly string CacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
 
         public static int Main(string[] args)
         {
