@@ -1,9 +1,7 @@
 ﻿using libClonezilla.Cache;
-using libClonezilla.Cache.FileSystem;
 using libClonezilla.Decompressors;
 using libClonezilla.Partitions;
 using libCommon.Streams;
-using libPartclone;
 using libPartclone.Cache;
 using Serilog;
 using System;
@@ -76,6 +74,7 @@ namespace libClonezilla.PartitionContainers
 
                                 compressionInUse = GetCompressionInUse(splitFilenames.First());
 
+                                var used_dd = splitFilenames.First().Contains(".dd-ptcl-img");
 
                                 var splitFileStreams = splitFilenames
                                                         .Select(filename => new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -85,13 +84,28 @@ namespace libClonezilla.PartitionContainers
 
                                 Partition? result = null;
 
-                                try
+                                if (used_dd)
                                 {
-                                    result = new PartclonePartition(clonezillaArchiveFolder, this, partitionName, compressedPartcloneStream, partitionSizeInBytes, compressionInUse, partitionCache, partcloneCache, willPerformRandomSeeking);
+                                    //the partition is stored using dd
+                                    try
+                                    {
+                                        result = new ImageFilePartition(clonezillaArchiveFolder, this, partitionName, compressedPartcloneStream, null, compressionInUse, partitionCache, willPerformRandomSeeking);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Log.Error(ex, $"[{containerName}] [{partitionName}] Error while opening partition as {nameof(ImageFilePartition)}");
+                                    }
                                 }
-                                catch (Exception ex)
+                                else
                                 {
-                                    Log.Error(ex, $"[{containerName}] [{partitionName}] Error while opening partition");
+                                    try
+                                    {
+                                        result = new PartclonePartition(clonezillaArchiveFolder, this, partitionName, compressedPartcloneStream, partitionSizeInBytes, compressionInUse, partitionCache, partcloneCache, willPerformRandomSeeking);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Log.Error(ex, $"[{containerName}] [{partitionName}] Error while opening partition as {nameof(PartclonePartition)}");
+                                    }
                                 }
 
                                 return result;
