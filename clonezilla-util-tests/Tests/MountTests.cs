@@ -26,6 +26,21 @@ namespace clonezilla_util_tests.Tests
 
             TestLargeClonezillaPartitions(exeUnderTest);
             TestLargeDriveImages(exeUnderTest);
+
+            TestClonezillaUsingPartclone_dd(exeUnderTest);
+        }
+
+        private static void TestClonezillaUsingPartclone_dd(string exeUnderTest)
+        {
+            //clonezilla (partclone.dd + gz)
+            ConfirmFilesExist(
+                exeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2023-11-17-00-img_PB-DEVOPS1_using_dd" -m L:\""",
+                new[] {
+                    new FileDetails(@"L:\sda1\Recovery\Logs\Reload.xml", "f5a6df3c8f1ad69766afee3a25f7e376"),
+                    new FileDetails(@"L:\sda2\Program Files\PostgreSQL\13\share\information_schema.sql", "97a4aa50fa682b00457810d010ff5852"),
+                    new FileDetails(@"L:\sdb1\Kingsley\Prototype 1\Temp\Images\logo.jpg", "0217ff1926ec5f82e1a120676eff70c3"),
+                });
         }
 
         private static void TestUbuntuFileSystems(string exeUnderTest)
@@ -60,7 +75,7 @@ namespace clonezilla_util_tests.Tests
                     new FileDetails(@"L:\second_file.txt", "b1946ac92492d2347c6235b4d2611184"),
                 });
 
-            
+
 
             ConfirmFilesExist(
                 exeUnderTest,
@@ -439,9 +454,11 @@ namespace clonezilla_util_tests.Tests
                     p.WaitForExit();
                 });
 
-            var psi = new ProcessStartInfo(exeUnderTest, args);
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
+            var psi = new ProcessStartInfo(exeUnderTest, args)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
             var process = Process.Start(psi);
 
             var allSuccessful = true;
