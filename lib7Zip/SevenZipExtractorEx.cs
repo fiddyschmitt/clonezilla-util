@@ -34,7 +34,7 @@ namespace lib7Zip
             SevenZipBase.SetLibraryPath(libraryPath);
 
             var format = DeduceFormat(stream);
-            Extractor = new SevenZipExtractor(stream, format);
+            Extractor = new SevenZipExtractor(stream, true, format);
 
             //force the extractor to load the archive
             Log.Information($"Initialising extractor for stream.");
@@ -57,7 +57,7 @@ namespace lib7Zip
                                 uint fileCount = 0;
                                 try
                                 {
-                                    var extractor = new SevenZipExtractor(stream, format);
+                                    var extractor = new SevenZipExtractor(stream, true, format);
                                     fileCount = extractor.FilesCount;
                                 }
                                 catch { }

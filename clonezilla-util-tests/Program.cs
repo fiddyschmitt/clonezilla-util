@@ -1,6 +1,6 @@
 ﻿using clonezilla_util_tests.Tests;
 
-var exeUnderTest = @"E:\Temp\clonezilla-util release\clonezilla-util.exe";
+var exeUnderTest = @"R:\Temp\clonezilla-util release\clonezilla-util.exe";
 //exeUnderTest = @"E:\Temp\release\clonezilla-util.exe";
 
 Console.WriteLine($"Testing: {exeUnderTest}");

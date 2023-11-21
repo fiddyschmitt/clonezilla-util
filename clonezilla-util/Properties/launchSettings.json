@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "extract-partition-image --input \"E:\\2023-11-14-23-img_PB-DEVOPS1_using_dd\" --output \"E:\\Temp\\2023-11-15\" -p sdb1"
+      "commandLineArgs": "mount --input \"E:\\2023-11-17-00-img_PB-DEVOPS1_using_dd\" -m L:\\"
     }
   }
 }
