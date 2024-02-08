@@ -1,7 +1,5 @@
 # clonezilla-util
-* Mount drive images in Windows.
-
-* Extract individual files from a Clonezilla archive, without extracting the full archive.
+Extract individual files from a Clonezilla archive, without extracting the full archive.
 
 ## Supported formats
     Clonezilla archives
