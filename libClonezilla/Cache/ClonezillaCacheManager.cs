@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Linq;
+using libCommon;
 
 namespace libClonezilla.Cache
 {
@@ -20,15 +21,36 @@ namespace libClonezilla.Cache
         public IPartitionCache GetPartitionCache(string partitionName)
         {
             string imgIdFilename = Path.Combine(ClonezillaFolder, "Info-img-id.txt");
-            string imgId = File.ReadAllLines(imgIdFilename)
-                               .First(line => line.StartsWith("IMG_ID="))
-                               .Split("=", StringSplitOptions.None)[1][..16];
 
-            string clonezillaCacheFolder = Path.Combine(CacheRootFolder, imgId);
+            string? uniqueIdForClonezillaImage;
+
+            if (File.Exists(imgIdFilename))
+            {
+                uniqueIdForClonezillaImage = File
+                                                .ReadAllLines(imgIdFilename)
+                                                .First(line => line.StartsWith("IMG_ID="))
+                                                .Split("=", StringSplitOptions.None)[1][..16];
+            }
+            else
+            {
+                //The file we normally use to get a unique id isn't present. Let's calculate a hash based on small files.
+
+                var smallFileHashes = Directory
+                                        .GetFiles(ClonezillaFolder)
+                                        .Where(filename => new FileInfo(filename).Length < 1024 * 1024)
+                                        .Take(100)
+                                        .Select(filename => libCommon.Utility.CalculateMD5(filename))
+                                        .ToString(Environment.NewLine);
+
+                uniqueIdForClonezillaImage = libCommon.Utility.CalculateMD5(smallFileHashes);
+            }
+
+            var clonezillaCacheFolder = Path.Combine(CacheRootFolder, uniqueIdForClonezillaImage);
             if (!Directory.Exists(clonezillaCacheFolder))
             {
                 Directory.CreateDirectory(clonezillaCacheFolder);
             }
+
             var result = new PartitionCache(clonezillaCacheFolder, partitionName);
             return result;
         }
