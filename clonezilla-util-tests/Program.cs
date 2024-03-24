@@ -11,6 +11,7 @@ MountTests.Test(exeUnderTest);
 ListContentsTests.Test(exeUnderTest);
 MountAsImageFilesTests.Test(exeUnderTest);
 TrainTests.Test();
+SparseTests.Test(exeUnderTest);
 
 var duration = DateTime.Now - start;
 Console.WriteLine($"Finished. Duration: {duration.TotalHours:N0} hours, {duration.Minutes} minutes.");
