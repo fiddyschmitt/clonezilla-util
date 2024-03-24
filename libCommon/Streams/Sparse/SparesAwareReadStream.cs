@@ -1,4 +1,5 @@
-﻿using System;
+﻿using libCommon.Streams;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -28,14 +29,36 @@ namespace libCommon.Streams.Sparse
             Stream = stream;
         }
 
+        //This is up to 3x faster than IsAllZerosLINQ
+        public static unsafe bool IsAllZerosUnsafe(byte[] data, int offset, int count)
+        {
+            fixed (byte* p = data)
+            {
+                byte* start = p + offset;
+                byte* end = start + count;
+                for (byte* current = start; current < end; current++)
+                {
+                    if (*current != 0) return false;
+                }
+            }
+            return true;
+        }
+
+        public static bool IsAllZerosLINQ(byte[] data, int offset, int count)
+        {
+            var result = data
+                .Skip(offset)
+                .Take(count)
+                .All(b => b == 0x0);
+
+            return result;
+        }
+
         public override int Read(byte[] buffer, int offset, int count)
         {
             var bytesRead = Stream.Read(buffer, offset, count);
 
-            LatestReadWasAllNull = buffer
-                            .Skip(offset)
-                            .Take(bytesRead)
-                            .All(b => b == 0x0);
+            LatestReadWasAllNull = IsAllZerosUnsafe(buffer, offset, count);
 
             return bytesRead;
         }
