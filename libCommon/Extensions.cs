@@ -12,6 +12,7 @@ using libCommon.Streams.Sparse;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using System.Runtime.Versioning;
+using libCommon.Lists;
 
 namespace libCommon
 {
@@ -164,7 +165,7 @@ namespace libCommon
         public static string BytesToString(this ulong bytes)
         {
             string[] UNITS = new string[] { "B", "KB", "MB", "GB", "TB", "PB", "EB" };
-            int c = 0;
+            int c;
             for (c = 0; c < UNITS.Length; c++)
             {
                 ulong m = (ulong)1 << ((c + 1) * 10);
@@ -327,6 +328,35 @@ namespace libCommon
                     ref lpOverlapped);
             if (result == false)
                 throw new Exception("Could not mark file as sparse.");
+        }
+
+        public static TRange? BinarySearch<TRange, TValue>(this IList<TRange> ranges,
+                                                       TValue value,
+                                                       IRangeComparer<TRange, TValue> comparer)
+        {
+            int min = 0;
+            int max = ranges.Count - 1;
+
+            while (min <= max)
+            {
+                int mid = (min + max) / 2;
+                int comparison = comparer.Compare(ranges[mid], value);
+                if (comparison == 0)
+                {
+                    return ranges[mid];
+                }
+                if (comparison < 0)
+                {
+                    min = mid + 1;
+                }
+                else if (comparison > 0)
+                {
+                    max = mid - 1;
+                }
+            }
+
+            var result = default(TRange);
+            return result;
         }
     }
 }

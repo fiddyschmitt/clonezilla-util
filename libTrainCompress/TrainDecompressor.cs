@@ -1,6 +1,7 @@
 ﻿using libCommon;
 using libCommon.Streams;
 using libTrainCompress.Compressors;
+using libTrainCompress.Lists;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -109,6 +110,8 @@ namespace libTrainCompress
         {
         }
 
+        CarriageComparer carriageComparer = new();
+
         public override int Read(byte[] buffer, int offset, int count)
         {
             int bytesRead = 0;
@@ -117,7 +120,8 @@ namespace libTrainCompress
             {
                 if (CompressedStream.CanSeek)
                 {
-                    var carriage = Carriages?.FirstOrDefault(s => Position >= s.UncompressedStartByte && Position < s.UncompressedEndByte);
+                    //var carriage = Carriages?.FirstOrDefault(s => Position >= s.UncompressedStartByte && Position < s.UncompressedEndByte);
+                    var carriage = Carriages?.BinarySearch(Position, carriageComparer);
 
                     if (carriage == null)
                     {
@@ -196,8 +200,11 @@ namespace libTrainCompress
                 return (start, end);
             }
 
-            var startIndexPoint = Carriages.Last(ent => start >= ent.UncompressedStartByte);
-            var endIndexPoint = Carriages.First(ent => end <= ent.UncompressedEndByte);
+            //var startIndexPoint = Carriages.Last(ent => start >= ent.UncompressedStartByte);
+            var startIndexPoint = Carriages.BinarySearch(start, carriageComparer) ?? Carriages.First();
+
+            //var endIndexPoint = Carriages.First(ent => end <= ent.UncompressedEndByte);
+            var endIndexPoint = Carriages.BinarySearch(end, carriageComparer) ?? startIndexPoint;
 
             var recommendedStart = startIndexPoint.UncompressedStartByte;
             var recommendedEnd = endIndexPoint.UncompressedEndByte;

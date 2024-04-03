@@ -1,6 +1,7 @@
 ﻿using libCommon;
 using libCommon.Streams;
 using libPartclone.Cache;
+using libPartclone.Lists;
 using libPartclone.Metadata;
 using System;
 using System.Collections;
@@ -68,6 +69,8 @@ namespace libPartclone
 
         }
 
+        readonly ContiguousRangeComparer contiguousRangeComparer = new();
+
         public override int Read(byte[] buffer, int offset, int count)
         {
             lock (streamLock)
@@ -81,8 +84,9 @@ namespace libPartclone
                     //if the rest of the file has null bytes, the caller isn't interested
 
                     //check if the entire requested section is contained within the last range
-                    var readTo = Position + count;
-                    var enclosingRange = PartcloneImageInfo.PartcloneContentMapping.Value.FirstOrDefault(r => Position >= r.OutputFileRange.StartByte && readTo <= r.OutputFileRange.EndByte);
+                    //var readTo = Position + count;
+                    //var enclosingRange = PartcloneImageInfo.PartcloneContentMapping.Value.FirstOrDefault(r => Position >= r.OutputFileRange.StartByte && readTo <= r.OutputFileRange.EndByte);
+                    var enclosingRange = PartcloneImageInfo.PartcloneContentMapping.Value.BinarySearch(Position, contiguousRangeComparer);
 
                     if (enclosingRange != null && enclosingRange == LastRange)
                     {
@@ -112,7 +116,8 @@ namespace libPartclone
                         break;
                     }
 
-                    var range = PartcloneImageInfo.PartcloneContentMapping.Value.FirstOrDefault(r => pos >= r.OutputFileRange.StartByte && pos <= r.OutputFileRange.EndByte);
+                    //var range = PartcloneImageInfo.PartcloneContentMapping.Value.FirstOrDefault(r => pos >= r.OutputFileRange.StartByte && pos <= r.OutputFileRange.EndByte);
+                    var range = PartcloneImageInfo.PartcloneContentMapping.Value.BinarySearch(pos, contiguousRangeComparer);
 
                     if (range == null)
                     {

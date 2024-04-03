@@ -8,6 +8,7 @@ using System.Linq;
 using libCommon;
 using libCommon.Streams;
 using Serilog;
+using libGZip.Lists;
 
 namespace libGZip
 {
@@ -134,14 +135,19 @@ namespace libGZip
             (uncompressedTotalLength, indexContents) = GetIndexContent(compressedStream, indexFilename);
         }
 
+        MappingComparer mappingComparer = new();
+
         public (long Start, long End) GetRecommendation(long start, long end)
         {
             end = Math.Min(Length, end);
 
-            var startIndexPoint = indexContents.Last(ent => start >= ent.UncompressedStartByte);
-            var endIndexPoint = indexContents.First(ent => end <= ent.UncompressedEndByte);
+            //var startIndexPoint = indexContents.Last(ent => start >= ent.UncompressedStartByte);
+            var startIndexPoint = indexContents.BinarySearch(start, mappingComparer) ?? indexContents.First();
 
-            var recommendedStart = startIndexPoint.UncompressedStartByte;   //measured to be slightly faster than just starting from the requested position
+            //var endIndexPoint = indexContents.First(ent => end <= ent.UncompressedEndByte);
+            var endIndexPoint = indexContents.BinarySearch(end, mappingComparer) ?? startIndexPoint;
+
+            var recommendedStart = startIndexPoint.UncompressedStartByte;
             var recommendedEnd = endIndexPoint.UncompressedEndByte;
 
             var result = (recommendedStart, recommendedEnd);
@@ -172,20 +178,23 @@ namespace libGZip
         {
             var endPos = position + count;
 
-            var startIndexPoint = indexContents.Last(ent => ent.UncompressedStartByte <= position);
-
-            var args = $"-W -I \"{IndexFilename}\" -n {startIndexPoint.CompressedStartByte} -b {position}";
+            //var startIndexPoint = indexContents.Last(ent => ent.UncompressedStartByte <= position);
+            var startIndexPoint = indexContents.BinarySearch(position, mappingComparer);
 
             int bytesRead = 0;
-            using (var outstream = new MemoryStream(buffer, offset, count))
+            if (startIndexPoint != null)
             {
-                var instream = CompressedStream;
-                instream.Seek(startIndexPoint.CompressedStartByte - 1, SeekOrigin.Begin);
+                using (var outstream = new MemoryStream(buffer, offset, count))
+                {
+                    var instream = CompressedStream;
+                    instream.Seek(startIndexPoint.CompressedStartByte - 1, SeekOrigin.Begin);
 
-                var bytesLeftInFile = Length - position;
-                count = (int)Math.Min(bytesLeftInFile, count);
+                    var bytesLeftInFile = Length - position;
+                    count = (int)Math.Min(bytesLeftInFile, count);
 
-                bytesRead = ProcessUtility.ExecuteProcess(GZTOOL_EXE, args, instream, outstream, count);
+                    var args = $"-W -I \"{IndexFilename}\" -n {startIndexPoint.CompressedStartByte} -b {position}";
+                    bytesRead = ProcessUtility.ExecuteProcess(GZTOOL_EXE, args, instream, outstream, count);
+                }
             }
 
             position += bytesRead;
