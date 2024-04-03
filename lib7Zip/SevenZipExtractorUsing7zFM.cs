@@ -256,8 +256,7 @@ namespace lib7Zip
                     return mainWindowHandle.Value;
                 });
 
-                var destkopName = "Narnia";
-                //destkopName = "Sysinternals Desktop 3";    //Alt + 4
+                var destkopName = Guid.NewGuid().ToString();    //unique desktops allow 7zFM to be run in parallel
                 (var pid, desktopHandle, hWndFM) = DesktopUtility.RunProcessOnAnotherDesktop(psi, destkopName, waitForMainWindow);
                 proc = Process.GetProcessById(pid);
             }

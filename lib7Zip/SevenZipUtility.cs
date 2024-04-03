@@ -122,9 +122,9 @@ namespace lib7Zip
             }
         }
 
-        public static bool IsArchive(string filename)
+        public static bool IsArchive(string filename, CancellationTokenSource? cancellationTokenSource = null)
         {
-            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), $"l \"{filename}\"", false, true);
+            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), $"l \"{filename}\"", false, true, null, cancellationTokenSource);
 
             foreach (var line in sevenZipOutput)
             {

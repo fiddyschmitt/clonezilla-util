@@ -15,7 +15,7 @@ namespace libCommon
 {
     public class ProcessUtility
     {
-        public static IEnumerable<string> RunCommand(string cpath, string args, bool verbose, bool throwExceptionIfProcessHadErrors, Func<string, bool>? shouldStop = null)
+        public static IEnumerable<string> RunCommand(string cpath, string args, bool verbose, bool throwExceptionIfProcessHadErrors, Func<string, bool>? shouldStop = null, CancellationTokenSource? cancellationTokenSource = null)
         {
             using var p = new Process();
             p.StartInfo.FileName = cpath;
@@ -31,10 +31,10 @@ namespace libCommon
             using var stdoutWaitHandle = new AutoResetEvent(false);
             using var stderrWaitHandle = new AutoResetEvent(false);
 
-            p.OutputDataReceived += (sender, e) =>
+            var outputDataReceived = new Action<string?>(data =>
             {
                 // attach event handler
-                if (e.Data == null)
+                if (data == null)
                 {
                     if (verbose)
                     {
@@ -56,23 +56,27 @@ namespace libCommon
                 {
                     if (verbose)
                     {
-                        Log.Information($"{e.Data}");
+                        Log.Information($"{data}");
                     }
 
-                    bool stopRequested = shouldStop?.Invoke(e.Data) ?? false;
+                    bool stopRequested = shouldStop?.Invoke(data) ?? false;
 
                     if (stopRequested)
                     {
                         p.Close();
                     }
 
-                    outputLines.Add(e.Data);
+                    if (!outputLines.IsAddingCompleted)
+                    {
+                        outputLines.Add(data);
+                    }
                 }
-            };
+            });
+            p.OutputDataReceived += (sender, e) => outputDataReceived(e.Data);
 
-            p.ErrorDataReceived += (sender, e) =>
+            var errorDataReceived = new Action<string?>(data =>
             {
-                if (e.Data == null)
+                if (data == null)
                 {
                     try
                     {
@@ -82,25 +86,40 @@ namespace libCommon
                 }
                 else
                 {
-                    errorLines.Add(e.Data);
+                    errorLines.Add(data);
 
                     if (verbose)
                     {
-                        Log.Information($"{e.Data}");
+                        Log.Information($"{data}");
                     }
 
                     lock (outputLines)
                     {
                         if (!outputLines.IsAddingCompleted)
                         {
-                            outputLines.Add(e.Data);
+                            outputLines.Add(data);
                         }
                     }
                 }
-            };
+            });
+            p.ErrorDataReceived += (sender, e) => errorDataReceived(e.Data);
 
-            // start process
             p.Start();
+
+            //The terminator
+            var processTerminatorCancellationToken = new CancellationTokenSource();
+            var processTerminator = Task.Factory.StartNew(() =>
+            {
+                while (!processTerminatorCancellationToken.IsCancellationRequested)
+                {
+                    if (cancellationTokenSource?.IsCancellationRequested ?? false)
+                    {
+                        p.Kill();
+                        break;
+                    }
+                    Thread.Sleep(100);
+                }
+            });
 
             // begin async read
             p.BeginOutputReadLine();
@@ -117,7 +136,12 @@ namespace libCommon
             }
 
             // wait for process to terminate
-            p.WaitForExit();
+            var processWasCancelled = cancellationTokenSource?.IsCancellationRequested ?? false;
+            if (!processWasCancelled)
+            {
+                p.WaitForExit();
+            }
+            processTerminatorCancellationToken.Cancel();
 
             if (verbose)
             {

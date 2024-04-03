@@ -14,6 +14,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace libClonezilla.Partitions
@@ -68,49 +69,55 @@ namespace libClonezilla.Partitions
 
             Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
-            //check if 7-Zip can actually open this image file
-            var canBeOpenedBy7Zip = SevenZipUtility.IsArchive(ImageFileEntry.FullPath);
-            if (!canBeOpenedBy7Zip)
+            List<ArchiveEntry> filesInArchive;
+
+            try
             {
-                Log.Error($"[{container.ContainerName}] [{partitionName}] The image file for this partition ({ImageFileEntry.FullPath}) is not considered an archive by 7-Zip. Returning empty file list.");
+                filesInArchive = GetFilesInPartition().ToList();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, $"[{container.ContainerName}] [{partitionName}] The image file for this partition ({ImageFileEntry.FullPath}) is not considered an archive by 7-Zip. Returning empty file list.");
                 return new List<FileSystemEntry>();
             }
 
-            var filesInArchive = GetFilesInPartition().ToList();
+            Log.Information($"[{container.ContainerName}] [{partitionName}] Contains {filesInArchive.Count:N0} files.");
 
             //Do a performance test. If the archive can be opened quickly, then use 7z.exe which is slow but reliable. If it takes a long time, then use 7zFM which is fast but less reliable.
+            var performanceTestTimeout = TimeSpan.FromSeconds(10);
+            var performanceTestCancellationToken = new CancellationTokenSource();
 
-            //pick a small file
-            var testFile = filesInArchive
-                                .FirstOrDefault(file => file.Size < 1024 * 1024);
+            var performanceTestTask = Task.Factory.StartNew(() =>
+            {
+                Log.Information($"[{container.ContainerName}] [{partitionName}] Determining optimal way to extract files from this partition.");
+                var testStart = DateTime.Now;
+
+                SevenZipUtility.IsArchive(ImageFileEntry.FullPath, performanceTestCancellationToken);
+
+                if (performanceTestCancellationToken.IsCancellationRequested)
+                {
+                    Log.Debug($"[{container.ContainerName}] [{partitionName}] Test did not finish within the {performanceTestTimeout.TotalSeconds:N0)} second timeout.");
+                }
+                else
+                {
+                    var testDuration = DateTime.Now - testStart;
+                    Log.Debug($"[{container.ContainerName}] [{partitionName}] Archive opened in {testDuration.TotalSeconds:N1} seconds.");
+                }
+            });
 
             bool use7z;
-
-            if (testFile == null)
+            if (Task.WhenAny(performanceTestTask, Task.Delay(performanceTestTimeout)).Result == performanceTestTask)
             {
+                // task completed within timeout
                 use7z = true;
             }
             else
             {
-                Log.Debug($"[{container.ContainerName}] [{partitionName}] Running a performance test to determine the optimal way to extract files from this image.");
+                // timed out. Cancel the test
+                performanceTestCancellationToken.Cancel();
+                performanceTestTask.Wait();
 
-                var testStart = DateTime.Now;
-                var testExtractor = new ExtractorUsing7z(ImageFileEntry.FullPath);
-                var testStream = testExtractor.Extract(testFile.Path);
-                testStream.CopyTo(Stream.Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
-
-                var testDuration = DateTime.Now - testStart;
-
-                Log.Debug($"[{container.ContainerName}] [{partitionName}] Nominal file read in {testDuration.TotalSeconds:N1} seconds.");
-
-                if (testDuration.TotalSeconds < 10)
-                {
-                    use7z = true;
-                }
-                else
-                {
-                    use7z = false;
-                }
+                use7z = false;
             }
 
             IExtractor extractor;
@@ -139,14 +146,18 @@ namespace libClonezilla.Partitions
             {
                 Log.Information($"[{container.ContainerName}] [{partitionName}] 7zFM.exe will be used to extract files from this partition.");
 
+                var instanceCount = 4;
+                Log.Information($"[{container.ContainerName}] [{partitionName}] Starting {instanceCount:N0} instances of 7zFM.exe.");
+
                 //Extractor which uses the 7-Zip File Manager
-                //Opens the archive here, up front. Subsequent extracts are quick                    
-                var extractors = new List<IExtractor>();
-                for (int i = 0; i < 4; i++)
-                {
-                    var newExtractor = new ExtractorUsing7zFM(ImageFileEntry.FullPath);
-                    extractors.Add(newExtractor);
-                }
+                //Opens the archive here, up front. Subsequent extracts are quick.
+                //Creating them in parallel is ideal, because the data each needs is available in the memory cache.
+                var extractors = Enumerable
+                                    .Range(1, instanceCount)
+                                    .AsParallel()
+                                    .Select(_ => new ExtractorUsing7zFM(ImageFileEntry.FullPath))
+                                    .OfType<IExtractor>()
+                                    .ToList();
 
                 extractor = new MultiExtractor(extractors, true);
             }
