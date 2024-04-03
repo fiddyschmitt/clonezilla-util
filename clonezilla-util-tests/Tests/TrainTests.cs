@@ -23,6 +23,8 @@ namespace clonezilla_util_tests.Tests
         //Not working yet. The Reads are super slow for some reason (SubStream is asked for 8,192 bytes at a time)
         public static void Test_gz()
         {
+            var startTime = DateTime.Now;
+
             var filename = @"E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda1.img";
             //filename = @"C:\Users\fiddy\Desktop\dev\cs\ClonezillaApps\clonezilla-util\bin\Debug\net6.0\cache\4b18d7657aee7a3887f09d883b08198e\cache.train";   //44GB
 
@@ -65,23 +67,14 @@ namespace clonezilla_util_tests.Tests
 
             var success = originalMd5.Equals(outputMd5);
 
-            if (success)
-            {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write($"Success");
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write($"Fail");
-            }
-
-            Console.ResetColor();
-            Console.WriteLine($": CompressAndDecompress gz");
+            var duration = DateTime.Now - startTime;
+            Utility.LogResult(success, "CompressAndDecompress gz", duration);
         }
 
         public static void Test_xz()
         {
+            var startTime = DateTime.Now;
+
             var filename = @"E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda1.img";
             //filename = @"C:\Users\fiddy\Desktop\dev\cs\ClonezillaApps\clonezilla-util\bin\Debug\net6.0\cache\4b18d7657aee7a3887f09d883b08198e\cache.train";   //44GB
 
@@ -123,23 +116,14 @@ namespace clonezilla_util_tests.Tests
 
             var success = originalMd5.Equals(outputMd5);
 
-            if (success)
-            {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write($"Success");
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write($"Fail");
-            }
-
-            Console.ResetColor();
-            Console.WriteLine($": CompressAndDecompress xz");
+            var duration = DateTime.Now - startTime;
+            Utility.LogResult(success, "CompressAndDecompress xz", duration);
         }
 
         public static void TestZstandard()
         {
+            var startTime = DateTime.Now;
+
             var filename = @"E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda1.img";
             //filename = @"E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2022-01-28_xp_with_autocad_sda.img";
             //filename = @"E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img";
@@ -200,20 +184,10 @@ namespace clonezilla_util_tests.Tests
 
             var success = originalMd5.Equals(outputMd5);
 
-            if (success)
-            {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write($"Success");
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write($"Fail");
-            }
+            var duration = DateTime.Now - startTime;
+            Utility.LogResult(success, "CompressAndDecompress Zstandard", duration);
 
-            Console.ResetColor();
-            Console.WriteLine($": CompressAndDecompress Zstandard");
-
+            startTime = DateTime.Now;
 
             //test random seeking
             uncompressedOutputStream = File.Create(@"E:\Temp\decompressed-2_random_seeking.bin");
@@ -222,6 +196,7 @@ namespace clonezilla_util_tests.Tests
             {
                 Utility.TestSeeking(trainDecompressor, uncompressedOutputStream);
             }
+            Utility.LogResult(success, "CompressAndDecompress Zstandard (random seeking)", duration);
 
 
             compressedStream.Close();

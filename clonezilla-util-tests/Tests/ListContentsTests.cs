@@ -209,6 +209,8 @@ namespace clonezilla_util_tests.Tests
 
         public static void ConfirmContainsStrings(string exeUnderTest, string args, IEnumerable<string> expectedStrings)
         {
+            var startTime = DateTime.Now;
+
             Process
                 .GetProcesses()
                 .Where(pr => pr.ProcessName == "clonezilla-util")
@@ -234,19 +236,8 @@ namespace clonezilla_util_tests.Tests
                     }
                 });
 
-            if (success)
-            {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write($"Success");
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write($"Fail");
-            }
-
-            Console.ResetColor();
-            Console.WriteLine($": {args}");
+            var duration = DateTime.Now - startTime;
+            Utility.LogResult(success, args, duration);
         }
     }
 }

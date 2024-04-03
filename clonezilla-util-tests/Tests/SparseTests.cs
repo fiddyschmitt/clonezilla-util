@@ -37,17 +37,14 @@ namespace clonezilla_util_tests.Tests
 
             if (success)
             {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write($"Success");
+                Utility.Log($"Success", ConsoleColor.Green);
             }
             else
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write($"Fail");
+                Utility.Log($"Fail", ConsoleColor.Red);
             }
 
-            Console.ResetColor();
-            Console.WriteLine($": {args}");
+            Utility.LogLine($": {args}");
         }
 
         public static long GetFileSizeOnDisk(string file)

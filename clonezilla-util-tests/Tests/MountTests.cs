@@ -444,6 +444,8 @@ namespace clonezilla_util_tests.Tests
 
         public static void ConfirmFilesExist(string exeUnderTest, string args, IEnumerable<FileDetails> expectedFiles)
         {
+            var startTime = DateTime.Now;
+
             Process
                 .GetProcesses()
                 .Where(pr => pr.ProcessName == "clonezilla-util")
@@ -507,19 +509,8 @@ namespace clonezilla_util_tests.Tests
             process?.Kill();
             process?.WaitForExit();
 
-            if (allSuccessful)
-            {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write($"Success");
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write($"Fail");
-            }
-
-            Console.ResetColor();
-            Console.WriteLine($": {args}");
+            var duration = DateTime.Now - startTime;
+            Utility.LogResult(allSuccessful, args, duration);
         }
 
         public class FileDetails

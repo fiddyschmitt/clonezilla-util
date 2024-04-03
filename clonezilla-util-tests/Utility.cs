@@ -13,6 +13,45 @@ namespace clonezilla_util_tests
 {
     public static class Utility
     {
+        public static void Log(string msg, ConsoleColor? foregroundColour = null)
+        {
+            Console.ResetColor();
+            Console.Write($"{DateTime.Now} ");
+
+            if (foregroundColour != null)
+            {
+                Console.ForegroundColor = foregroundColour.Value;
+            }
+
+            Console.Write(msg);
+        }
+
+        public static void LogLine(string msg, ConsoleColor? foregroundColour = null)
+        {
+            Console.ResetColor();
+
+            if (foregroundColour != null)
+            {
+                Console.ForegroundColor = foregroundColour.Value;
+            }
+
+            Console.WriteLine(msg);
+        }
+
+        public static void LogResult(bool success, string commandRun, TimeSpan duration)
+        {
+            if (success)
+            {
+                Log($"Success", ConsoleColor.Green);
+            }
+            else
+            {
+                Log($"Fail", ConsoleColor.Red);
+            }
+
+            LogLine($" ({duration.TotalMinutes:N2} minutes) {commandRun}");
+        }
+
         public static string GetProgramOutput(string exe, string args)
         {
             //var process = RunProgram(exe, args);
@@ -91,7 +130,7 @@ namespace clonezilla_util_tests
 
                     totalBytesRead += (ulong)bytesRead;
                     var percentageComplete = totalBytesRead / (double)outputStream.Length * 100;
-                    Log.Information($"{totalBytesRead}    {percentageComplete:N2}%");
+                    Serilog.Log.Information($"{totalBytesRead}    {percentageComplete:N2}%");
                 });
 
             Buffers.BufferPool.Return(buffer);
@@ -135,7 +174,7 @@ namespace clonezilla_util_tests
 
                     if ((DateTime.Now - lastReport).TotalMilliseconds > 1000)
                     {
-                        Log.Information($"{totalRead.BytesToString()}");
+                        Serilog.Log.Information($"{totalRead.BytesToString()}");
                         lastReport = DateTime.Now;
                     }
 
