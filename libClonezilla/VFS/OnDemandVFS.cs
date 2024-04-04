@@ -46,6 +46,10 @@ namespace libClonezilla.VFS
                         var dokanBuilder = new DokanInstanceBuilder(dokan)
                             .ConfigureOptions(options =>
                             {
+                                //Didn't get this to work
+                                //options.Options = DokanOptions.WriteProtection | DokanOptions.NetworkDrive;
+                                //options.UNCName = @"\myfs\dokan";
+
                                 options.Options = DokanOptions.WriteProtection;
                                 options.MountPoint = mountPoint;
                             });
@@ -72,7 +76,6 @@ namespace libClonezilla.VFS
 
                 return root;
             });
-
             TempFolderRoot = new Lazy<Folder>(() =>
             {
                 var tempFolderRootName = $"{Guid.NewGuid()} - Temp";

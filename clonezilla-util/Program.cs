@@ -5,6 +5,7 @@ using libClonezilla.PartitionContainers;
 using libCommon;
 using libPartclone;
 using Serilog;
+using Serilog.Events;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -38,9 +39,10 @@ namespace clonezilla_util
             };
 
             Log.Logger = new LoggerConfiguration()
-                            //.MinimumLevel.Debug()
-                            .WriteTo.Console()
-                            .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day)
+                            .MinimumLevel.Debug()
+                            .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Information)
+                            .WriteTo.Debug(restrictedToMinimumLevel: LogEventLevel.Debug)
+                            .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day, restrictedToMinimumLevel: LogEventLevel.Information)
                             .CreateLogger();
 
             WholeFileCacheManager.Initialize(CacheFolder);
