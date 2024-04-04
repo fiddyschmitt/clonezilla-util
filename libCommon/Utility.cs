@@ -47,6 +47,7 @@ namespace libCommon
 
         public static string CalculateMD5(Stream stream)
         {
+            stream.Seek(0, SeekOrigin.Begin);
             using var md5 = MD5.Create();
             var hash = md5.ComputeHash(stream);
             return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();

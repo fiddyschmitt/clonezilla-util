@@ -110,9 +110,11 @@ namespace libCommon
             var processTerminatorCancellationToken = new CancellationTokenSource();
             var processTerminator = Task.Factory.StartNew(() =>
             {
+                if (cancellationTokenSource == null) return;
+
                 while (!processTerminatorCancellationToken.IsCancellationRequested)
                 {
-                    if (cancellationTokenSource?.IsCancellationRequested ?? false)
+                    if (cancellationTokenSource.IsCancellationRequested)
                     {
                         p.Kill();
                         break;
