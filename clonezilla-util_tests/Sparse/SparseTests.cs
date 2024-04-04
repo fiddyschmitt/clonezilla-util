@@ -7,22 +7,19 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace clonezilla_util_tests.Tests
+namespace clonezilla_util_tests.Sparse
 {
+    [TestClass]
     public class SparseTests
     {
-        public static void Test(string exeUnderTest)
-        {
-            ExtractAndSparsifyFile(exeUnderTest);
-        }
-
-        public static void ExtractAndSparsifyFile(string exeUnderTest)
+        [TestMethod]
+        public void ExtractAndSparsifyFile()
         {
             var outputFolder = Directory.CreateTempSubdirectory().FullName;
 
             var args = @$"extract-partition-image --input ""E:\clonezilla-util-test resources\clonezilla images\2022-07-17-16-img_pb-devops1_gz"" --output ""{outputFolder}"" -p sda2";
 
-            var psi = new ProcessStartInfo(exeUnderTest, args);
+            var psi = new ProcessStartInfo(Main.ExeUnderTest, args);
             psi.UseShellExecute = false;
             psi.CreateNoWindow = true;
             var process = Process.Start(psi);
@@ -34,17 +31,7 @@ namespace clonezilla_util_tests.Tests
             Directory.Delete(outputFolder, true);
 
             var success = sizeOnDisk / (double)fileSize < 0.5;
-
-            if (success)
-            {
-                Utility.Log($"Success", ConsoleColor.Green);
-            }
-            else
-            {
-                Utility.Log($"Fail", ConsoleColor.Red);
-            }
-
-            Utility.LogLine($": {args}");
+            Assert.IsTrue(success, "Size On Disk is not smaller than file size");
         }
 
         public static long GetFileSizeOnDisk(string file)

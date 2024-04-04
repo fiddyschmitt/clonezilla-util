@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "mount --input \"E:\\2023-11-17-00-img_PB-DEVOPS1_using_dd\" -m L:\\"
+      "commandLineArgs": "mount --input \"E:\\clonezilla-util-test resources\\clonezilla images\\2022-09-13-12-img_ubuntu_22.04_lvm_filesystem\" --mount L:\\"
     }
   }
 }

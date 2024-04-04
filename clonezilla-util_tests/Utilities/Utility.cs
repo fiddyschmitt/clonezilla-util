@@ -1,6 +1,5 @@
 ﻿using libCommon;
 using libPartclone;
-using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -9,49 +8,10 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace clonezilla_util_tests
+namespace clonezilla_util_tests.Utilities
 {
     public static class Utility
     {
-        public static void Log(string msg, ConsoleColor? foregroundColour = null)
-        {
-            Console.ResetColor();
-            Console.Write($"{DateTime.Now} ");
-
-            if (foregroundColour != null)
-            {
-                Console.ForegroundColor = foregroundColour.Value;
-            }
-
-            Console.Write(msg);
-        }
-
-        public static void LogLine(string msg, ConsoleColor? foregroundColour = null)
-        {
-            Console.ResetColor();
-
-            if (foregroundColour != null)
-            {
-                Console.ForegroundColor = foregroundColour.Value;
-            }
-
-            Console.WriteLine(msg);
-        }
-
-        public static void LogResult(bool success, string commandRun, TimeSpan duration)
-        {
-            if (success)
-            {
-                Log($"Success", ConsoleColor.Green);
-            }
-            else
-            {
-                Log($"Fail", ConsoleColor.Red);
-            }
-
-            LogLine($" ({duration.TotalMinutes:N2} minutes) {commandRun}");
-        }
-
         public static string GetProgramOutput(string exe, string args)
         {
             //var process = RunProgram(exe, args);
@@ -84,7 +44,7 @@ namespace clonezilla_util_tests
         }
 
         [SupportedOSPlatform("windows")]
-        public static void TestSeeking(Stream rawPartitionStream, FileStream outputStream)
+        public static void TestSeeking(Stream rawPartitionStream, Stream outputStream)
         {
             var chunkSizes = 1 * 1024 * 1024;
             //var chunkSizes = 8000;
@@ -113,19 +73,24 @@ namespace clonezilla_util_tests
                 i += range.Length;
             }
 
-            outputStream.SafeFileHandle.MarkAsSparse();
             outputStream.SetLength(totalSize);
 
             ulong totalBytesRead = 0;
             ranges
                 .OrderBy(x => Guid.NewGuid())
+                .Select((range, ix) => new
+                {
+                    Index = ix,
+                    Range = range
+                })
                 .ToList()
                 .ForEach(range =>
                 {
-                    rawPartitionStream.Seek(range.StartByte, SeekOrigin.Begin);
+                    Debug.WriteLine($"Processing range {range.Index:N0} of {ranges.Count:N0}");
+                    rawPartitionStream.Seek(range.Range.StartByte, SeekOrigin.Begin);
                     var bytesRead = rawPartitionStream.Read(buffer, 0, chunkSizes);
 
-                    outputStream.Seek(range.StartByte, SeekOrigin.Begin);
+                    outputStream.Seek(range.Range.StartByte, SeekOrigin.Begin);
                     outputStream.Write(buffer, 0, bytesRead);
 
                     totalBytesRead += (ulong)bytesRead;

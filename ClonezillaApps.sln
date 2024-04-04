@@ -20,11 +20,11 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "lib7Zip", "lib7Zip\lib7Zip.
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "libDokan", "libDokan\libDokan.csproj", "{66566C48-8B34-4F83-B571-54A1A9B306C0}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "clonezilla-util-tests", "clonezilla-util-tests\clonezilla-util-tests.csproj", "{82713ECA-C0B4-4827-9B75-15AAEA0BA6EE}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "libTrainCompress", "libTrainCompress\libTrainCompress.csproj", "{FB416BDB-7313-4165-A6A5-763ECEBCBFB5}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "libGZip", "libGZip\libGZip.csproj", "{7FBC3072-AEEE-45F9-93F2-9687905E227F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "clonezilla-util_tests", "clonezilla-util_tests\clonezilla-util_tests.csproj", "{15096242-CC3B-4DB0-A788-139ED2767860}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -56,10 +56,6 @@ Global
 		{66566C48-8B34-4F83-B571-54A1A9B306C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{66566C48-8B34-4F83-B571-54A1A9B306C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{66566C48-8B34-4F83-B571-54A1A9B306C0}.Release|Any CPU.Build.0 = Release|Any CPU
-		{82713ECA-C0B4-4827-9B75-15AAEA0BA6EE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{82713ECA-C0B4-4827-9B75-15AAEA0BA6EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{82713ECA-C0B4-4827-9B75-15AAEA0BA6EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{82713ECA-C0B4-4827-9B75-15AAEA0BA6EE}.Release|Any CPU.Build.0 = Release|Any CPU
 		{FB416BDB-7313-4165-A6A5-763ECEBCBFB5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{FB416BDB-7313-4165-A6A5-763ECEBCBFB5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FB416BDB-7313-4165-A6A5-763ECEBCBFB5}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -68,6 +64,10 @@ Global
 		{7FBC3072-AEEE-45F9-93F2-9687905E227F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7FBC3072-AEEE-45F9-93F2-9687905E227F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7FBC3072-AEEE-45F9-93F2-9687905E227F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{15096242-CC3B-4DB0-A788-139ED2767860}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{15096242-CC3B-4DB0-A788-139ED2767860}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{15096242-CC3B-4DB0-A788-139ED2767860}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{15096242-CC3B-4DB0-A788-139ED2767860}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
