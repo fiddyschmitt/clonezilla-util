@@ -80,7 +80,7 @@ namespace clonezilla_util_tests.Utilities
                 .OrderBy(x => Guid.NewGuid())
                 .Select((range, ix) => new
                 {
-                    Index = ix,
+                    Index = ix + 1,
                     Range = range
                 })
                 .ToList()
