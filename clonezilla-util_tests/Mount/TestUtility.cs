@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
+using System.IO.MemoryMappedFiles;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -34,9 +36,19 @@ namespace clonezilla_util_tests.Mount
                     bool fileIsAsExpected = false;
                     if (File.Exists(expectedFile.FullPath))
                     {
+                        //slow
                         //var md5 = libCommon.Utility.CalculateMD5(expectedFile.FullPath);
+
+                        //doesn't support files larger than 2 GB
+                        /*
                         using var ms = new MemoryStream();
                         using var fs = File.OpenRead(expectedFile.FullPath);
+                        fs.CopyTo(ms, 10 * 1024 * 1024);
+                        */
+
+                        using var fs = File.OpenRead(expectedFile.FullPath);
+                        using var memoryMappedFile = MemoryMappedFile.CreateNew(mapName: null, fs.Length);
+                        using var ms = memoryMappedFile.CreateViewStream();
                         fs.CopyTo(ms, 10 * 1024 * 1024);
 
                         var md5 = libCommon.Utility.CalculateMD5(ms);
