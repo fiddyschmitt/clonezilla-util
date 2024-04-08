@@ -70,7 +70,7 @@ Run the following command:
 <br />
 <br />
 
-## Extract partition images from Clonezilla archive
+## Extract partition images from Clonezilla archive (Dokan not required)
 
 Run the following command:
 
