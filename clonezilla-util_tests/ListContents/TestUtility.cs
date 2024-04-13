@@ -1,4 +1,5 @@
-﻿using System;
+﻿using libCommon;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -11,7 +12,7 @@ namespace clonezilla_util_tests.ListContents
     {
         public static void ConfirmContainsStrings(string exeUnderTest, string args, IEnumerable<string> expectedStrings)
         {
-            var output = Utilities.Utility.GetProgramOutput(exeUnderTest, args);
+            var output = ProcessUtility.GetProgramOutput(exeUnderTest, args);
 
             expectedStrings
                 .ToList()

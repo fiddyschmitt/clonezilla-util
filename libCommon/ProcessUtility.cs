@@ -168,6 +168,22 @@ namespace libCommon
             }
         }
 
+        public static string GetProgramOutput(string exe, string args)
+        {
+            //var process = RunProgram(exe, args);
+            //string output = process.StandardOutput.ReadToEnd();   //Gets stuck on the output of clonezilla gz sda2
+            //process.WaitForExit();
+
+            var sb = new StringBuilder();
+
+            foreach (var line in RunCommand(exe, args, false, false))
+            {
+                sb.AppendLine(line);
+            }
+
+            return sb.ToString();
+        }
+
         public static Process ExecuteProcess(string exe, string args, Stream? inputStream, long? bytesToRead = null, Action<long>? inputReadCallback = null)
         {
             var start = DateTime.Now;

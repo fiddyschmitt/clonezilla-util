@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace libGZip.Lists
+namespace libDecompression.Lists
 {
     public class MappingComparer : IRangeComparer<Mapping, long>
     {

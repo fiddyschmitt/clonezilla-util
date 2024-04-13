@@ -9,6 +9,7 @@ using Serilog.Events;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -30,6 +31,15 @@ namespace clonezilla_util
 
         static readonly string CacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
 
+        //To get the binary to work when using 'Trim unused code', had to add the TrimMode:
+        //  <PublishTrimmed>true</PublishTrimmed>
+	    //  <TrimMode>partial</TrimMode>
+
+        [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(ExtractFiles))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(ExtractPartitionImage))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(ListContents))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(MountAsFiles))]
+        [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(MountAsImageFiles))]
         public static int Main(string[] args)
         {
             AppDomain.CurrentDomain.ProcessExit += (sender, args) =>

@@ -32,7 +32,7 @@ namespace libClonezilla.Decompressors
 
             Decompressor = CompressionInUse switch
             {
-                Compression.bzip2 => new Bzip2Decompressor(CompressedStream),
+                Compression.bzip2 => new Bzip2Decompressor(CompressedStream, partitionCache),
                 Compression.Gzip => new GzDecompressor(CompressedStream, partitionCache),
                 Compression.LZ4 => new LZ4Decompressor(CompressedStream),
                 Compression.LZip => new LZipDecompressor(CompressedStream),
@@ -62,7 +62,8 @@ namespace libClonezilla.Decompressors
             {
                 while (true)
                 {
-                    var bytesRead = testStream.CopyTo(Stream.Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+                    //todo: Cancel the CopyTo if it takes longer than 10 seconds
+                    var bytesRead = testStream.CopyTo(Stream.Null, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER, Buffers.ARBITARY_SMALL_SIZE_BUFFER);
                     if (bytesRead == 0) break;
                     var duration = DateTime.Now - startTime;
                     if (duration.TotalSeconds > testDurationSeconds) break;

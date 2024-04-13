@@ -2,7 +2,7 @@
   "profiles": {
     "clonezilla-util": {
       "commandName": "Project",
-      "commandLineArgs": "mount --input \"E:\\clonezilla-util-test resources\\clonezilla images\\2022-09-13-12-img_ubuntu_22.04_lvm_filesystem\" --mount L:\\"
+      "commandLineArgs": "mount-as-image-files --input \"E:\\clonezilla-util-test resources\\clonezilla images\\2022-08-16-20-img_luks_test_6GB_ext4_zst\\ocs_luks_0Yy.ext4-ptcl-img.zst\" --mount L:\\"
     }
   }
 }

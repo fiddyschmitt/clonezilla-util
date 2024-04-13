@@ -70,6 +70,50 @@ namespace libCommon
             }
         }
 
+        //This achieves 3 things:
+        //1. Processes in parallel
+        //2. Preserves original order
+        //3. Returns items immediately after they are available
+        public static IEnumerable<TOutput> SelectParallelPreserveOrder<TInput, TOutput>(this IEnumerable<TInput> list, Func<TInput, TOutput> selector, int? threads = null)
+        {
+            var outputItems = new BlockingCollection<int>();
+            var resultDictionary = new ConcurrentDictionary<int, TOutput>();
+
+            threads ??= Environment.ProcessorCount;
+
+            Task.Factory.StartNew(() =>
+            {
+                list
+                    .Select((item, index) => new
+                    {
+                        Index = index,
+                        Value = item
+                    })
+                    .AsParallel()
+                    .WithDegreeOfParallelism(threads.Value)
+                    .ForAll(item =>
+                    {
+                        var result = selector(item.Value);
+                        resultDictionary.TryAdd(item.Index, result);
+                        outputItems.Add(item.Index);
+                    });
+
+                outputItems.CompleteAdding();
+            });
+
+            var currentIndexToReturn = 0;
+            foreach (var finishedIndex in outputItems.GetConsumingEnumerable())
+            {
+                while (resultDictionary.TryGetValue(currentIndexToReturn, out var result))
+                {
+                    yield return result;
+
+                    resultDictionary.TryRemove(currentIndexToReturn, out var _);
+                    currentIndexToReturn++;
+                };
+            }
+        }
+
         public static IEnumerable<T> Buffer<T>(this IEnumerable<T> input, Action<(int InputDiscovered, bool InputFinished, int OutputProcessed)>? progressCallback = null)
         {
             int totalInputDiscovered = 0;

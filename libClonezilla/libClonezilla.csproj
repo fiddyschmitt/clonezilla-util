@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
 	<Nullable>enable</Nullable>
   </PropertyGroup>
 
@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\lib7Zip\lib7Zip.csproj" />
+    <ProjectReference Include="..\libBzip2\libBzip2.csproj" />
     <ProjectReference Include="..\libCommon\libCommon.csproj" />
     <ProjectReference Include="..\libDokan\libDokan.csproj" />
     <ProjectReference Include="..\libGZip\libGZip.csproj" />

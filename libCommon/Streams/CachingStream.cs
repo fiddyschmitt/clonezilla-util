@@ -68,7 +68,7 @@ namespace libCommon.Streams
 
                 if (cacheEntry == null)
                 {
-                    //Log.Information($"Cache miss: {pos}");
+                    Log.Debug($"Cache miss: {pos}");
 
                     (long Start, long End) recommendedRead;
                     if (ReadSuggestor == null)
@@ -80,7 +80,12 @@ namespace libCommon.Streams
                         recommendedRead = ReadSuggestor.GetRecommendation(pos, pos + bytesToGo);
                     }
 
-                    //Log.Information($"Want to read from {pos:N0} to {pos + bytesToGo:N0}. Was recommended to read {(recommendedRead.End - recommendedRead.Start).BytesToString()} from position {recommendedRead.Start:N0} to {recommendedRead.End:N0}");
+                    if (recommendedRead.Start == -1 || recommendedRead.End == -1)
+                    {
+                        throw new Exception($"Could not get recommendation for reading {bytesToGo:N0} bytes from position {pos:N0}");
+                    }
+
+                    Log.Debug($"Want to read from {pos:N0} to {pos + bytesToGo:N0}. Was recommended to read {(recommendedRead.End - recommendedRead.Start).BytesToString()} from position {recommendedRead.Start:N0} to {recommendedRead.End:N0}");
 
                     var toRead = (int)Math.Min(recommendedRead.End - recommendedRead.Start, int.MaxValue);
 

@@ -1,19 +1,18 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PlatformTarget>AnyCPU</PlatformTarget>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="XZ.NET-netstandard" Version="2.0.0.2" />
-    <PackageReference Include="ZstdNet" Version="1.4.5" />
+    <PackageReference Include="SharpCompress" Version="0.36.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\libCommon\libCommon.csproj" />
+    <ProjectReference Include="..\libDecompression\libDecompression.csproj" />
   </ItemGroup>
 
 </Project>

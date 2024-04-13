@@ -1,4 +1,5 @@
-﻿using System;
+﻿using libCommon;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -36,22 +37,27 @@ namespace clonezilla_util_tests.Mount
                     bool fileIsAsExpected = false;
                     if (File.Exists(expectedFile.FullPath))
                     {
-                        //slow
+                        // 13/04/2024: 4 mins
                         //var md5 = libCommon.Utility.CalculateMD5(expectedFile.FullPath);
 
-                        //doesn't support files larger than 2 GB
-                        /*
-                        using var ms = new MemoryStream();
-                        using var fs = File.OpenRead(expectedFile.FullPath);
-                        fs.CopyTo(ms, 10 * 1024 * 1024);
-                        */
+                        //doesn't support files larger than 2 GB                        
+                        //using var ms = new MemoryStream();
+                        //using var fs = File.OpenRead(expectedFile.FullPath);
+                        //fs.CopyTo(ms, 10 * 1024 * 1024);
 
-                        using var fs = File.OpenRead(expectedFile.FullPath);
-                        using var memoryMappedFile = MemoryMappedFile.CreateNew(mapName: null, fs.Length);
-                        using var ms = memoryMappedFile.CreateViewStream();
-                        fs.CopyTo(ms, 10 * 1024 * 1024);
 
-                        var md5 = libCommon.Utility.CalculateMD5(ms);
+                        //Supports larger than 2GB, but caused MD5 checks to fail
+                        //using var fs = File.OpenRead(expectedFile.FullPath);
+                        //using var memoryMappedFile = MemoryMappedFile.CreateNew(mapName: null, fs.Length);
+                        //using var ms = memoryMappedFile.CreateViewStream();
+                        //fs.CopyTo(ms, 10 * 1024 * 1024);
+
+                        // 13/04/2024: 40 seconds
+                        //todo: Work out why this is faster than just calculating the hash directly on the virtual file
+                        using var virtualFile = File.OpenRead(expectedFile.FullPath);
+                        var tempFile = File.Create(TempUtility.GetTempFilename(false));
+                        virtualFile.CopyTo(tempFile);
+                        var md5 = Utility.CalculateMD5(tempFile);
 
                         var md5Match = md5.Equals(expectedFile.MD5);
                         Assert.IsTrue(md5Match, "MD5 hashes do not match");
