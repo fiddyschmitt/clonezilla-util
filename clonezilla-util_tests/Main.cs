@@ -10,7 +10,7 @@ namespace clonezilla_util_tests
     [TestClass]
     public static class Main
     {
-        public static string ExeUnderTest = @"R:\Temp\clonezilla-util release\clonezilla-util.exe";
+        public const string ExeUnderTest = @"R:\Temp\clonezilla-util release\clonezilla-util.exe";
         public static bool RunLargeTests = true;
 
         [AssemblyInitialize]

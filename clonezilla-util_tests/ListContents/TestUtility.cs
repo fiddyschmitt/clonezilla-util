@@ -10,7 +10,7 @@ namespace clonezilla_util_tests.ListContents
 {
     public static class TestUtility
     {
-        public static void ConfirmContainsStrings(string exeUnderTest, string args, IEnumerable<string> expectedStrings)
+        public static void ConfirmContainsStrings(string exeUnderTest, string args, IList<string> expectedStrings)
         {
             var output = ProcessUtility.GetProgramOutput(exeUnderTest, args);
 

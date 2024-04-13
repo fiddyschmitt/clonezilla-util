@@ -21,8 +21,7 @@ namespace clonezilla_util_tests.Mount
             };
             var process = Process.Start(psi);
 
-            var allSuccessful = true;
-
+            bool allSuccessful;
             do
             {
                 allSuccessful = true;
@@ -93,16 +92,10 @@ namespace clonezilla_util_tests.Mount
             process?.WaitForExit();
         }
 
-        public class FileDetails
+        public class FileDetails(string fullPath, string md5)
         {
-            public string FullPath;
-            public string MD5;
-
-            public FileDetails(string fullPath, string md5)
-            {
-                FullPath = fullPath;
-                MD5 = md5;
-            }
+            public string FullPath = fullPath;
+            public string MD5 = md5;
         }
     }
 }

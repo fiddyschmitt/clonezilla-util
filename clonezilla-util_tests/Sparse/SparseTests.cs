@@ -38,6 +38,7 @@ namespace clonezilla_util_tests.Sparse
         {
             var info = new FileInfo(file);
             if (info == null) return -1;
+            if (info.Directory == null) return -1;
             uint dummy, sectorsPerCluster, bytesPerSector;
             int result = GetDiskFreeSpaceW(info.Directory.Root.FullName, out sectorsPerCluster, out bytesPerSector, out dummy, out dummy);
             if (result == 0) throw new Win32Exception();

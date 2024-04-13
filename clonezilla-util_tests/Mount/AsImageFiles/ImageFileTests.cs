@@ -12,7 +12,7 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
     public class ImageFileTests
     {
         [TestMethod]
-        public void gz()
+        public void Gz()
         {
             if (!Main.RunLargeTests)
             {
@@ -29,7 +29,7 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
         }
 
         [TestMethod]
-        public void partclone()
+        public void Partclone()
         {
             if (!Main.RunLargeTests)
             {
@@ -50,7 +50,7 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
         }
 
         [TestMethod]
-        public void luks_ntfs_6GB()
+        public void LuksNtfs6GB()
         {
             //6GB ext4 -> luks -> partclone -> zst
             TestUtility.ConfirmFilesExist(
@@ -62,7 +62,7 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
         }
 
         [TestMethod]
-        public void zst()
+        public void Zst()
         {
             if (!Main.RunLargeTests)
             {

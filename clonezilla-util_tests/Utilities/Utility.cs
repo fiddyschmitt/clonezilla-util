@@ -12,7 +12,6 @@ namespace clonezilla_util_tests.Utilities
 {
     public static class Utility
     {
-        [SupportedOSPlatform("windows")]
         public static void TestSeeking(Stream rawPartitionStream, Stream outputStream)
         {
             var chunkSizes = 1 * 1024 * 1024;

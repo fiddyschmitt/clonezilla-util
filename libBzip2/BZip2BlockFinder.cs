@@ -55,7 +55,7 @@ namespace libBzip2
                 {
                     var bytesRemainingInBuffer = bytesRead - positionThroughCurrentBuffer;
                     var subsectionToSearch = new Span<byte>(buff, positionThroughCurrentBuffer, bytesRemainingInBuffer);
-                    var foundPositionInBufferSubsection = BoyerMoore.IndexOf(subsectionToSearch, StartOfBlockMagic);
+                    var foundPositionInBufferSubsection = BoyerMoore.IndexOf(subsectionToSearch, find);
 
                     if (foundPositionInBufferSubsection == -1)
                     {

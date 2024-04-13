@@ -9,7 +9,7 @@ namespace clonezilla_util_tests.ListContents
     //Can't parallelize yet, because ListContents mounts an available drive letter which can collide with other tests.
     //todo: Dokan supports mounting to a network drive (eg. \\myfs\\fs1). Perhaps mount to one of these dynamic places so that drive letter collisions can be avoided
     [DoNotParallelize]
-    [TestClass]    
+    [TestClass]
     public class LargeDriveImages
     {
         [TestMethod]
@@ -24,14 +24,15 @@ namespace clonezilla_util_tests.ListContents
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.bz2""",
-                new[] {
+                new List<string>()
+                {
                     @"2021-12-28_pb-devops1_sda.img\partition0\Recovery\WindowsRE\ReAgent.xml",
                     @"2021-12-28_pb-devops1_sda.img\partition1\Windows\INF\cpu.inf"
                 });
         }
 
         [TestMethod]
-        public void gz()
+        public void Gz()
         {
             if (!Main.RunLargeTests)
             {
@@ -42,7 +43,8 @@ namespace clonezilla_util_tests.ListContents
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.gz""",
-                new[] {
+                new List<string>()
+                {
                     @"2021-12-28_pb-devops1_sda.img\partition0\Recovery\WindowsRE\ReAgent.xml",
                     @"2021-12-28_pb-devops1_sda.img\partition1\Windows\INF\cpu.inf"
                 });
@@ -54,14 +56,15 @@ namespace clonezilla_util_tests.ListContents
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img""",
-                new[] {
+                new List<string>()
+                {
                     @"2021-12-28_pb-devops1_sda\partition0\Recovery\WindowsRE\ReAgent.xml",
                     @"2021-12-28_pb-devops1_sda\partition1\Windows\INF\cpu.inf"
                 });
         }
 
         [TestMethod]
-        public void xz()
+        public void Xz()
         {
             if (!Main.RunLargeTests)
             {
@@ -72,14 +75,15 @@ namespace clonezilla_util_tests.ListContents
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.xz""",
-                new[] {
+                new List<string>()
+                {
                     @"2021-12-28_pb-devops1_sda.img\partition0\Recovery\WindowsRE\ReAgent.xml",
                     @"2021-12-28_pb-devops1_sda.img\partition1\Windows\INF\cpu.inf"
                 });
         }
 
         [TestMethod]
-        public void zst()
+        public void Zst()
         {
             if (!Main.RunLargeTests)
             {
@@ -90,7 +94,8 @@ namespace clonezilla_util_tests.ListContents
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.zst""",
-                new[] {
+                new List<string>()
+                {
                     @"2021-12-28_pb-devops1_sda.img\partition0\Recovery\WindowsRE\ReAgent.xml",
                     @"2021-12-28_pb-devops1_sda.img\partition1\Windows\INF\cpu.inf"
                 });

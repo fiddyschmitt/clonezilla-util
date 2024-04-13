@@ -55,8 +55,7 @@ namespace libCommon
 
         public static string CalculateMD5(byte[] bytes)
         {
-            using var md5 = MD5.Create();
-            var hash = md5.ComputeHash(bytes);
+            var hash = MD5.HashData(bytes);
             return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
         }
     }
