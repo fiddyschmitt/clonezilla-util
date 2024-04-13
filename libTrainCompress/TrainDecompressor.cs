@@ -14,9 +14,9 @@ namespace libTrainCompress
 {
     public class TrainDecompressor : Stream, IReadSuggestor
     {
-        object readLock = new object();
+        readonly object readLock = new();
 
-        public TrainDecompressor(Stream compressedStream, List<Compressor> decompressors)
+        public TrainDecompressor(Stream compressedStream, IList<Compressor> decompressors)
         {
             CompressedStream = compressedStream;
 
@@ -35,7 +35,7 @@ namespace libTrainCompress
             {
                 if (CompressedStream.CanSeek)
                 {
-                    Carriages = new List<Carriage>();
+                    Carriages = [];
 
                     //for (UInt64 i = 0; i < carriages; i++)
                     ulong i = 0;
@@ -84,7 +84,7 @@ namespace libTrainCompress
 
         public override bool CanWrite => false;
 
-        long? length;
+        readonly long? length;
         public override long Length
         {
             get
@@ -110,7 +110,7 @@ namespace libTrainCompress
         {
         }
 
-        CarriageComparer carriageComparer = new();
+        readonly CarriageComparer carriageComparer = new();
 
         public override int Read(byte[] buffer, int offset, int count)
         {
@@ -214,34 +214,24 @@ namespace libTrainCompress
         }
     }
 
-    public class Carriage
-    {
-        public ulong CarriageId { get; }
-        public string CompressionFormat { get; }
-
-
-        public long UncompressedStartByte { get; }
-        public long UncompressedEndByte { get; }
-        public List<Compressor> Decompressors { get; }
-
-        public Stream CompressedStream { get; }
-
-        public Carriage(
-            ulong carriageId,
-            string compressionFormat,
-            long uncompressedStartByte,
-            long uncompressedEndByte,
-            Stream compressedStream,
-            List<Compressor> decompressors
+    public class Carriage(
+        ulong carriageId,
+        string compressionFormat,
+        long uncompressedStartByte,
+        long uncompressedEndByte,
+        Stream compressedStream,
+        IList<Compressor> decompressors
             )
-        {
-            CarriageId = carriageId;
-            CompressionFormat = compressionFormat;
-            UncompressedStartByte = uncompressedStartByte;
-            UncompressedEndByte = uncompressedEndByte;
-            Decompressors = decompressors;
-            CompressedStream = compressedStream;
-        }
+    {
+        public ulong CarriageId { get; } = carriageId;
+        public string CompressionFormat { get; } = compressionFormat;
+
+
+        public long UncompressedStartByte { get; } = uncompressedStartByte;
+        public long UncompressedEndByte { get; } = uncompressedEndByte;
+        public IList<Compressor> Decompressors { get; } = decompressors;
+
+        public Stream CompressedStream { get; } = compressedStream;
 
         public Stream GetDecompressionStream()
         {

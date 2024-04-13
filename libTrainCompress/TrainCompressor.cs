@@ -8,16 +8,8 @@ using System.Threading.Tasks;
 
 namespace libTrainCompress
 {
-    public class TrainCompressor : Stream
+    public class TrainCompressor(Stream streamToWriteTo, IList<Compressor> compressors, long splitSize) : Stream
     {
-        public TrainCompressor(Stream streamToWriteTo, List<Compressor> compressors, long splitSize)
-        {
-            WriteToStream = streamToWriteTo;
-            Compressors = compressors;
-            SplitSize = splitSize;
-            BinaryWriter = new BinaryWriter(streamToWriteTo);
-        }
-
         public override bool CanRead => false;
 
         public override bool CanSeek => false;
@@ -27,10 +19,10 @@ namespace libTrainCompress
         long length = 0;
         public override long Length => length;
         public override long Position { get; set; }
-        public Stream WriteToStream { get; }
-        public List<Compressor> Compressors { get; }
-        public long SplitSize { get; }
-        public BinaryWriter BinaryWriter { get; }
+        public Stream WriteToStream { get; } = streamToWriteTo;
+        public IList<Compressor> Compressors { get; } = compressors;
+        public long SplitSize { get; } = splitSize;
+        public BinaryWriter BinaryWriter { get; } = new BinaryWriter(streamToWriteTo);
 
         public override void Flush()
         {
@@ -137,20 +129,12 @@ namespace libTrainCompress
             }
         }
 
-        public class CarriageBeingFilled
+        public class CarriageBeingFilled(Stream compressedBuffer, Stream compressor, string compressorFormat, long uncompressedStartByte)
         {
-            public Stream CompressedBuffer;
-            public Stream Compressor;
-            public string CompressionFormat;
-            public long UncompressedStartByte;
-
-            public CarriageBeingFilled(Stream compressedBuffer, Stream compressor, string compressorFormat, long uncompressedStartByte)
-            {
-                CompressedBuffer = compressedBuffer;
-                Compressor = compressor;
-                CompressionFormat = compressorFormat;
-                UncompressedStartByte = uncompressedStartByte;
-            }
+            public Stream CompressedBuffer = compressedBuffer;
+            public Stream Compressor = compressor;
+            public string CompressionFormat = compressorFormat;
+            public long UncompressedStartByte = uncompressedStartByte;
 
             public long CompressedLength => CompressedBuffer.Length;
         }

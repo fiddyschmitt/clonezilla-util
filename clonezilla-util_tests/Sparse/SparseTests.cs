@@ -19,9 +19,11 @@ namespace clonezilla_util_tests.Sparse
 
             var args = @$"extract-partition-image --input ""E:\clonezilla-util-test resources\clonezilla images\2022-07-17-16-img_pb-devops1_gz"" --output ""{outputFolder}"" -p sda2";
 
-            var psi = new ProcessStartInfo(Main.ExeUnderTest, args);
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
+            var psi = new ProcessStartInfo(Main.ExeUnderTest, args)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
             var process = Process.Start(psi);
             process?.WaitForExit();
 
@@ -39,12 +41,10 @@ namespace clonezilla_util_tests.Sparse
             var info = new FileInfo(file);
             if (info == null) return -1;
             if (info.Directory == null) return -1;
-            uint dummy, sectorsPerCluster, bytesPerSector;
-            int result = GetDiskFreeSpaceW(info.Directory.Root.FullName, out sectorsPerCluster, out bytesPerSector, out dummy, out dummy);
+            var result = GetDiskFreeSpaceW(info.Directory.Root.FullName, out uint sectorsPerCluster, out uint bytesPerSector, out _, out _);
             if (result == 0) throw new Win32Exception();
             uint clusterSize = sectorsPerCluster * bytesPerSector;
-            uint hosize;
-            uint losize = GetCompressedFileSizeW(file, out hosize);
+            uint losize = GetCompressedFileSizeW(file, out uint hosize);
             long size;
             size = (long)hosize << 32 | losize;
             return ((size + clusterSize - 1) / clusterSize) * clusterSize;

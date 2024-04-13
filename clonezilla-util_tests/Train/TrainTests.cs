@@ -16,7 +16,7 @@ namespace clonezilla_util_tests.Train
     public class TrainTests
     {
         [TestMethod]
-        public void zst()
+        public void Zst()
         {
             TestTrain(
                 @"E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda1.img",
@@ -25,7 +25,7 @@ namespace clonezilla_util_tests.Train
         }
 
         [TestMethod]
-        public void gz()
+        public void Gz()
         {
             if (!Main.RunLargeTests)
             {
@@ -40,7 +40,7 @@ namespace clonezilla_util_tests.Train
         }
 
         [TestMethod]
-        public void xz()
+        public void Xz()
         {
             TestTrain(
                 @"E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda1.img",
@@ -48,12 +48,12 @@ namespace clonezilla_util_tests.Train
                 );
         }
 
-        public void TestTrain(string inputFilename, IList<Compressor> compressors)
+        public static void TestTrain(string inputFilename, IList<Compressor> compressors)
         {
             var originalFileStream = File.OpenRead(inputFilename);
 
             var compressedStream = new MemoryStream();
-            using (var trainCompressor = new TrainCompressor(compressedStream, compressors.ToList(), 10 * 1024 * 1024))
+            using (var trainCompressor = new TrainCompressor(compressedStream, compressors, 10 * 1024 * 1024))
             {
                 originalFileStream.CopyTo(trainCompressor, 50 * 1024 * 1024, progress =>
                 {
@@ -64,7 +64,7 @@ namespace clonezilla_util_tests.Train
 
             var uncompressedOutputStream = new MemoryStream();
             compressedStream.Seek(0, SeekOrigin.Begin);
-            using (var trainDecompressor = new TrainDecompressor(compressedStream, compressors.ToList()))
+            using (var trainDecompressor = new TrainDecompressor(compressedStream, compressors))
             {
                 trainDecompressor.CopyTo(uncompressedOutputStream, 50 * 1024 * 1024, progress =>
                 {
@@ -85,7 +85,7 @@ namespace clonezilla_util_tests.Train
             //test random seeking
             uncompressedOutputStream = new MemoryStream();
             compressedStream.Seek(0, SeekOrigin.Begin);
-            using (var trainDecompressor = new TrainDecompressor(compressedStream, compressors.ToList()))
+            using (var trainDecompressor = new TrainDecompressor(compressedStream, compressors))
             {
                 Utilities.Utility.TestSeeking(trainDecompressor, uncompressedOutputStream);
 
