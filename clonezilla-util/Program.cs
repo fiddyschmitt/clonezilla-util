@@ -149,7 +149,6 @@ namespace clonezilla_util
 
                             Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
-                            //todo: Consider using GetFiles() instead
                             var filesInArchive = mountedPartition.GetFilesInPartition();
 
                             foreach (var archiveEntry in filesInArchive)

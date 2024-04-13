@@ -38,7 +38,7 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
             }
 
             //partclone image. This is 2TB - takes ages to calculate the hash
-            //todo: Maybe only hash first 10 GB
+            //Maybe only hash first 10 GB
             /*
             TestUtility.ConfirmFilesExist(
                 Main.ExeUnderTest,

@@ -32,7 +32,7 @@ namespace libCommon
 
         public static (int pid, IntPtr DesktopHandle, IntPtr? WindowHandle) RunProcessOnAnotherDesktop(ProcessStartInfo psi, string desktopName, Func<(int pid, IntPtr DesktopHandle), IntPtr>? waitForWindow)
         {
-            //todo: Check if the desktop already exists. Perhaps use EnumDesktop and OpenDesktop
+            //Consider checking if the desktop already exists. Perhaps use EnumDesktop and OpenDesktop
             var hNewDesktop = CreateDesktop(desktopName, IntPtr.Zero, IntPtr.Zero, 0, (uint)DesktopAccess.GenericAll, IntPtr.Zero);
 
             lock (DesktopsCreated)

@@ -87,7 +87,7 @@ namespace libTrainCompress
             {
                 if (carriageBeingFilled == null)
                 {
-                    //todo: Choose between compressors based on size of output, or compression speed.
+                    //In future, we could choose between compressors based on size of output, or compression speed.
                     var compressor = Compressors.First();
                     var compressedBuffer = new MemoryStream();
                     var compressorStream = compressor.GetCompressor(compressedBuffer);

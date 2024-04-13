@@ -52,7 +52,6 @@ namespace clonezilla_util_tests.Mount
                         //fs.CopyTo(ms, 10 * 1024 * 1024);
 
                         // 13/04/2024: 40 seconds
-                        //todo: Work out why this is faster than just calculating the hash directly on the virtual file
                         using var virtualFile = File.OpenRead(expectedFile.FullPath);
                         var tempFile = File.Create(TempUtility.GetTempFilename(false));
                         virtualFile.CopyTo(tempFile);

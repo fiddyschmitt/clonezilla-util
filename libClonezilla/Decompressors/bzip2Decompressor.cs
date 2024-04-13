@@ -25,7 +25,6 @@ namespace libClonezilla.Decompressors
             }
             else
             {
-                //todo
                 //var gztoolIndexFilename = PartitionCache.GetGztoolIndexFilename();
 
                 var seekableStream = new Bzip2StreamSeekable(CompressedStream, "");

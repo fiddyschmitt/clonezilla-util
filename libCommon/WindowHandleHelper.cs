@@ -99,7 +99,7 @@ namespace libUIHelpers
             List<IntPtr> rootWindows;
             if (desktopHandle == null)
             {
-                rootWindows = GetChildWindows(IntPtr.Zero); //todo: Couldn't we just give the pid to this call, to save us iterating over all windows?
+                rootWindows = GetChildWindows(IntPtr.Zero); //Couldn't we just give the pid to this call, to save us iterating over all windows?
             }
             else
             {

@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace clonezilla_util_tests.ListContents
 {
     //Can't parallelize yet, because ListContents mounts an available drive letter which can collide with other tests.
-    //todo: Dokan supports mounting to a network drive (eg. \\myfs\\fs1). Perhaps mount to one of these dynamic places so that drive letter collisions can be avoided
+    //Dokan supports mounting to a network drive (eg. \\myfs\\fs1). Perhaps mount to one of these dynamic places so that drive letter collisions can be avoided
     [DoNotParallelize]
     [TestClass]
     public class LargeDriveImages

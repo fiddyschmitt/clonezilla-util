@@ -46,8 +46,6 @@ namespace clonezilla_util_tests.Mount.AsFiles
                 return;
             }
 
-            //todo: Improve speed
-
             //500 GB ext4 -> luks -> partclone -> gz
             //ConfirmFilesExist(
             //    Main.ExeUnderTest,
@@ -66,8 +64,6 @@ namespace clonezilla_util_tests.Mount.AsFiles
                 Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
                 return;
             }
-
-            //todo: Improve speed
 
             //500GB ext4 -> luks -> partclone -> zst
             //ConfirmFilesExist(

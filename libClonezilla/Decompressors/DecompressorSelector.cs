@@ -62,7 +62,6 @@ namespace libClonezilla.Decompressors
             {
                 while (true)
                 {
-                    //todo: Cancel the CopyTo if it takes longer than 10 seconds
                     var bytesRead = testStream.CopyTo(Stream.Null, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER, Buffers.ARBITARY_SMALL_SIZE_BUFFER);
                     if (bytesRead == 0) break;
                     var duration = DateTime.Now - startTime;

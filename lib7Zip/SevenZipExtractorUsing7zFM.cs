@@ -62,7 +62,7 @@ namespace lib7Zip
                         IntPtr? hWndExtractWindow = null;
                         while (true)
                         {
-                            hWndExtractWindow = WindowHandleHelper.GetRootWindowByTitle(PID, desktopHandle, title => title.Equals("Copy")); //todo: 7zFM displays different titles based on globalization settings. Perhaps search for windows that has specific controls
+                            hWndExtractWindow = WindowHandleHelper.GetRootWindowByTitle(PID, desktopHandle, title => title.Equals("Copy")); //7zFM displays different titles based on globalization settings. Perhaps search for windows that has specific controls
 
                             if (hWndExtractWindow.HasValue)
                             {
