@@ -34,9 +34,9 @@ namespace libCommon.Streams
 
                 sparseAwareInput
                     .Sparsify(outputStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER,
-                    totalCopied =>
+                    progress =>
                     {
-                        var totalCopiedStr = Extensions.BytesToString(totalCopied);
+                        var totalCopiedStr = Extensions.BytesToString(progress.TotalRead);
 
                         if (decompressedStream.Length == 0)
                         {
@@ -53,7 +53,7 @@ namespace libCommon.Streams
                         }
                         else
                         {
-                            var per = (double)totalCopied / decompressedStream.Length * 100;
+                            var per = (double)progress.TotalRead / decompressedStream.Length * 100;
                             var totalStr = Extensions.BytesToString(decompressedStream.Length);
 
                             if (compressedOrigin == null)
@@ -74,11 +74,11 @@ namespace libCommon.Streams
                 //just a regular file, with null bytes and all
                 decompressedStream
                     .CopyTo(fileStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER,
-                    totalCopied =>
+                    progress =>
                     {
-                        var per = (double)totalCopied / decompressedStream.Length * 100;
+                        var per = (double)progress.TotalRead / decompressedStream.Length * 100;
 
-                        var totalCopiedStr = Extensions.BytesToString(totalCopied);
+                        var totalCopiedStr = Extensions.BytesToString(progress.TotalRead);
                         var totalStr = Extensions.BytesToString(decompressedStream.Length);
                         Log.Information($"{streamName} Extracted {totalCopiedStr} / {totalStr} ({per:N0}%)");
                     });

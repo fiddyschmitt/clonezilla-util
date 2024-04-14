@@ -19,18 +19,11 @@ namespace libClonezilla.Decompressors
 
         public override Stream? GetSeekableStream()
         {
-            if (PartitionCache == null)
-            {
-                return null;
-            }
-            else
-            {
-                //var gztoolIndexFilename = PartitionCache.GetGztoolIndexFilename();
+            var indexFilename = PartitionCache?.GetBZip2IndexFilename();
 
-                var seekableStream = new Bzip2StreamSeekable(CompressedStream, "");
+            var seekableStream = new Bzip2StreamSeekable(CompressedStream, indexFilename);
 
-                return seekableStream;
-            }
+            return seekableStream;
         }
 
         public override Stream GetSequentialStream()

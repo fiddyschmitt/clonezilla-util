@@ -57,7 +57,7 @@ namespace clonezilla_util_tests.Train
             {
                 originalFileStream.CopyTo(trainCompressor, 50 * 1024 * 1024, progress =>
                 {
-                    Debug.WriteLine($"Compressing {progress.BytesToString()}");
+                    Debug.WriteLine($"Compressing {progress.Read.BytesToString()}");
                 });
             }
 
@@ -68,7 +68,7 @@ namespace clonezilla_util_tests.Train
             {
                 trainDecompressor.CopyTo(uncompressedOutputStream, 50 * 1024 * 1024, progress =>
                 {
-                    Debug.WriteLine($"Decompressing {progress.BytesToString()}");
+                    Debug.WriteLine($"Decompressing {progress.Read.BytesToString()}");
                 });
 
                 uncompressedOutputStream.Seek(0, SeekOrigin.Begin);

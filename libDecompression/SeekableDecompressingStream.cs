@@ -11,7 +11,7 @@ namespace libDecompression
 {
     public abstract class SeekableDecompressingStream : Stream, IReadSuggestor
     {
-        public abstract List<Mapping> Blocks { get; }
+        public abstract IList<Mapping> Blocks { get; }
 
         long UncompressedTotalLength => Blocks.Last().UncompressedEndByte;
         public readonly MappingComparer MappingComparer = new();

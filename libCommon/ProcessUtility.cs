@@ -184,7 +184,7 @@ namespace libCommon
             return sb.ToString();
         }
 
-        public static Process ExecuteProcess(string exe, string args, Stream? inputStream, long? bytesToRead = null, Action<long>? inputReadCallback = null)
+        public static Process ExecuteProcess(string exe, string args, Stream? inputStream, long? bytesToRead = null, Action<(long Read, long TotalRead)>? inputReadCallback = null)
         {
             var start = DateTime.Now;
 
@@ -228,7 +228,7 @@ namespace libCommon
             return process;
         }
 
-        public static int ExecuteProcess(string exe, string args, Stream? inputStream, Stream? outputStream, long? bytesToRead = null, Action<long>? inputReadCallback = null)
+        public static int ExecuteProcess(string exe, string args, Stream? inputStream, Stream? outputStream, long? bytesToRead = null, Action<(long Read, long TotalRead)>? inputReadCallback = null)
         {
             var start = DateTime.Now;
 

@@ -10,41 +10,75 @@ namespace libCommon.Streams
 {
     public class PositionTrackerStream : Stream
     {
-        public PositionTrackerStream(Stream baseStream)
+        public PositionTrackerStream()
         {
-            BaseStream = baseStream;
+
         }
 
-        public override bool CanRead => BaseStream.CanRead;
+        public override bool CanRead => false;
 
-        public override bool CanSeek => BaseStream.CanSeek;
+        public override bool CanSeek => true;
 
-        public override bool CanWrite => BaseStream.CanWrite;
+        public override bool CanWrite => true;
 
-        public override long Length => BaseStream.Length;
+        long length = 0;
+        public override long Length => length;
 
         long position = 0;
+        readonly object positionLock = new();
         public override long Position { get => position; set => throw new NotImplementedException(); }
-        public Stream BaseStream { get; }
 
-        public override void Flush() => BaseStream.Flush();
+        public override void Flush() => throw new NotImplementedException();
 
-        public override int Read(byte[] buffer, int offset, int count)
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotImplementedException();
+
+        public override long Seek(long offset, SeekOrigin origin)
         {
-            //Log.Information($"Requested to read {count.BytesToString()} from {position.BytesToString()}");
+            switch (origin)
+            {
+                case SeekOrigin.Begin:
+                    lock (positionLock)
+                    {
+                        position = offset;
+                    }
+                    break;
 
-            var bytesRead = BaseStream.Read(buffer, offset, count);
+                case SeekOrigin.Current:
+                    lock (positionLock)
+                    {
+                        position += offset;
+                    }
+                    break;
 
-            position += bytesRead;
+                case SeekOrigin.End:
+                    lock (positionLock)
+                    {
+                        position = Length - offset;
+                    }
+                    break;
+            }
 
-            return bytesRead;
+            return position;
         }
 
-        public override long Seek(long offset, SeekOrigin origin) => BaseStream.Seek(offset, origin);
 
-        public override void SetLength(long value) => BaseStream.SetLength(value);
+        public override void SetLength(long value) => length = value;
 
-        public override void Write(byte[] buffer, int offset, int count) => BaseStream.Write(buffer, offset, count);
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            ArgumentNullException.ThrowIfNull(buffer);
+            if (offset < 0 || offset > buffer.Length) throw new ArgumentOutOfRangeException(nameof(offset), "Offset is out of range.");
+            if (count < 0 || (offset + count) > buffer.Length) throw new ArgumentOutOfRangeException(nameof(count), "Count is out of range.");
+
+            lock (positionLock)
+            {
+                position += count;
+                if (position > Length)
+                {
+                    length = position;
+                }
+            }
+        }
 
         public override string ToString()
         {

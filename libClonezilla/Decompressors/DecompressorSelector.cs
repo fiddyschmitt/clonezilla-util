@@ -188,7 +188,7 @@ namespace libClonezilla.Decompressors
                                     {
                                         var perThroughCompressedSource = (double)CompressedStream.Position / CompressedStream.Length * 100;
 
-                                        Log.Information($"{StreamName} Cached {progress.BytesToString()}. ({perThroughCompressedSource:N0}% through source file)");
+                                        Log.Information($"{StreamName} Cached {progress.TotalRead.BytesToString()}. ({perThroughCompressedSource:N0}% through source file)");
                                     }
                                     catch
                                     {

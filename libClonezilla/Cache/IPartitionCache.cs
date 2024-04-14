@@ -15,6 +15,7 @@ namespace libClonezilla.Cache
     public interface IPartitionCache
     {
         public string GetGztoolIndexFilename();
+        public string GetBZip2IndexFilename();
         public List<ArchiveEntry>? GetFileList();
         public void SetFileList(List<ArchiveEntry> filenames);
     }

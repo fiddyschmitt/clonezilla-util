@@ -226,7 +226,7 @@ namespace libCommon
             return BitConverter.ToString(ba).Replace("-", "");
         }
 
-        public static long CopyTo(this Stream input, Stream output, int bufferSize, Action<long>? callBack = null)
+        public static long CopyTo(this Stream input, Stream output, int bufferSize, Action<(long Read, long TotalRead)>? callBack = null)
         {
             byte[] buffer = Buffers.BufferPool.Rent(bufferSize);
             int read;
@@ -237,16 +237,16 @@ namespace libCommon
 
                 output.Write(buffer, 0, read);
 
-                callBack?.Invoke(totalRead);
+                callBack?.Invoke((read, totalRead));
             }
-            callBack?.Invoke(totalRead);
+            callBack?.Invoke((0, totalRead));
 
             Buffers.BufferPool.Return(buffer);
 
             return totalRead;
         }
 
-        public static long Sparsify(this ISparseAwareReader input, ISparseAwareWriter output, int bufferSize, Action<long>? callBack)
+        public static long Sparsify(this ISparseAwareReader input, ISparseAwareWriter output, int bufferSize, Action<(long Read, long TotalRead)>? callBack)
         {
             output.Stream.SetLength(input.Stream.Length);
 
@@ -274,10 +274,10 @@ namespace libCommon
                     output.Stream.Write(buffer, 0, read);
                 }
 
-                callBack?.Invoke(totalRead);
+                callBack?.Invoke((read, totalRead));
             }
 
-            callBack?.Invoke(output.Stream.Length);
+            callBack?.Invoke((0, output.Stream.Length));
 
             Buffers.BufferPool.Return(buffer);
 

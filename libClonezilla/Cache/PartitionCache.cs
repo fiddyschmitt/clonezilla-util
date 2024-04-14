@@ -36,9 +36,16 @@ namespace libClonezilla.Cache
 
         public string GetGztoolIndexFilename()
         {
-            string result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.gztool_index.gzi");
+            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.gztool_index.gzi");
             return result;
         }
+
+        public string GetBZip2IndexFilename()
+        {
+            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.bzip2_index.json");
+            return result;
+        }
+
 
         public List<ContiguousRange>? GetPartcloneContentMapping()
         {
@@ -46,7 +53,7 @@ namespace libClonezilla.Cache
 
             if (File.Exists(PartcloneContentMappingFilename))
             {
-                string json = File.ReadAllText(PartcloneContentMappingFilename);
+                var json = File.ReadAllText(PartcloneContentMappingFilename);
                 result = JsonConvert.DeserializeObject<List<ContiguousRange>>(json);
             }
 
