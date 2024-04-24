@@ -76,10 +76,11 @@ namespace libCommon
         //3. Returns items immediately after they are available
         public static IEnumerable<TOutput> SelectParallelPreserveOrder<TInput, TOutput>(this IEnumerable<TInput> list, Func<TInput, TOutput> selector, int? threads = null)
         {
-            var outputItems = new BlockingCollection<int>();
             var resultDictionary = new ConcurrentDictionary<int, TOutput>();
 
             threads ??= Environment.ProcessorCount;
+
+            var outputItems = new BlockingCollection<int>(threads.Value);
 
             Task.Factory.StartNew(() =>
             {
@@ -102,7 +103,7 @@ namespace libCommon
             });
 
             var currentIndexToReturn = 0;
-            foreach (var finishedIndex in outputItems.GetConsumingEnumerable())
+            foreach (var _ in outputItems.GetConsumingEnumerable())
             {
                 while (resultDictionary.TryGetValue(currentIndexToReturn, out var result))
                 {
@@ -375,16 +376,26 @@ namespace libCommon
         }
 
         public static TRange? BinarySearch<TRange, TValue>(this IList<TRange> ranges,
-                                                       TValue value,
-                                                       IRangeComparer<TRange, TValue> comparer)
+                                                   TValue value,
+                                                   IRangeComparer<TRange, TValue> comparer)
         {
-            int min = 0;
-            int max = ranges.Count - 1;
+            var min = 0;
+            int max;
+
+            if (ranges is LazyList<TRange> ll)
+            {
+                //This is a lazy list. We don't want to call .Count on it, because it would force it to evaluate all its items
+                max = ll.CountSoFar - 1;
+            }
+            else
+            {
+                max = ranges.Count - 1;
+            }
 
             while (min <= max)
             {
-                int mid = (min + max) / 2;
-                int comparison = comparer.Compare(ranges[mid], value);
+                var mid = (min + max) / 2;
+                var comparison = comparer.Compare(ranges[mid], value);
                 if (comparison == 0)
                 {
                     return ranges[mid];
@@ -399,8 +410,21 @@ namespace libCommon
                 }
             }
 
-            var result = default(TRange);
-            return result;
+            //not found during binary search. Let's do a linear search which will force the lazy list to be evaluated until the desired value is found
+            if (ranges is LazyList<TRange> lazyList)
+            {
+                foreach (var range in lazyList)
+                {
+                    var rangeContainsValue = comparer.Compare(range, value) == 0;
+                    if (rangeContainsValue)
+                    {
+                        return range;
+                    }
+                }
+            }
+
+            //not found during binary search (or linear search of lazy list)
+            return default;
         }
     }
 }
