@@ -1,9 +1,12 @@
-﻿using System;
+﻿using Serilog;
+using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using static System.Reflection.Metadata.BlobBuilder;
 
 namespace libCommon.Lists
 {
@@ -12,6 +15,11 @@ namespace libCommon.Lists
         private readonly IEnumerator<T> _source;
         private readonly List<T> _internalList = new();
         private bool _isSourceExhausted = false;
+
+        public bool FinishedReading
+        {
+            get => _isSourceExhausted;
+        }
 
         public LazyList(IEnumerable<T> source)
         {
@@ -41,9 +49,11 @@ namespace libCommon.Lists
             }
         }
 
-        private void EnsureExists(int index)
+        public int CountSoFar => _internalList.Count;
+
+        private bool EnsureExists(int desiredIndex)
         {
-            while (_internalList.Count <= index && !_isSourceExhausted)
+            while (_internalList.Count <= desiredIndex && !_isSourceExhausted)
             {
                 if (_source.MoveNext())
                 {
@@ -53,12 +63,17 @@ namespace libCommon.Lists
                 {
                     _isSourceExhausted = true;
                 }
+
+                Log.Debug($"Currently at index {_internalList.Count - 1:N0}, seeking toward desired index {desiredIndex:N0}");
             }
 
-            if (index >= _internalList.Count)
+
+            if (desiredIndex >= _internalList.Count)
             {
-                throw new ArgumentOutOfRangeException(nameof(index), "Index is out of range.");
+                return false;
             }
+
+            return true;
         }
 
         private void EnsureAllLoaded()
@@ -83,7 +98,19 @@ namespace libCommon.Lists
         public bool Contains(T item) => _internalList.Contains(item);
         public void CopyTo(T[] array, int arrayIndex) => _internalList.CopyTo(array, arrayIndex);
         public bool Remove(T item) => throw new NotSupportedException();
-        public IEnumerator<T> GetEnumerator() => _internalList.GetEnumerator();
+        public IEnumerator<T> GetEnumerator()
+        {
+            int i = 0;
+            while (EnsureExists(i))
+            {
+                var block = this[i];
+                yield return block;
+                i++;
+
+                Log.Debug($"GetEnumerator(): FinishedReading = {FinishedReading}, i = {i:N0}");
+            }
+        }
+
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
         public int IndexOf(T item) => _internalList.IndexOf(item);
         public void Insert(int index, T item) => throw new NotSupportedException();
