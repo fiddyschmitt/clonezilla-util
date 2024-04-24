@@ -51,7 +51,7 @@
 
   <ItemGroup>
     <PackageReference Include="PInvoke.User32" Version="0.7.124" />
-    <PackageReference Include="Squid-Box.SevenZipSharp" Version="1.6.1.23" />
+    <PackageReference Include="Squid-Box.SevenZipSharp" Version="1.6.2.24" />
   </ItemGroup>
 
 </Project>
