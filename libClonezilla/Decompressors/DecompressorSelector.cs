@@ -55,14 +55,20 @@ namespace libClonezilla.Decompressors
             //Do a performance test. If the entire file can be read quickly then let's not bother using any indexing
 
             var testDurationSeconds = 10;
-            Log.Debug($"{StreamName} Running a {testDurationSeconds:N0} second performance test to determine the optimal way to serve it.");
+            Log.Information($"{StreamName} Running a {testDurationSeconds:N0} second performance test to determine the optimal way to serve it.");
 
             var startTime = DateTime.Now;
             var testStream = Decompressor.GetSequentialStream();
             {
                 while (true)
                 {
-                    var bytesRead = testStream.CopyTo(Stream.Null, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER, Buffers.ARBITARY_SMALL_SIZE_BUFFER);
+                    var bytesRead = 0L;
+
+                    try
+                    {
+                        bytesRead = testStream.CopyTo(Stream.Null, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER, Buffers.ARBITARY_SMALL_SIZE_BUFFER);
+                    }
+                    catch { }
                     if (bytesRead == 0) break;
                     var duration = DateTime.Now - startTime;
                     if (duration.TotalSeconds > testDurationSeconds) break;
@@ -80,9 +86,8 @@ namespace libClonezilla.Decompressors
             bool addCacheLayer = true;
             Stream uncompressedStream;
             if (predictedSecondsToReadEntireFile < 10)
-            //if (false)
             {
-                Log.Debug($"Using a sequential decompressor for this data.");
+                Log.Information($"{StreamName} Using a sequential decompressor for this data.");
 
                 if (testStream is FileStream)
                 {
@@ -101,6 +106,8 @@ namespace libClonezilla.Decompressors
             }
             else
             {
+                Log.Information($"{StreamName} Using a seekable decompressor for this data.");
+
                 var seekableStream = Decompressor.GetSeekableStream();
 
                 if (seekableStream == null)
@@ -250,6 +257,7 @@ namespace libClonezilla.Decompressors
                 }
             }
 
+            //addCacheLayer = false;
             if (addCacheLayer)
             {
                 //add a cache layer
