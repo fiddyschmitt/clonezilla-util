@@ -3,6 +3,7 @@ using libClonezilla.Decompressors;
 using libClonezilla.Partitions;
 using libCommon;
 using libCommon.Streams;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -33,6 +34,12 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
         void SetupFromStream(Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles, List<string> partitionsToLoad)
         {
+            if (partitionImageFiles.Count == 0)
+            {
+                Log.Information($"No partitions to process.");
+                return;
+            }
+
             var readLock = new object();
 
             Partitions = partitionImageFiles
