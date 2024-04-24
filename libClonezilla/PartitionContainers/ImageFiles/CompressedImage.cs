@@ -1,5 +1,6 @@
 ﻿using lib7Zip;
 using libClonezilla.Decompressors;
+using libCommon;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
 using libPartclone;
@@ -49,7 +50,8 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                     decompressedStream = decompressorSelector.GetSeekableStream();
                 }
 
-                var virtualDecompressedFile = new StreamBackedFileEntry(Guid.NewGuid().ToString(), tempFolder, decompressedStream);
+                var tempName = Path.GetFileName(TempUtility.GetTempFilename(false));
+                var virtualDecompressedFile = new StreamBackedFileEntry(tempName, tempFolder, decompressedStream);
 
                 currentFilename = virtualDecompressedFile.FullPath;
             }
