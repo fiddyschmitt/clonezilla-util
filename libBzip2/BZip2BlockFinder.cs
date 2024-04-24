@@ -15,7 +15,7 @@ namespace libBzip2
         private static readonly byte[] StartOfBlockMagic = [0x31, 0x41, 0x59, 0x26, 0x53, 0x59];    //31 41 59 26 53 59
         //private static readonly byte[] EndOfBlockMagic = [0x17, 0x72, 0x45, 0x38, 0x50, 0x90];      //17 72 45 38 50 90       //This 'end of block' marker doesn't seem to appear in the file
 
-        public static IEnumerable<(long Start, long End)> FindBlocks(Stream stream)
+        public static IEnumerable<(long Start, long End, bool IsLast)> FindBlocks(Stream stream)
         {
             long? startOfBlock = null;
             foreach (var foundPosition in FindInstances(stream, StartOfBlockMagic))
@@ -24,7 +24,7 @@ namespace libBzip2
                 {
                     var endOfBlock = foundPosition;
                     //Debug.WriteLine($"{startOfBlock:N0} - {endOfBlock:N0}");
-                    yield return (startOfBlock.Value, endOfBlock);
+                    yield return (startOfBlock.Value, endOfBlock, false);
                     startOfBlock = null;
                 }
 
@@ -33,7 +33,7 @@ namespace libBzip2
 
             if (startOfBlock != null)
             {
-                yield return (startOfBlock.Value, stream.Length);
+                yield return (startOfBlock.Value, stream.Length, true);
             }
         }
 

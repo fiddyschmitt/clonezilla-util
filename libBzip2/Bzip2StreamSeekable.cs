@@ -11,7 +11,7 @@ namespace libBzip2
 {
     public class Bzip2StreamSeekable : SeekableDecompressingStream
     {
-        readonly IList<Mapping> blocks = [];
+        readonly LazyList<Mapping> blocks;
         public override IList<Mapping> Blocks => blocks;
 
         public Stream CompressedInputStream { get; }
@@ -26,10 +26,55 @@ namespace libBzip2
             FileHeader = new byte[4];
             compressedInputStream.Read(FileHeader, 0, FileHeader.Length);
 
-            //This works, but Dokan immediately evaluates the whole list because it asks SeekableDecompressingStream for the Length property, which requires the last item in the list.
-            //blocks = new LazyList<Mapping>(GetIndexContent(compressedInputStream, indexFilename));
+            //Read all the blocks synchronously
+            //blocks = GetIndexContent(compressedInputStream, indexFilename).ToList();
 
-            blocks = GetIndexContent(compressedInputStream, indexFilename).ToList();
+            //Read all the blocks Lazily
+            blocks = new LazyList<Mapping>(GetIndexContent(compressedInputStream, indexFilename));
+
+            //Ideally, as soon as data is available (in the blocks LazyList), we would feed it to 7z.
+            //However, 7z sometimes seeks multiple GB, which takes longer than 60 seconds to seek lazily, which results in 7z failing with "Insufficient system resources".
+            //Read the first block, so that the reader at least has the magic bytes available
+            //_ = blocks[0];
+
+            //Let's evaluate 99% of the compressed file. This might be, say 40GB out of a 2TB image, as there tends to be a lot of trailing nulls which take a long time to unpack and aren't needed by 7z.
+            //This way we'll process the 40GB fairly quickly, allowing 7z to start processing the content without waiting for the whole file to be unpacked.
+            //Update - unfortunately still results in "Insufficient system resources" at the very end of opening the archive.
+            /*
+            foreach (var _ in blocks)
+            {
+                var per = compressedInputStream.Position / (double)compressedInputStream.Length * 100;
+                Log.Debug($"Forced eval up to {per:N1}%");
+                if (per > 98)
+                {
+                    break;
+                }
+            }
+            */
+
+            //Force eval of entire lazy list
+            foreach (var _ in blocks)
+            {
+            }
+        }
+
+        //public override long UncompressedTotalLength => Blocks.Last().UncompressedEndByte;
+
+        public override long UncompressedTotalLength
+        {
+            get
+            {
+                //We've been asked for the total length of the stream. We'll just respond with what we've discovered so far, allowing things like the 'list files' functions to start working before the entire file has been indexed.
+                var lastIndexSoFar = blocks.CountSoFar - 1;
+
+                var result = 0L;
+                if (lastIndexSoFar >= 0)
+                {
+                    result = blocks[lastIndexSoFar].UncompressedEndByte;
+                }
+
+                return result;
+            }
         }
 
         readonly object sourceStreamLock = new();
@@ -87,6 +132,8 @@ namespace libBzip2
             var largestCompressedPositionProcessed = 0L;
             var largestCompressedPositionProcessedLock = new object();
 
+            var blocks = new List<Mapping>();
+
             var result = BZip2BlockFinder
                             .FindBlocks(independentInputStream)
                             .SelectParallelPreserveOrder(block =>
@@ -102,6 +149,10 @@ namespace libBzip2
                                 var fileHeaderContent = new MemoryStream(FileHeader);
                                 var fullBlockContent = new Multistream(new Stream[] { fileHeaderContent, compressedContent });
 
+                                //var blockMD5 = Utility.CalculateMD5(fullBlockContent);
+                                //Debug.WriteLine($"Block at {block.Start:N0} - {block.End:N0}: {blockMD5}");
+                                //fullBlockContent.Seek(0, SeekOrigin.Begin);
+
 
                                 using var bzip2Decompressor = new BZip2Stream(fullBlockContent, SharpCompress.Compressors.CompressionMode.Decompress, false);
                                 using var positionTrackingStream = new PositionTrackerStream();
@@ -112,15 +163,15 @@ namespace libBzip2
                                         {
                                             totalBytesUncompressed += progress.Read;
 
-                                            if (inputStream.Position > largestCompressedPositionProcessed)
+                                            if (independentInputStream.Position > largestCompressedPositionProcessed)
                                             {
-                                                largestCompressedPositionProcessed = inputStream.Position;
+                                                largestCompressedPositionProcessed = independentInputStream.Position;
                                             }
                                         }
 
-                                        var perThroughCompressedSource = (double)largestCompressedPositionProcessed / inputStream.Length * 100;
+                                        var perThroughCompressedSource = (double)largestCompressedPositionProcessed / independentInputStream.Length * 100;
 
-                                        Debug.WriteLine($"Decompressed {totalBytesUncompressed:N0} bytes");
+                                        //Debug.WriteLine($"Decompressed {totalBytesUncompressed:N0} bytes");
                                         Log.Information($"Indexed {totalBytesUncompressed.BytesToString()}. ({perThroughCompressedSource:N1}% through source file)");
                                     });
                                 positionTrackingStream.Seek(0, SeekOrigin.Begin);
@@ -139,6 +190,15 @@ namespace libBzip2
                                     UncompressedStartByte = uncompressedStartPos,
                                     UncompressedEndByte = uncompressedStartPos + block.UncompressedLength
                                 };
+                                blocks.Add(blockInfo);
+
+                                if (indexFilename != null && block.Metadata.IsLast)
+                                {
+                                    Log.Information($"Finished generating bzip2 index. Saving to final location: {indexFilename}");
+
+                                    var json = JsonConvert.SerializeObject(blocks, Formatting.Indented);
+                                    File.WriteAllText(indexFilename, json);
+                                }
 
                                 Debug.WriteLine($"{++blockCount:N0}    {blockInfo}");
 
@@ -146,14 +206,6 @@ namespace libBzip2
 
                                 return blockInfo;
                             });
-
-            Log.Information($"Finished generating bzip2 index. Saving to final location: {indexFilename}");
-
-            if (indexFilename != null)
-            {
-                var json = JsonConvert.SerializeObject(result, Formatting.Indented);
-                File.WriteAllText(indexFilename, json);
-            }
 
             return result;
         }
