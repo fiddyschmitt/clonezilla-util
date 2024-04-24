@@ -27,12 +27,6 @@ namespace clonezilla_util_tests.Train
         [TestMethod]
         public void Gz()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             TestTrain(
                 @"E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda1.img",
                 new Compressor[] { new gzCompressor() }

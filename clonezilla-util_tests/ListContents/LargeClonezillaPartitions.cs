@@ -13,12 +13,6 @@ namespace clonezilla_util_tests.ListContents
         [TestMethod]
         public void Bzip2()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-16-22-img_pb-devops1_bzip2""",
@@ -33,12 +27,6 @@ namespace clonezilla_util_tests.ListContents
         [TestMethod]
         public void Gz()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-17-16-img_pb-devops1_gz""",
@@ -53,12 +41,6 @@ namespace clonezilla_util_tests.ListContents
         [TestMethod]
         public void Xz()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-17-12-img_pb-devops1_xz""",
@@ -73,12 +55,6 @@ namespace clonezilla_util_tests.ListContents
         [TestMethod]
         public void Zst()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-16-22-img_pb-devops1_zst""",

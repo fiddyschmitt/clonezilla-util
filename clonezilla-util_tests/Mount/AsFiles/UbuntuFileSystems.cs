@@ -14,12 +14,6 @@ namespace clonezilla_util_tests.Mount.AsFiles
         [TestMethod]
         public void ext4()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             //default Ubuntu file system (ext4)
             ConfirmFilesExist(
                 Main.ExeUnderTest,
@@ -33,12 +27,6 @@ namespace clonezilla_util_tests.Mount.AsFiles
         [TestMethod]
         public void ext4_lvm()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             //Ubuntu installed using LVM file system
             ConfirmFilesExist(
                 Main.ExeUnderTest,

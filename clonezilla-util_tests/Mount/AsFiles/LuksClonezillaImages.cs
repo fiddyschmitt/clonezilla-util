@@ -40,12 +40,6 @@ namespace clonezilla_util_tests.Mount.AsFiles
         [TestMethod]
         public void luks_ext4_500GB_gz()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             //500 GB ext4 -> luks -> partclone -> gz
             //ConfirmFilesExist(
             //    Main.ExeUnderTest,
@@ -59,12 +53,6 @@ namespace clonezilla_util_tests.Mount.AsFiles
         [TestMethod]
         public void luks_ext4_500GB_zst()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             //500GB ext4 -> luks -> partclone -> zst
             //ConfirmFilesExist(
             //    Main.ExeUnderTest,

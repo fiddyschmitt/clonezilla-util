@@ -23,7 +23,7 @@ namespace clonezilla_util_tests.ListContents
 
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
-                """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.bz2""",
+                """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.bz2" """,
                 new List<string>()
                 {
                     @"2021-12-28_pb-devops1_sda.img\partition0\Recovery\WindowsRE\ReAgent.xml",
@@ -85,12 +85,6 @@ namespace clonezilla_util_tests.ListContents
         [TestMethod]
         public void Zst()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.zst""",

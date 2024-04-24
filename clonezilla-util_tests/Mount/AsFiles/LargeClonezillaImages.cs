@@ -14,12 +14,6 @@ namespace clonezilla_util_tests.Mount.AsFiles
         [TestMethod]
         public void bzip2()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-16-22-img_pb-devops1_bzip2" -m L:\""",
@@ -33,12 +27,6 @@ namespace clonezilla_util_tests.Mount.AsFiles
         [TestMethod]
         public void gz()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-17-16-img_pb-devops1_gz" -m L:\""",
@@ -52,12 +40,6 @@ namespace clonezilla_util_tests.Mount.AsFiles
         [TestMethod]
         public void xz()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-17-12-img_pb-devops1_xz" -m L:\""",
@@ -71,12 +53,6 @@ namespace clonezilla_util_tests.Mount.AsFiles
         [TestMethod]
         public void zst()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-16-22-img_pb-devops1_zst" -m L:\""",

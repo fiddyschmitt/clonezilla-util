@@ -27,11 +27,6 @@ namespace clonezilla_util_tests.Mount.AsFiles
         public void ext4_zst()
         {
             //Takes a long time because 7z.exe tries to scan across the entire 33 GB file, requiring the zstandard stream (even though only 1 MB) to be opened over and over by SeekableStreamUsingRestarts
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
 
             ConfirmFilesExist(
                 Main.ExeUnderTest,

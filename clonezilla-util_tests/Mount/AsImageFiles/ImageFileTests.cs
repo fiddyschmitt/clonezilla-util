@@ -14,12 +14,6 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
         [TestMethod]
         public void Gz()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             TestUtility.ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount-as-image-files --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-17-16-img_pb-devops1_gz" -p sda1 -m L:\ """,
@@ -31,12 +25,6 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
         [TestMethod]
         public void Partclone()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             //partclone image. This is 2TB - takes ages to calculate the hash
             //Maybe only hash first 10 GB
             /*
@@ -64,12 +52,6 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
         [TestMethod]
         public void Zst()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             TestUtility.ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount-as-image-files --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-16-22-img_pb-devops1_zst" -p sda1 -m L:\ """,
@@ -81,12 +63,6 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
         [TestMethod]
         public void UncompressedPartitionImage_and_gzClonezillaImage()
         {
-            if (!Main.RunLargeTests)
-            {
-                Assert.Inconclusive($"Not run. ({nameof(Main.RunLargeTests)} = False)");
-                return;
-            }
-
             //uncompressed partition image and gz clonezilla image
             TestUtility.ConfirmFilesExist(
                 Main.ExeUnderTest,
