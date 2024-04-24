@@ -54,35 +54,22 @@ namespace libCommon.Streams
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            int bytesRead = 0;
 
-            while (true)
+            var substream = Substreams.FirstOrDefault(s => Position >= s.Start && Position < s.End);
+
+            if (substream == null)
             {
-                var substream = Substreams.FirstOrDefault(s => Position >= s.Start && Position < s.End);
-
-                if (substream == null)
-                {
-                    break;
-                }
-
-                //determine where we should start reading in the substream
-                var positionInSubstream = Position - substream.Start;
-                substream.Stream.Seek(positionInSubstream, SeekOrigin.Begin);
-
-                var bytesToRead = count - bytesRead;
-
-                var bytesActuallyRead = substream.Stream.Read(buffer, offset + bytesRead, bytesToRead);
-
-                bytesRead += bytesActuallyRead;
-                position += bytesActuallyRead;
-
-                if (bytesRead >= count) break;
+                return 0;
             }
 
-            if (bytesRead > count)
-            {
-                throw new Exception($"Read too many bytes! Should have read {count:N0} but read {bytesRead:N0}");
-            }
+            //determine where we should start reading in the substream
+            var positionInSubstream = Position - substream.Start;
+            substream.Stream.Seek(positionInSubstream, SeekOrigin.Begin);
+
+
+            var bytesRead = substream.Stream.Read(buffer, offset, count);
+
+            position += bytesRead;
 
             return bytesRead;
         }

@@ -79,8 +79,7 @@ namespace libGZip
 
         public override List<Mapping> Blocks => indexContents;
 
-
-
+        public override long UncompressedTotalLength => Blocks.Last().UncompressedEndByte;
 
         public override int ReadFromChunk(Mapping chunk, byte[] buffer, int offset, int count)
         {

@@ -1,8 +1,10 @@
 ﻿using libCommon;
 using libCommon.Streams;
 using libDecompression.Lists;
+using Serilog;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -13,7 +15,9 @@ namespace libDecompression
     {
         public abstract IList<Mapping> Blocks { get; }
 
-        long UncompressedTotalLength => Blocks.Last().UncompressedEndByte;
+        //long UncompressedTotalLength => Blocks.Last().UncompressedEndByte;
+        public abstract long UncompressedTotalLength { get; }
+
         public readonly MappingComparer MappingComparer = new();
 
         public abstract int ReadFromChunk(Mapping chunk, byte[] buffer, int offset, int count);
@@ -37,45 +41,31 @@ namespace libDecompression
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            int totalBytesRead = 0;
-            var leftToRead = count;
-            while (leftToRead > 0)
+            var chunkDetails = Blocks.BinarySearch(position, MappingComparer);
+
+            if (chunkDetails == null)
             {
-                var chunkDetails = Blocks.BinarySearch(position, MappingComparer);
-
-                if (chunkDetails == null)
-                {
-                    break;
-                }
-
-                var bytesLeftInFile = Length - position;
-                var bytesToRead = (int)Math.Min(leftToRead, bytesLeftInFile);
-
-                int bytesRead = 0;
-                if (chunkDetails != null)
-                {
-                    bytesRead = ReadFromChunk(chunkDetails, buffer, offset, bytesToRead);
-                }
-
-                position += bytesRead;
-                totalBytesRead += bytesRead;
-                leftToRead -= bytesRead;
+                return 0;
             }
 
-            return totalBytesRead;
+            var bytesLeftInFile = Length - position;
+            var bytesToRead = (int)Math.Min(count, bytesLeftInFile);
+
+            Log.Debug($"Attempting to read {count.BytesToString()} from position {Position:N0}");
+            var startTime = DateTime.Now;
+            var bytesRead = ReadFromChunk(chunkDetails, buffer, offset, bytesToRead);
+            Log.Debug($"Finished reading. Mananaged {bytesRead.BytesToString()} in {(DateTime.Now - startTime).TotalSeconds:N2} seconds");
+
+            position += bytesRead;
+
+            return bytesRead;
         }
 
         public (long Start, long End) GetRecommendation(long start, long end)
         {
-            end = Math.Min(Length, end);
+            var startIndexPoint = Blocks.BinarySearch(start + 1, MappingComparer) ?? throw new Exception($"Could not find block which contains position {start:N0}");
 
-            var startIndexPoint = Blocks.BinarySearch(start, MappingComparer) ?? throw new Exception($"Could not find block which contains position {start:N0}");
-            var endIndexPoint = Blocks.BinarySearch(end, MappingComparer) ?? throw new Exception($"Could not find block which contains position {end:N0}");
-
-            var recommendedStart = startIndexPoint.UncompressedStartByte;
-            var recommendedEnd = endIndexPoint.UncompressedEndByte;
-
-            var result = (recommendedStart, recommendedEnd);
+            var result = (startIndexPoint.UncompressedStartByte, startIndexPoint.UncompressedEndByte);
             return result;
         }
 

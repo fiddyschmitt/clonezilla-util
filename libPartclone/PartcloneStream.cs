@@ -100,72 +100,58 @@ namespace libPartclone
                     }
                 }
 
-                var pos = Position;
-                var bufferPos = offset;
-                var end = Position + count;
 
                 LatestReadWasAllNull = true;
 
-                while (true)
+                if (Position == Length)
                 {
-                    var bytesRead = bufferPos - offset;
-                    var bytesToGo = count - bytesRead;
-
-                    if (bytesToGo == 0 || pos == Length)
-                    {
-                        break;
-                    }
-
-                    //var range = PartcloneImageInfo.PartcloneContentMapping.Value.FirstOrDefault(r => pos >= r.OutputFileRange.StartByte && pos <= r.OutputFileRange.EndByte);
-                    var range = PartcloneImageInfo.PartcloneContentMapping.Value.BinarySearch(pos, contiguousRangeComparer);
-
-                    if (range == null)
-                    {
-                        break;
-                    }
-
-                    var bytesLeftInThisRange = range.OutputFileRange.EndByte - pos + 1;
-
-                    var bytesToRead = (int)Math.Min(bytesToGo, bytesLeftInThisRange);
-
-                    var deltaFromBeginningOfRange = pos - range.OutputFileRange.StartByte;
-
-                    int read;
-                    if (range.IsPopulated && range.PartcloneContentRange != null)
-                    {
-                        PartcloneImageInfo.ReadStream.Seek(range.PartcloneContentRange.StartByte + deltaFromBeginningOfRange, SeekOrigin.Begin);
-                        read = PartcloneImageInfo.ReadStream.Read(buffer, bufferPos, bytesToRead);
-                        LatestReadWasAllNull = false;
-
-                        /*
-                        var actualRead = buffer.Skip(bufferPos).Take(read).ToArray();
-                        File.WriteAllBytes(@"C:\Temp\actual.bin", actualRead);
-                        using var fs = File.OpenRead(@"C:\Temp\sda1-x64.img");
-                        var expected = new byte[read];
-                        fs.Seek(pos, SeekOrigin.Begin);
-                        fs.Read(expected, 0, expected.Length);
-                        File.WriteAllBytes(@"C:\Temp\expected.bin", expected);
-                        if (!actualRead.SequenceEqual(expected))
-                        {
-                            Console.WriteLine();
-                        }
-                        */
-                    }
-                    else
-                    {
-                        Array.Clear(buffer, bufferPos, bytesToRead);
-                        read = bytesToRead;
-                    }
-
-                    bufferPos += read;
-                    pos += read;
+                    return 0;
                 }
 
-                position = pos;
+                //var range = PartcloneImageInfo.PartcloneContentMapping.Value.FirstOrDefault(r => pos >= r.OutputFileRange.StartByte && pos <= r.OutputFileRange.EndByte);
+                var range = PartcloneImageInfo.PartcloneContentMapping.Value.BinarySearch(Position, contiguousRangeComparer);
 
-                var totalBytesRead = bufferPos - offset;
+                if (range == null)
+                {
+                    return 0;
+                }
 
-                return totalBytesRead;
+                var bytesLeftInThisRange = range.OutputFileRange.EndByte - Position + 1;
+
+                var bytesToRead = (int)Math.Min(count, bytesLeftInThisRange);
+
+                var deltaFromBeginningOfRange = Position - range.OutputFileRange.StartByte;
+
+                int bytesRead;
+                if (range.IsPopulated && range.PartcloneContentRange != null)
+                {
+                    PartcloneImageInfo.ReadStream.Seek(range.PartcloneContentRange.StartByte + deltaFromBeginningOfRange, SeekOrigin.Begin);
+                    bytesRead = PartcloneImageInfo.ReadStream.Read(buffer, offset, bytesToRead);
+                    LatestReadWasAllNull = false;
+
+                    /*
+                    var actualRead = buffer.Skip(bufferPos).Take(read).ToArray();
+                    File.WriteAllBytes(@"C:\Temp\actual.bin", actualRead);
+                    using var fs = File.OpenRead(@"C:\Temp\sda1-x64.img");
+                    var expected = new byte[read];
+                    fs.Seek(pos, SeekOrigin.Begin);
+                    fs.Read(expected, 0, expected.Length);
+                    File.WriteAllBytes(@"C:\Temp\expected.bin", expected);
+                    if (!actualRead.SequenceEqual(expected))
+                    {
+                        Console.WriteLine();
+                    }
+                    */
+                }
+                else
+                {
+                    Array.Clear(buffer, offset, bytesToRead);
+                    bytesRead = bytesToRead;
+                }
+
+                Position += bytesRead;
+
+                return bytesRead;
             }
         }
 
@@ -203,17 +189,11 @@ namespace libPartclone
         }
     }
 
-    public class ContiguousRange
+    public class ContiguousRange(ByteRange? partcloneContentRange, ByteRange outputFileRange)
     {
         public bool IsPopulated => PartcloneContentRange != null;
-        public ByteRange? PartcloneContentRange { get; init; }
-        public ByteRange OutputFileRange { get; init; }
-
-        public ContiguousRange(ByteRange? partcloneContentRange, ByteRange outputFileRange)
-        {
-            PartcloneContentRange = partcloneContentRange;
-            OutputFileRange = outputFileRange;
-        }
+        public ByteRange? PartcloneContentRange { get; init; } = partcloneContentRange;
+        public ByteRange OutputFileRange { get; init; } = outputFileRange;
     }
 
     public class ByteRange

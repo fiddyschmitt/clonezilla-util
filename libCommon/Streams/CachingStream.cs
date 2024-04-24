@@ -55,164 +55,138 @@ namespace libCommon.Streams
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            var pos = position;
-            var bufferPos = offset;
-            var end = pos + count;
-            var totalBytesRead = 0;
 
-            while (pos < end)
+            var cacheEntry = cache.FirstOrDefault(entry => Position >= entry.Start && Position < entry.End);
+
+            if (cacheEntry == null)
             {
-                var bytesToGo = end - pos;
+                Log.Debug($"Cache miss: {Position:N0}");
 
-                var cacheEntry = cache.FirstOrDefault(entry => pos >= entry.Start && pos < entry.End);
-
-                if (cacheEntry == null)
+                (long Start, long End) recommendedRead;
+                if (ReadSuggestor == null)
                 {
-                    Log.Debug($"Cache miss: {pos}");
-
-                    (long Start, long End) recommendedRead;
-                    if (ReadSuggestor == null)
-                    {
-                        recommendedRead = (pos, pos + bytesToGo);
-                    }
-                    else
-                    {
-                        recommendedRead = ReadSuggestor.GetRecommendation(pos, pos + bytesToGo);
-                    }
-
-                    if (recommendedRead.Start == -1 || recommendedRead.End == -1)
-                    {
-                        throw new Exception($"Could not get recommendation for reading {bytesToGo:N0} bytes from position {pos:N0}");
-                    }
-
-                    Log.Debug($"Want to read from {pos:N0} to {pos + bytesToGo:N0}. Was recommended to read {(recommendedRead.End - recommendedRead.Start).BytesToString()} from position {recommendedRead.Start:N0} to {recommendedRead.End:N0}");
-
-                    var toRead = (int)Math.Min(recommendedRead.End - recommendedRead.Start, int.MaxValue);
-
-                    if (toRead == 0)
-                    {
-                        break;
-                    }
-
-                    if (!Environment.Is64BitProcess)
-                    {
-                        toRead = Math.Min(toRead, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
-                    }
-
-
-                    var buff = new byte[toRead];
-
-                    BaseStream.Seek(recommendedRead.Start, SeekOrigin.Begin);
-                    var bytesRead = BaseStream.Read(buff, 0, toRead);
-
-                    if (bytesRead == 0)
-                    {
-                        break;
-                    }
-
-                    if (bytesRead < toRead)
-                    {
-                        var trimmedBuff = new byte[bytesRead];
-                        Array.Copy(buff, trimmedBuff, trimmedBuff.Length);
-                        buff = trimmedBuff;
-                    }
-
-                    cacheEntry = new CacheEntry(recommendedRead.Start, recommendedRead.Start + bytesRead, buff);
-
-                    //clear the cache until there's enough room
-                    bool addToCache;
-                    switch (CacheType)
-                    {
-                        case EnumCacheType.NoCaching:
-                            addToCache = false;
-                            break;
-
-                        case EnumCacheType.LimitBySegmentCount:
-                            while (cache.Count >= CacheLimitValue)
-                            {
-                                cache.RemoveAt(cache.Count - 1);
-                            }
-                            addToCache = true;
-                            break;
-
-                        case EnumCacheType.LimitByRAMUsage:
-
-                            var newEntrySizeInMegabytes = (int)(cacheEntry.Length / (double)(1024 * 1024));
-
-                            while (true)
-                            {
-                                var currentCacheSizeInBytes = cache.Sum(c => cacheEntry.Length);
-                                var currentCacheSizeInMegabytes = (int)(currentCacheSizeInBytes / (double)(1024 * 1024));
-
-                                if (newEntrySizeInMegabytes > CacheLimitValue)
-                                {
-                                    addToCache = false;
-                                    break;
-                                }
-
-                                if (currentCacheSizeInMegabytes + newEntrySizeInMegabytes <= CacheLimitValue)
-                                {
-                                    addToCache = true;
-                                    break;
-                                }
-                                else
-                                {
-                                    cache.RemoveAt(cache.Count - 1);
-                                }
-                            }
-                            break;
-
-                        default:
-                            addToCache = false;
-                            break;
-                    }
-
-                    if (addToCache)
-                    {
-                        cache.Insert(0, cacheEntry);
-                    }
+                    recommendedRead = (Position, Position + count);
                 }
                 else
                 {
-                    //Log.Information($"Cache hit: {pos:N0}");
+                    recommendedRead = ReadSuggestor.GetRecommendation(Position, Position + count);
+                }
 
-                    //move it to the beginning of the cache, to keep it fresh
-                    cache.Remove(cacheEntry);
+                if (recommendedRead.Start == -1 || recommendedRead.End == -1)
+                {
+                    throw new Exception($"Could not get recommendation for reading {count:N0} bytes from position {Position:N0}");
+                }
+
+                Log.Debug($"Want to read from {Position:N0} to {Position + count:N0}. Was recommended to read {(recommendedRead.End - recommendedRead.Start).BytesToString()} from position {recommendedRead.Start:N0} to {recommendedRead.End:N0}");
+
+                var toRead = (int)Math.Min(recommendedRead.End - recommendedRead.Start, int.MaxValue);
+
+                if (toRead == 0)
+                {
+                    return 0;
+                }
+
+                var buff = new byte[toRead];
+
+                BaseStream.Seek(recommendedRead.Start, SeekOrigin.Begin);
+                var bytesRead = BaseStream.Read(buff, 0, toRead);
+
+                if (bytesRead == 0)
+                {
+                    throw new Exception($"No bytes read despite recommendation of {recommendedRead.Start:N0} - {recommendedRead.End:N0}");
+                }
+
+                if (bytesRead < toRead)
+                {
+                    var trimmedBuff = new byte[bytesRead];
+                    Array.Copy(buff, trimmedBuff, trimmedBuff.Length);
+                    buff = trimmedBuff;
+                }
+
+                cacheEntry = new CacheEntry(recommendedRead.Start, recommendedRead.Start + bytesRead, buff);
+
+                //clear the cache until there's enough room
+                bool addToCache;
+                switch (CacheType)
+                {
+                    case EnumCacheType.NoCaching:
+                        addToCache = false;
+                        break;
+
+                    case EnumCacheType.LimitBySegmentCount:
+                        while (cache.Count >= CacheLimitValue)
+                        {
+                            cache.RemoveAt(cache.Count - 1);
+                        }
+                        addToCache = true;
+                        break;
+
+                    case EnumCacheType.LimitByRAMUsage:
+
+                        var newEntrySizeInMegabytes = (int)(cacheEntry.Length / (double)(1024 * 1024));
+
+                        while (true)
+                        {
+                            var currentCacheSizeInBytes = cache.Sum(c => cacheEntry.Length);
+                            var currentCacheSizeInMegabytes = (int)(currentCacheSizeInBytes / (double)(1024 * 1024));
+
+                            if (newEntrySizeInMegabytes > CacheLimitValue)
+                            {
+                                addToCache = false;
+                                break;
+                            }
+
+                            if (currentCacheSizeInMegabytes + newEntrySizeInMegabytes <= CacheLimitValue)
+                            {
+                                addToCache = true;
+                                break;
+                            }
+                            else
+                            {
+                                cache.RemoveAt(cache.Count - 1);
+                            }
+                        }
+                        break;
+
+                    default:
+                        addToCache = false;
+                        break;
+                }
+
+                if (addToCache)
+                {
                     cache.Insert(0, cacheEntry);
                 }
+            }
+            else
+            {
+                Log.Debug($"Cache hit: {Position:N0}");
 
-                var bytesLeftInThisRange = cacheEntry.End - pos;
-
-                if (pos >= cacheEntry.End)
-                {
-                    //throw new Exception($"Position {pos:N0} is at or beyond the range of this cacheEntry {cacheEntry.End:N0}");
-                    //Log.Information($"Position {pos:N0} is at or beyond the range of this cacheEntry {cacheEntry.End:N0}");
-                    break;
-                }
-
-                var bytesToRead = (int)Math.Min(bytesToGo, bytesLeftInThisRange);
-
-                if (bytesToRead == 0)
-                {
-                    throw new Exception($"Doing a zero-byte read");
-                }
-
-                var deltaFromBeginningOfRange = pos - cacheEntry.Start;
-                if (deltaFromBeginningOfRange < 0)
-                {
-                    throw new Exception("deltaFromBeginningOfRange < 0");
-                }
-
-                Array.Copy(cacheEntry.Content, deltaFromBeginningOfRange, buffer, bufferPos, bytesToRead);
-
-                bufferPos += bytesToRead;
-                pos += bytesToRead;
-                totalBytesRead += bytesToRead;
+                //move it to the beginning of the cache, to keep it fresh
+                cache.Remove(cacheEntry);
+                cache.Insert(0, cacheEntry);
             }
 
-            position = pos;
+            var bytesLeftInThisRange = cacheEntry.End - Position;
 
-            return totalBytesRead;
+            var bytesToRead = (int)Math.Min(count, bytesLeftInThisRange);
+
+            if (bytesToRead == 0)
+            {
+                throw new Exception($"Doing a zero-byte read");
+            }
+
+            var deltaFromBeginningOfRange = Position - cacheEntry.Start;
+            if (deltaFromBeginningOfRange < 0)
+            {
+                throw new Exception("deltaFromBeginningOfRange < 0");
+            }
+
+            Array.Copy(cacheEntry.Content, deltaFromBeginningOfRange, buffer, offset, bytesToRead);
+
+            Position += bytesToRead;
+
+            return bytesToRead;
         }
 
         public override long Seek(long offset, SeekOrigin origin)
