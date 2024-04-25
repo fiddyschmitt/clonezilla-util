@@ -128,20 +128,6 @@ namespace libPartclone
                     PartcloneImageInfo.ReadStream.Seek(range.PartcloneContentRange.StartByte + deltaFromBeginningOfRange, SeekOrigin.Begin);
                     bytesRead = PartcloneImageInfo.ReadStream.Read(buffer, offset, bytesToRead);
                     LatestReadWasAllNull = false;
-
-                    /*
-                    var actualRead = buffer.Skip(bufferPos).Take(read).ToArray();
-                    File.WriteAllBytes(@"C:\Temp\actual.bin", actualRead);
-                    using var fs = File.OpenRead(@"C:\Temp\sda1-x64.img");
-                    var expected = new byte[read];
-                    fs.Seek(pos, SeekOrigin.Begin);
-                    fs.Read(expected, 0, expected.Length);
-                    File.WriteAllBytes(@"C:\Temp\expected.bin", expected);
-                    if (!actualRead.SequenceEqual(expected))
-                    {
-                        Console.WriteLine();
-                    }
-                    */
                 }
                 else
                 {
