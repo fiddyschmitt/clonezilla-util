@@ -209,7 +209,7 @@ namespace libCommon
 
         public static string BytesToString(this ulong bytes)
         {
-            string[] UNITS = new string[] { "B", "KB", "MB", "GB", "TB", "PB", "EB" };
+            string[] UNITS = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
             int c;
             for (c = 0; c < UNITS.Length; c++)
             {

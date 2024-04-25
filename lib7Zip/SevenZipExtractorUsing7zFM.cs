@@ -141,9 +141,7 @@ namespace lib7Zip
             {
                 try
                 {
-                    var folder = Path.GetDirectoryName(fullFilename);
-                    if (folder == null) throw new Exception($"Could not derive folder path from: {fullFilename}");
-
+                    var folder = Path.GetDirectoryName(fullFilename) ?? throw new Exception($"Could not derive folder path from: {fullFilename}");
                     var fileName = Path.GetFileName(fullFilename);
 
                     var fmControls = WindowHandleHelper.GetChildWindowsDetailsRecursively(hWndFM);

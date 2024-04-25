@@ -12,14 +12,9 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Extractors
 {
-    public class ExtractorUsing7z : IExtractor
+    public class ExtractorUsing7z(string archiveFilename) : IExtractor
     {
-        public ExtractorUsing7z(string archiveFilename)
-        {
-            ArchiveFilename = archiveFilename;
-        }
-
-        public string ArchiveFilename { get; }
+        public string ArchiveFilename { get; } = archiveFilename;
 
         public Stream Extract(string pathInArchive)
         {
