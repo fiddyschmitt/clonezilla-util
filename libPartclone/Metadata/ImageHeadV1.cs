@@ -35,13 +35,12 @@ namespace libPartclone.Metadata
 
         public override string ToString()
         {
-            var lines = new[]
-            {
-                $"Magic: { Magic}",
+            string[] lines = [
+                $"Magic: {Magic}",
                 $"FileSystem: {FileSystem}",
                 $"ImageVersion: {ImageVersion}",
                 $"Padding: {Padding}"
-                };
+                ];
 
             string result = lines.ToString(Environment.NewLine);
 

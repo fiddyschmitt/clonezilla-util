@@ -39,13 +39,12 @@ namespace libPartclone.Metadata
 
         public override string ToString()
         {
-            var lines = new[]
-            {
-                $"Magic: { Magic}",
+            string[] lines = [
+                $"Magic: {Magic}",
                 $"PartcloneVersion: {PartcloneVersion}",
                 $"ImageVersion: {ImageVersion}",
                 $"Endianess: {(BigEndian ? "Big Endian" : "Little Endian")}"
-                };
+                ];
 
             string result = lines.ToString(Environment.NewLine);
 

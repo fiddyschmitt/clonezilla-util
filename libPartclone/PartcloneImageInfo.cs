@@ -154,7 +154,7 @@ namespace libPartclone
                 BitmapMode.BM_BIT => Bitmap.SelectMany(byt => byt.GetBits().Reverse()),
                 BitmapMode.BM_BYTE => Bitmap
                                         .Select(byt => byt != 0x0)
-                                        .Concat(new[] { false }),
+                                        .Concat([false]),
                 _ => throw new Exception($"Unsupported BitmapMode: {bitmapMode}"),
             };
 

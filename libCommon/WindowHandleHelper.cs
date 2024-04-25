@@ -189,7 +189,7 @@ namespace libUIHelpers
 
         public static List<IntPtr> GetChildWindowsRecursively(IntPtr hWnd)
         {
-            var result = Extensions.Recurse(new[] { hWnd }, hParent =>
+            var result = Extensions.Recurse([hWnd], hParent =>
             {
                 var childWindows = GetChildWindows(hParent);
 
