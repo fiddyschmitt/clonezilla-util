@@ -8,18 +8,18 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Extractors
 {
-    public class ExtractorUsingSevenZipExtractorLibrary : IExtractor
+    public class ExtractorUsingSevenZipSharp : IExtractor
     {
-        readonly SevenZipExtractorEx sevenZipExtractorEx;
+        readonly SevenZipExtractorUsingSevenZipSharp sevenZipExtractorEx;
 
-        public ExtractorUsingSevenZipExtractorLibrary(Stream archiveStream)
+        public ExtractorUsingSevenZipSharp(Stream archiveStream)
         {
-            sevenZipExtractorEx = new SevenZipExtractorEx(archiveStream);
+            sevenZipExtractorEx = new SevenZipExtractorUsingSevenZipSharp(archiveStream);
         }
 
-        public ExtractorUsingSevenZipExtractorLibrary(string archiveFilename)
+        public ExtractorUsingSevenZipSharp(string archiveFilename)
         {
-            sevenZipExtractorEx = new SevenZipExtractorEx(archiveFilename);
+            sevenZipExtractorEx = new SevenZipExtractorUsingSevenZipSharp(archiveFilename);
         }
 
         public Stream Extract(string pathInArchive)

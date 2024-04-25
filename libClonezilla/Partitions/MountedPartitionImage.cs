@@ -162,26 +162,32 @@ namespace libClonezilla.Partitions
                 extractor = new MultiExtractor(extractors, true);
             }
 
-            //Extractor which uses the SevenZipExtractor library from NuGet
-            //Was hoping that we could get SevenZipExtractor to load the archive (which takes time) in the constructor, so that it would be more responsive when asked to extract a file from it. But it still takes too long, causing an explorer.exe timeout.
+
+
+
             /*
-            {
-                var partitionDetails = partitionContainer
+            //Was hoping that these libraries could load the archive (which takes time) in the constructor, so that it would be more responsive when asked to extract a file from it.
+            var partitionDetails = container
                                     .Partitions
-                                    .FirstOrDefault(partition => partition.Name.Equals(partitionName));
+                                    .FirstOrDefault(partition => partition.PartitionName.Equals(partitionName)) ?? throw new Exception($"Could not load details for {partitionName}.");
 
-                if (partitionDetails == null) throw new Exception($"Could not load details for {partitionName}.");
-                for (int i = 0; i < 4; i++)
-                {
-                    //don't use - seems to return incorrect file content
-                    var newExtractor = new ExtractorUsingSevenZipExtractorLibrary(partitionDetails.FullPartitionImage);
+            var extractors = new List<IExtractor>();
+            for (int i = 0; i < 4; i++)
+            {
+                //Uses Squid-Box.SevenZipSharp. Throws an exception when trying to extract files:
+                //Execution has failed due to an internal SevenZipSharp issue (0x800705aa / -2147023446). You might find more info at https://github.com/squid-box/SevenZipSharp/issues/, but this library is no longer actively supported
+                //var newExtractor = new ExtractorUsingSevenZipSharp(ImageFileEntry.FullPath);
 
-                    //doesn't seem to like being run concurrently. Likely because it uses the native 7z.dll
-                    //var newExtractor = new ExtractorUsingSevenZipExtractorLibrary(realImageFile);
+                //Uses SevenZipExtractor, but throws SevenZipExtractor.SevenZipException: 'partition0.img is not a known archive type'
+                //var newExtractor = new ExtractorUsingSevenZipExtractor(ImageFileEntry.FullPath);
 
-                    extractors.Add(newExtractor);
-                }
+                //Uses SevenZipExtractor, but throws SevenZipExtractor.SevenZipException: 'Unable to guess format automatically'
+                var newExtractor = new ExtractorUsingSevenZipExtractor(File.OpenRead(ImageFileEntry.FullPath));
+
+                extractors.Add(newExtractor);
             }
+
+            extractor = new MultiExtractor(extractors, true);
             */
 
 
