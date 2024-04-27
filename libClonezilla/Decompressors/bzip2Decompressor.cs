@@ -13,15 +13,16 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Decompressors
 {
-    public class Bzip2Decompressor(Stream compressedStream, IPartitionCache? partitionCache) : Decompressor(compressedStream)
+    public class Bzip2Decompressor(Stream compressedStream, IPartitionCache? partitionCache, bool processTrailingNulls) : Decompressor(compressedStream)
     {
         public IPartitionCache? PartitionCache { get; } = partitionCache;
+        public bool ProcessTrailingNulls { get; } = processTrailingNulls;
 
         public override Stream? GetSeekableStream()
         {
             var indexFilename = PartitionCache?.GetBZip2IndexFilename();
 
-            var seekableStream = new Bzip2StreamSeekable(CompressedStream, indexFilename);
+            var seekableStream = new Bzip2StreamSeekable(CompressedStream, indexFilename, ProcessTrailingNulls);
 
             return seekableStream;
         }

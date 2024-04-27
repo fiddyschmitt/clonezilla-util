@@ -12,5 +12,8 @@ namespace clonezilla_util.CL.Verbs
 
         [Option("temp-folder", HelpText = "The folder to store temporary files (if required)", Required = false)]
         public string? TempFolder { get; set; }
+
+        [Option("process-trailing-nulls ", HelpText = "By default, the program skips trailing nulls to speed up processing of large files. Use this switch to force them to be processed.", Required = false)]
+        public bool ProcessTrailingNulls { get; set; } = false;
     }
 }

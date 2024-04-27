@@ -22,7 +22,14 @@ namespace libClonezilla.Decompressors
 {
     public class DecompressorSelector : Decompressor
     {
-        public DecompressorSelector(string originFilename, string streamName, Stream compressedStream, long? uncompressedLength, Compression compressionInUse, IPartitionCache? partitionCache) : base(compressedStream)
+        public DecompressorSelector(
+            string originFilename, 
+            string streamName, 
+            Stream compressedStream, 
+            long? uncompressedLength, 
+            Compression compressionInUse, 
+            IPartitionCache? partitionCache,
+            bool processTrailingNulls) : base(compressedStream)
         {
             OriginFilename = originFilename;
             StreamName = streamName;
@@ -32,7 +39,7 @@ namespace libClonezilla.Decompressors
 
             Decompressor = CompressionInUse switch
             {
-                Compression.bzip2 => new Bzip2Decompressor(CompressedStream, partitionCache),
+                Compression.bzip2 => new Bzip2Decompressor(CompressedStream, partitionCache, processTrailingNulls),
                 Compression.Gzip => new GzDecompressor(CompressedStream, partitionCache),
                 Compression.LZ4 => new LZ4Decompressor(CompressedStream),
                 Compression.LZip => new LZipDecompressor(CompressedStream),

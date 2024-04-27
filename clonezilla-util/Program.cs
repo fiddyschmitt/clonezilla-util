@@ -125,7 +125,13 @@ namespace clonezilla_util
 
             var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
 
-            var containers = PartitionContainer.FromPaths(listContentsOptions.InputPaths.ToList(), CacheFolder, listContentsOptions.PartitionsToInspect.ToList(), true, vfs)
+            var containers = PartitionContainer.FromPaths(
+                listContentsOptions.InputPaths.ToList(), 
+                CacheFolder, 
+                listContentsOptions.PartitionsToInspect.ToList(), 
+                true, 
+                vfs, 
+                listContentsOptions.ProcessTrailingNulls)
                                 .OrderBy(container => container.ContainerName)
                                 .ToList();
 
@@ -177,7 +183,13 @@ namespace clonezilla_util
             var mountPoint = mountAsImageOptions.MountPoint;
             var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
 
-            var containers = PartitionContainer.FromPaths(mountAsImageOptions.InputPaths.ToList(), CacheFolder, mountAsImageOptions.PartitionsToMount.ToList(), true, vfs);
+            var containers = PartitionContainer.FromPaths(
+                mountAsImageOptions.InputPaths.ToList(), 
+                CacheFolder, 
+                mountAsImageOptions.PartitionsToMount.ToList(), 
+                true, 
+                vfs,
+                mountAsImageOptions.ProcessTrailingNulls);
 
             libClonezilla.Utility.PopulateVFS(vfs, vfs.RootFolder.Value, containers, DesiredContent.ImageFiles);
 
@@ -194,7 +206,13 @@ namespace clonezilla_util
             var mountPoint = mountAsFilesOptions.MountPoint;
             var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
 
-            var containers = PartitionContainer.FromPaths(mountAsFilesOptions.InputPaths.ToList(), CacheFolder, mountAsFilesOptions.PartitionsToMount.ToList(), true, vfs);
+            var containers = PartitionContainer.FromPaths(
+                mountAsFilesOptions.InputPaths.ToList(), 
+                CacheFolder, 
+                mountAsFilesOptions.PartitionsToMount.ToList(), 
+                true, 
+                vfs,
+                mountAsFilesOptions.ProcessTrailingNulls);
 
             libClonezilla.Utility.PopulateVFS(vfs, vfs.RootFolder.Value, containers, DesiredContent.Files);
 
@@ -221,7 +239,8 @@ namespace clonezilla_util
                                 CacheFolder,
                                 extractPartitionImageOptions.PartitionsToExtract.ToList(),
                                 false,
-                                vfs);
+                                vfs,
+                                extractPartitionImageOptions.ProcessTrailingNulls);
 
             containers
                 .ForEach(container =>

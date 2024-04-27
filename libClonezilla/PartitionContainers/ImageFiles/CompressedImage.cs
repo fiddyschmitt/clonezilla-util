@@ -15,7 +15,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class CompressedImage : PartitionContainer
     {
-        public CompressedImage(string filename, List<string> partitionsToLoad, bool willPerformRandomSeeking, Folder tempFolder)
+        public CompressedImage(string filename, List<string> partitionsToLoad, bool willPerformRandomSeeking, Folder tempFolder, bool processTrailingNulls)
         {
             ContainerName = Path.GetFileNameWithoutExtension(filename);
 
@@ -46,7 +46,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 }
                 else
                 {
-                    var decompressorSelector = new DecompressorSelector(filename, ContainerName, streamToInspect, null, compression, null);
+                    var decompressorSelector = new DecompressorSelector(filename, ContainerName, streamToInspect, null, compression, null, processTrailingNulls);
                     decompressedStream = decompressorSelector.GetSeekableStream();
                 }
 
@@ -56,7 +56,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 currentFilename = virtualDecompressedFile.FullPath;
             }
 
-            var container = new RawImage(currentFilename, partitionsToLoad, ContainerName, willPerformRandomSeeking);
+            var container = new RawImage(currentFilename, partitionsToLoad, ContainerName, willPerformRandomSeeking, processTrailingNulls);
 
             Partitions = container.Partitions;
         }

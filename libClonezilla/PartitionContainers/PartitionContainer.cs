@@ -18,7 +18,7 @@ namespace libClonezilla.PartitionContainers
 
         public abstract string ContainerName { get; protected set; }
 
-        public static PartitionContainer FromPath(string path, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking, IVFS vfs)
+        public static PartitionContainer FromPath(string path, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking, IVFS vfs, bool processTrailingNulls)
         {
             PartitionContainer? result = null;
 
@@ -29,12 +29,12 @@ namespace libClonezilla.PartitionContainers
                 if (File.Exists(clonezillaMagicFile))
                 {
                     var clonezillaCacheManager = new ClonezillaCacheManager(path, cacheFolder);
-                    result = new ClonezillaImage(path, clonezillaCacheManager, partitionsToLoad, willPerformRandomSeeking);
+                    result = new ClonezillaImage(path, clonezillaCacheManager, partitionsToLoad, willPerformRandomSeeking, processTrailingNulls);
                 }
             }
             else if (File.Exists(path))
             {
-                result = new ImageFile(path, partitionsToLoad, willPerformRandomSeeking, vfs);
+                result = new ImageFile(path, partitionsToLoad, willPerformRandomSeeking, vfs, processTrailingNulls);
             }
             else
             {
@@ -49,10 +49,10 @@ namespace libClonezilla.PartitionContainers
             return result;
         }
 
-        public static List<PartitionContainer> FromPaths(List<string> paths, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking, IVFS vfs)
+        public static List<PartitionContainer> FromPaths(List<string> paths, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking, IVFS vfs, bool processTrailingNulls)
         {
             var result = paths
-                            .Select(path => FromPath(path, cacheFolder, partitionsToLoad, willPerformRandomSeeking, vfs))
+                            .Select(path => FromPath(path, cacheFolder, partitionsToLoad, willPerformRandomSeeking, vfs, processTrailingNulls))
                             .ToList();
 
             return result;

@@ -15,7 +15,12 @@ namespace libClonezilla.PartitionContainers
     {
         public string ClonezillaArchiveFolder { get; }
 
-        public ClonezillaImage(string clonezillaArchiveFolder, IClonezillaCacheManager cacheManager, List<string> partitionsToLoad, bool willPerformRandomSeeking)
+        public ClonezillaImage(
+            string clonezillaArchiveFolder, 
+            IClonezillaCacheManager cacheManager, 
+            List<string> partitionsToLoad, 
+            bool willPerformRandomSeeking,
+            bool processTrailingNulls)
         {
             ClonezillaArchiveFolder = clonezillaArchiveFolder;
 
@@ -89,7 +94,16 @@ namespace libClonezilla.PartitionContainers
                                     //the partition is stored using dd
                                     try
                                     {
-                                        result = new ImageFilePartition(clonezillaArchiveFolder, this, partitionName, compressedPartcloneStream, null, compressionInUse, partitionCache, willPerformRandomSeeking);
+                                        result = new ImageFilePartition(
+                                            clonezillaArchiveFolder, 
+                                            this, 
+                                            partitionName, 
+                                            compressedPartcloneStream, 
+                                            null, 
+                                            compressionInUse, 
+                                            partitionCache, 
+                                            willPerformRandomSeeking,
+                                            processTrailingNulls);
                                     }
                                     catch (Exception ex)
                                     {
@@ -100,7 +114,16 @@ namespace libClonezilla.PartitionContainers
                                 {
                                     try
                                     {
-                                        result = new PartclonePartition(clonezillaArchiveFolder, this, partitionName, compressedPartcloneStream, partitionSizeInBytes, compressionInUse, partitionCache, partcloneCache, willPerformRandomSeeking);
+                                        result = new PartclonePartition(
+                                            clonezillaArchiveFolder, 
+                                            this, partitionName, 
+                                            compressedPartcloneStream, 
+                                            partitionSizeInBytes, 
+                                            compressionInUse, 
+                                            partitionCache, 
+                                            partcloneCache, 
+                                            willPerformRandomSeeking,
+                                            processTrailingNulls);
                                     }
                                     catch (Exception ex)
                                     {

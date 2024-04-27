@@ -15,7 +15,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class RawDriveImage : PartitionContainer
     {
-        public RawDriveImage(string containerName, string filename, List<string> partitionsToLoad)
+        public RawDriveImage(string containerName, string filename, List<string> partitionsToLoad, bool processTrailingNulls)
         {
             ContainerName = containerName;
 
@@ -23,16 +23,16 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
             var rawDriveStream = File.OpenRead(filename);
 
-            SetupFromStream(rawDriveStream, partitionImageFiles, partitionsToLoad);
+            SetupFromStream(rawDriveStream, partitionImageFiles, partitionsToLoad, processTrailingNulls);
         }
 
-        public RawDriveImage(string containerName, List<string> partitionsToLoad, Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles)
+        public RawDriveImage(string containerName, List<string> partitionsToLoad, Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles, bool processTrailingNulls)
         {
             ContainerName = containerName;
-            SetupFromStream(rawDriveStream, partitionImageFiles, partitionsToLoad);
+            SetupFromStream(rawDriveStream, partitionImageFiles, partitionsToLoad, processTrailingNulls);
         }
 
-        void SetupFromStream(Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles, List<string> partitionsToLoad)
+        void SetupFromStream(Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles, List<string> partitionsToLoad, bool processTrailingNulls)
         {
             if (partitionImageFiles.Count == 0)
             {
@@ -98,7 +98,16 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
                                 //stream = new CachingStream(stream, null, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
 
-                                Partition partition = new ImageFilePartition(partitionInfo.PartitionFilename.Path, this, partitionInfo.PartitionName, partitionStream, partitionInfo.PartitionLength, Compression.None, null, true);
+                                Partition partition = new ImageFilePartition(
+                                    partitionInfo.PartitionFilename.Path, 
+                                    this, 
+                                    partitionInfo.PartitionName, 
+                                    partitionStream, 
+                                    partitionInfo.PartitionLength, 
+                                    Compression.None, 
+                                    null, 
+                                    true,
+                                    processTrailingNulls);
                                 return partition;
                             })
                             .ToList();

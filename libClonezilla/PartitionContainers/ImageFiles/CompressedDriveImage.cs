@@ -14,18 +14,18 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class CompressedDriveImage : PartitionContainer
     {
-        public CompressedDriveImage(string containerName, string filename, List<string> partitionsToLoad, Compression compressionInuse)
+        public CompressedDriveImage(string containerName, string filename, List<string> partitionsToLoad, Compression compressionInuse, bool processTrailingNulls)
         {
             ContainerName = containerName;
 
             var partitionImageFiles = SevenZipUtility.GetArchiveEntries(filename, false, true).ToList();
 
             var compressedStream = File.OpenRead(filename);
-            var decompressorSelector = new DecompressorSelector(filename, ContainerName, compressedStream, null, compressionInuse, null);
+            var decompressorSelector = new DecompressorSelector(filename, ContainerName, compressedStream, null, compressionInuse, null, processTrailingNulls);
 
             var rawDriveStream = decompressorSelector.GetSeekableStream();
 
-            var container = new RawDriveImage(containerName, partitionsToLoad, rawDriveStream, partitionImageFiles);
+            var container = new RawDriveImage(containerName, partitionsToLoad, rawDriveStream, partitionImageFiles, processTrailingNulls);
 
             Partitions = container.Partitions;
         }
