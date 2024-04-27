@@ -189,28 +189,13 @@ namespace libTrainCompress
             throw new NotImplementedException();
         }
 
-        public (long Start, long End) GetRecommendation(long start, long end)
+        public (long Start, long End) GetRecommendation(long start)
         {
-            if (Carriages == null) return (start, end);
+            if (Carriages == null) return (start, Length);
 
-            end = Math.Min(Length, end);
-
-            if (start >= end)
-            {
-                return (start, end);
-            }
-
-            //var startIndexPoint = Carriages.Last(ent => start >= ent.UncompressedStartByte);
             var startIndexPoint = Carriages.BinarySearch(start, carriageComparer) ?? Carriages.First();
 
-            //var endIndexPoint = Carriages.First(ent => end <= ent.UncompressedEndByte);
-            var endIndexPoint = Carriages.BinarySearch(end, carriageComparer) ?? startIndexPoint;
-
-            var recommendedStart = startIndexPoint.UncompressedStartByte;
-            var recommendedEnd = endIndexPoint.UncompressedEndByte;
-
-            var result = (recommendedStart, recommendedEnd);
-            return result;
+            return (startIndexPoint.UncompressedStartByte, startIndexPoint.UncompressedEndByte);
         }
     }
 

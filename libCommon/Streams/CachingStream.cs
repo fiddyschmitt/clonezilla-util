@@ -55,7 +55,6 @@ namespace libCommon.Streams
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-
             var cacheEntry = cache.FirstOrDefault(entry => Position >= entry.Start && Position < entry.End);
 
             if (cacheEntry == null)
@@ -69,7 +68,7 @@ namespace libCommon.Streams
                 }
                 else
                 {
-                    recommendedRead = ReadSuggestor.GetRecommendation(Position, Position + count);
+                    recommendedRead = ReadSuggestor.GetRecommendation(Position);
                 }
 
                 if (recommendedRead.Start == -1 || recommendedRead.End == -1)
@@ -79,7 +78,34 @@ namespace libCommon.Streams
 
                 Log.Debug($"Want to read from {Position:N0} to {Position + count:N0}. Was recommended to read {(recommendedRead.End - recommendedRead.Start).BytesToString()} from position {recommendedRead.Start:N0} to {recommendedRead.End:N0}");
 
-                var toRead = (int)Math.Min(recommendedRead.End - recommendedRead.Start, int.MaxValue);
+                var maxReadSize = Math.Min(int.MaxValue, Array.MaxLength);
+
+                //Recommendations can be larger than what can be stored in an array. Let's trim it down to size if required
+                var toReadLong = recommendedRead.End - recommendedRead.Start;
+                if (toReadLong > maxReadSize)
+                {
+                    if (Position < (recommendedRead.Start + maxReadSize))
+                    {
+                        //Let's bring down the recommend end
+                        recommendedRead.End = recommendedRead.Start + maxReadSize;
+                    }
+                    else
+                    {
+                        if (Position > (recommendedRead.End - maxReadSize))
+                        {
+                            //Let's bring up the recommended start
+                            recommendedRead.Start = recommendedRead.End - maxReadSize;
+                        }
+                        else
+                        {
+                            recommendedRead.Start = Position;
+                            recommendedRead.End = Position + Buffers.ARBITARY_MEDIUM_SIZE_BUFFER;
+                        }
+                    }
+                }
+                toReadLong = recommendedRead.End - recommendedRead.Start;
+
+                int toRead = (int)toReadLong;
 
                 if (toRead == 0)
                 {

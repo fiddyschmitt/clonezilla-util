@@ -6,6 +6,7 @@ using System.Diagnostics;
 using Newtonsoft.Json;
 using Serilog;
 using libCommon.Lists;
+using libCommon.Streams.Sparse;
 
 namespace libBzip2
 {
@@ -155,31 +156,71 @@ namespace libBzip2
 
 
                                 using var bzip2Decompressor = new BZip2Stream(fullBlockContent, SharpCompress.Compressors.CompressionMode.Decompress, false);
-                                using var positionTrackingStream = new PositionTrackerStream();
-                                bzip2Decompressor.CopyTo(positionTrackingStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER,
-                                    progress =>
-                                    {
-                                        lock (largestCompressedPositionProcessedLock)
-                                        {
-                                            totalBytesUncompressed += progress.Read;
 
-                                            if (independentInputStream.Position > largestCompressedPositionProcessed)
-                                            {
-                                                largestCompressedPositionProcessed = independentInputStream.Position;
-                                            }
+                                var blockUncompressedLength = 0L;
+                                if (block.IsLast)
+                                {
+                                    //The last block in the archive tends to have a lot of trailing nulls, so we don't want to read the whole thing.
+
+                                    var sequenceOfEmptyBytes = 0L;
+                                    using var sparseAwareReader = new SparseAwareReader(bzip2Decompressor);
+
+                                    while (true)
+                                    {
+                                        var read = sparseAwareReader.CopyTo(Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER, Buffers.ARBITARY_SMALL_SIZE_BUFFER);
+                                        if (read == 0)
+                                        {
+                                            break;
                                         }
 
-                                        var perThroughCompressedSource = (double)largestCompressedPositionProcessed / independentInputStream.Length * 100;
+                                        blockUncompressedLength += read;
 
-                                        //Debug.WriteLine($"Decompressed {totalBytesUncompressed:N0} bytes");
-                                        Log.Information($"Indexed {totalBytesUncompressed.BytesToString()}. ({perThroughCompressedSource:N1}% through source file)");
-                                    });
-                                positionTrackingStream.Seek(0, SeekOrigin.Begin);
+                                        if (sparseAwareReader.LatestReadWasAllNull)
+                                        {
+                                            sequenceOfEmptyBytes += read;
+                                        }
+                                        else
+                                        {
+                                            sequenceOfEmptyBytes = 0;
+                                        }
+
+                                        if (sequenceOfEmptyBytes > 4L * 1024 * 1024 * 1024)
+                                        {
+                                            Log.Warning($"The final bzip2 block has more that 4GB of empty bytes. Assuming the rest of the file is empty.");
+                                            break;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    using var positionTrackingStream = new PositionTrackerStream();
+
+                                    bzip2Decompressor.CopyTo(positionTrackingStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER,
+                                        progress =>
+                                        {
+                                            lock (largestCompressedPositionProcessedLock)
+                                            {
+                                                totalBytesUncompressed += progress.Read;
+
+                                                if (independentInputStream.Position > largestCompressedPositionProcessed)
+                                                {
+                                                    largestCompressedPositionProcessed = independentInputStream.Position;
+                                                }
+                                            }
+
+                                            var perThroughCompressedSource = (double)largestCompressedPositionProcessed / independentInputStream.Length * 100;
+
+                                            //Debug.WriteLine($"Decompressed {totalBytesUncompressed:N0} bytes");
+                                            Log.Information($"Indexed {totalBytesUncompressed.BytesToString()}. ({perThroughCompressedSource:N1}% through source file)");
+                                        });
+
+                                    blockUncompressedLength = positionTrackingStream.Length;
+                                }
 
                                 return new
                                 {
                                     Metadata = block,
-                                    UncompressedLength = positionTrackingStream.Length
+                                    UncompressedLength = blockUncompressedLength
                                 };
                             }, Environment.ProcessorCount)
                             .Select(block =>

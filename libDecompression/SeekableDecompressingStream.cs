@@ -61,12 +61,11 @@ namespace libDecompression
             return bytesRead;
         }
 
-        public (long Start, long End) GetRecommendation(long start, long end)
+        public (long Start, long End) GetRecommendation(long start)
         {
             var startIndexPoint = Blocks.BinarySearch(start + 1, MappingComparer) ?? throw new Exception($"Could not find block which contains position {start:N0}");
 
-            var result = (startIndexPoint.UncompressedStartByte, startIndexPoint.UncompressedEndByte);
-            return result;
+            return (startIndexPoint.UncompressedStartByte, startIndexPoint.UncompressedEndByte);
         }
 
         public override long Seek(long offset, SeekOrigin origin)

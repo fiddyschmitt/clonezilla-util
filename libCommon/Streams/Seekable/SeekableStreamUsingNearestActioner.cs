@@ -211,9 +211,9 @@ namespace libCommon.Streams.Seekable
             throw new NotImplementedException();
         }
 
-        public (long Start, long End) GetRecommendation(long start, long end)
+        public (long Start, long End) GetRecommendation(long start)
         {
-            end = Math.Min(Length, start + DistanceBetweenStationsInBytes);
+            var end = Math.Min(Length, start + DistanceBetweenStationsInBytes);
 
             return (start, end);
         }

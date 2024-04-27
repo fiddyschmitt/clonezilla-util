@@ -6,6 +6,6 @@ namespace libCommon.Streams
 {
     public interface IReadSuggestor
     {
-        (long Start, long End) GetRecommendation(long start, long end);
+        (long Start, long End) GetRecommendation(long start);
     }
 }
