@@ -169,7 +169,7 @@ namespace libBzip2
 
                                     while (true)
                                     {
-                                        var read = sparseAwareReader.CopyTo(Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER, Buffers.ARBITARY_SMALL_SIZE_BUFFER);
+                                        var read = sparseAwareReader.CopyTo(Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
                                         if (read == 0)
                                         {
                                             break;
@@ -210,10 +210,9 @@ namespace libBzip2
                                                 }
                                             }
 
-                                            var perThroughCompressedSource = (double)largestCompressedPositionProcessed / independentInputStream.Length * 100;
+                                            var percentThroughCompressedSource = (double)largestCompressedPositionProcessed / independentInputStream.Length * 100;
 
-                                            //Debug.WriteLine($"Decompressed {totalBytesUncompressed:N0} bytes");
-                                            Log.Information($"Indexed {totalBytesUncompressed.BytesToString()}. ({perThroughCompressedSource:N1}% through source file)");
+                                            Log.Information($"Indexed {totalBytesUncompressed.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
                                         });
 
                                     blockUncompressedLength = positionTrackingStream.Length;
