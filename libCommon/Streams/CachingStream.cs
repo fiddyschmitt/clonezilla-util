@@ -124,9 +124,7 @@ namespace libCommon.Streams
 
                 if (bytesRead < toRead)
                 {
-                    var trimmedBuff = new byte[bytesRead];
-                    Array.Copy(buff, trimmedBuff, trimmedBuff.Length);
-                    buff = trimmedBuff;
+                    Array.Resize(ref buff, bytesRead);
                 }
 
                 cacheEntry = new CacheEntry(recommendedRead.Start, recommendedRead.Start + bytesRead, buff);
