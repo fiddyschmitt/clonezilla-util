@@ -29,27 +29,23 @@ namespace libCommon.Streams.Sparse
             Stream = stream;
         }
 
-        //This is up to 3x faster than IsAllZerosLINQ
-        public static unsafe bool IsAllZerosUnsafe(byte[] data, int offset, int count)
+        public static bool IsAllZerosLINQParallel(byte[] data, int offset, int count)
         {
-            fixed (byte* p = data)
+            IEnumerable<byte> dat = data;
+            if (offset > 0)
             {
-                byte* start = p + offset;
-                byte* end = start + count;
-                for (byte* current = start; current < end; current++)
-                {
-                    if (*current != 0) return false;
-                }
+                dat = dat.Skip(offset);
             }
-            return true;
-        }
 
-        public static bool IsAllZerosLINQ(byte[] data, int offset, int count)
-        {
-            var result = data
-                .Skip(offset)
-                .Take(count)
-                .All(b => b == 0x0);
+            if (count != data.Length)
+            {
+                dat = dat.Take(count);
+            }
+
+            var result = dat
+                            .AsParallel()
+                            .WithDegreeOfParallelism(Environment.ProcessorCount)
+                            .All(b => b == 0x0);
 
             return result;
         }
@@ -58,7 +54,7 @@ namespace libCommon.Streams.Sparse
         {
             var bytesRead = Stream.Read(buffer, offset, count);
 
-            LatestReadWasAllNull = IsAllZerosUnsafe(buffer, offset, count);
+            LatestReadWasAllNull = IsAllZerosLINQParallel(buffer, offset, count);
 
             return bytesRead;
         }
