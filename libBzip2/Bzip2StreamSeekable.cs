@@ -131,7 +131,6 @@ namespace libBzip2
             long uncompressedStartPos = 0L;
 
             var blockCount = 0;
-            var totalBytesUncompressed = 0L;
             var largestCompressedPositionProcessed = 0L;
             var largestCompressedPositionProcessedLock = new object();
 
@@ -202,8 +201,6 @@ namespace libBzip2
                                         {
                                             lock (largestCompressedPositionProcessedLock)
                                             {
-                                                totalBytesUncompressed += progress.Read;
-
                                                 if (independentInputStream.Position > largestCompressedPositionProcessed)
                                                 {
                                                     largestCompressedPositionProcessed = independentInputStream.Position;
@@ -212,7 +209,7 @@ namespace libBzip2
 
                                             var percentThroughCompressedSource = (double)largestCompressedPositionProcessed / independentInputStream.Length * 100;
 
-                                            Log.Information($"Indexed {totalBytesUncompressed.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
+                                            Log.Information($"Indexed {progress.TotalRead.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
                                         });
 
                                     blockUncompressedLength = positionTrackingStream.Length;
