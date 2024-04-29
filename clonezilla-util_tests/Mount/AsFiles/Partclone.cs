@@ -62,7 +62,5 @@ namespace clonezilla_util_tests.Mount.AsFiles
                     new FileDetails(@"L:\2020-11-15-00-img_small_drive_new_partclone (clonezilla-live-2.6.6-15)\sda2\sda2.txt", "b80328235f5d991c6dc8982e1d1876bc"),
                 });
         }
-
-
     }
 }
