@@ -23,11 +23,11 @@ namespace libClonezilla.Decompressors
     public class DecompressorSelector : Decompressor
     {
         public DecompressorSelector(
-            string originFilename, 
-            string streamName, 
-            Stream compressedStream, 
-            long? uncompressedLength, 
-            Compression compressionInUse, 
+            string originFilename,
+            string streamName,
+            Stream compressedStream,
+            long? uncompressedLength,
+            Compression compressionInUse,
             IPartitionCache? partitionCache,
             bool processTrailingNulls) : base(compressedStream)
         {
@@ -36,6 +36,7 @@ namespace libClonezilla.Decompressors
             UncompressedLength = uncompressedLength;
             CompressionInUse = compressionInUse;
             PartitionCache = partitionCache;
+            ProcessTrailingNulls = processTrailingNulls;
 
             Decompressor = CompressionInUse switch
             {
@@ -55,6 +56,8 @@ namespace libClonezilla.Decompressors
         public long? UncompressedLength { get; }
         public Compression CompressionInUse { get; }
         public IPartitionCache? PartitionCache { get; }
+        public bool ProcessTrailingNulls { get; }
+
         public Decompressor Decompressor;
 
         public override Stream GetSeekableStream()
@@ -131,30 +134,12 @@ namespace libClonezilla.Decompressors
                     var cacheFolder = Path.Combine(WholeFileCacheManager.RootCacheFolder, md5);
                     Directory.CreateDirectory(cacheFolder);
 
-                    //turn on NTFS compression on the folder
-                    /*
-                    try
-                    {
-                        DirectoryInfo directoryInfo = new DirectoryInfo(cacheFolder);
-                        if ((directoryInfo.Attributes & FileAttributes.Compressed) != FileAttributes.Compressed)
-                        {
-                            string objPath = "Win32_Directory.Name=" + "'" + directoryInfo.FullName.Replace("\\", @"\\").TrimEnd('\\') + "'";
-                            using (ManagementObject dir = new ManagementObject(objPath))
-                            {
-                                ManagementBaseObject outParams = dir.InvokeMethod("Compress", null, null);
-                                uint ret = (uint)(outParams.Properties["ReturnValue"].Value);
-                            }
-                        }
-                    }
-                    catch { }
-                    */
-
                     var cachedFilename = Path.Combine(cacheFolder, "cache.train");
 
                     var compressors = new List<libTrainCompress.Compressors.Compressor>()
-                        {
-                            new zstdCompressor()
-                        };
+                    {
+                        new zstdCompressor()
+                    };
 
                     //check if we've already cached the file
                     if (File.Exists(cachedFilename))
@@ -178,23 +163,6 @@ namespace libClonezilla.Decompressors
 
                             using (var wipStream = File.Create(wipFilename))
                             {
-                                //extract it (no compression)
-                                /*
-                                using (var fs = File.Create(@"C:\Temp\decompressed.b"))
-                                {
-                                    var decompressedStreamSparseAware = new SparseAwareReader(decompressedStream);
-                                    StreamUtility.ExtractToFile(StreamName, Decompressor.CompressedStream, decompressedStreamSparseAware, fs, true);
-                                }
-                                */
-
-                                /*
-                                using (var fs = File.Create(@"C:\Temp\decompressed.b"))
-                                {
-                                    decompressedStream.CopyTo(fs, 50 * 1024 * 1024);
-                                }
-                                decompressedStream.Seek(0, SeekOrigin.Begin);
-                                */
-
                                 using var trainCompressor = new TrainCompressor(wipStream, compressors, 10 * 1024 * 1024);
                                 decompressedStream.CopyTo(trainCompressor, Buffers.ARBITARY_LARGE_SIZE_BUFFER, progress =>
                                 {
@@ -209,8 +177,6 @@ namespace libClonezilla.Decompressors
                                         //just in case the Close() call below causes the percentage calculation to fail
                                     }
                                 });
-
-                                //trainCompressor.Close();
                             }
                             File.Move(wipFilename, cachedFilename);
 
@@ -237,17 +203,8 @@ namespace libClonezilla.Decompressors
                         }
                     }
 
-                    //uncompressedStream = File.OpenRead(cachedFilename);
                     var cachedTrain = File.OpenRead(cachedFilename);
                     uncompressedStream = new TrainDecompressor(cachedTrain, compressors);
-
-                    /*
-                    using (var fs = File.Create(@"C:\Temp\decompressed.bin"))
-                    {
-                        uncompressedStream.CopyTo(fs, 50 * 1024 * 1024);
-                    }
-                    uncompressedStream.Seek(0, SeekOrigin.Begin);
-                    */
 
                     addCacheLayer = true;
                 }
