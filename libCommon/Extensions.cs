@@ -229,9 +229,9 @@ namespace libCommon
 
         public static long CopyTo(this Stream input, Stream output, int bufferSize, Action<(long Read, long TotalRead)>? callBack = null)
         {
-            byte[] buffer = Buffers.BufferPool.Rent(bufferSize);
+            var buffer = Buffers.BufferPool.Rent(bufferSize);
             int read;
-            long totalRead = 0;
+            var totalRead = 0L;
             while ((read = input.ReadAtLeast(buffer, bufferSize, false)) > 0)
             {
                 totalRead += read;
@@ -306,13 +306,15 @@ namespace libCommon
 
         public static long CopyTo(this Stream input, Stream output, long count, int bufferSize)
         {
-            byte[] buffer = Buffers.BufferPool.Rent(bufferSize);
-            long totalRead = 0;
+            var buffer = Buffers.BufferPool.Rent(bufferSize);
+            var totalRead = 0L;
+
+            //This has to be in a while loop, because the count that was requested coule be larger than Array.MaxLength
             while (true)
             {
                 if (count == 0) break;
 
-                int read = input.Read(buffer, 0, (int)Math.Min(bufferSize, count));
+                var read = input.Read(buffer, 0, (int)Math.Min(bufferSize, count));
 
                 if (read == 0) break;
                 totalRead += read;
