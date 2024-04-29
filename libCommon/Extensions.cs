@@ -232,7 +232,7 @@ namespace libCommon
             byte[] buffer = Buffers.BufferPool.Rent(bufferSize);
             int read;
             long totalRead = 0;
-            while ((read = input.Read(buffer, 0, bufferSize)) > 0)
+            while ((read = input.ReadAtLeast(buffer, bufferSize, false)) > 0)
             {
                 totalRead += read;
 
