@@ -105,20 +105,12 @@ namespace libCommon.Streams
         }
     }
 
-    public class Substream
+    public class Substream(long start, long end, Stream stream, int streamIndex = 0)
     {
-        public long Start;
-        public long End;
+        public long Start = start;
+        public long End = end;
         public long Length => End - Start;
-        public Stream Stream;
-        public int StreamIndex;
-
-        public Substream(long start, long end, Stream stream, int streamIndex = 0)
-        {
-            Start = start;
-            End = end;
-            Stream = stream;
-            StreamIndex = streamIndex;
-        }
+        public Stream Stream = stream;
+        public int StreamIndex = streamIndex;
     }
 }

@@ -19,22 +19,14 @@ using libClonezilla.PartitionContainers;
 
 namespace libClonezilla.Partitions
 {
-    public abstract class Partition
+    public abstract class Partition(PartitionContainer container, string partitionName, IPartitionCache? partitionCache, Stream? compressedOrigin)
     {
         public Stream? FullPartitionImage { get; protected set; }
-        public PartitionContainer Container { get; protected set; }
-        public string PartitionName { get; protected set; }
-        public IPartitionCache? PartitionCache { get; protected set; }
+        public PartitionContainer Container { get; protected set; } = container;
+        public string PartitionName { get; protected set; } = partitionName;
+        public IPartitionCache? PartitionCache { get; protected set; } = partitionCache;
 
-        protected Stream? CompressedOrigin = null;
-
-        public Partition(PartitionContainer container, string partitionName, IPartitionCache? partitionCache, Stream? compressedOrigin)
-        {
-            Container = container;
-            PartitionName = partitionName;
-            PartitionCache = partitionCache;
-            CompressedOrigin = compressedOrigin;
-        }
+        protected Stream? CompressedOrigin = compressedOrigin;
 
         public void ExtractToFile(string outputFilename, bool makeSparse)
         {

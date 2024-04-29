@@ -7,15 +7,9 @@ using System.Threading.Tasks;
 
 namespace libCommon.Streams
 {
-    public class IndependentStream : Stream
+    //Independantly uses the provided the stream, keeping track of its on Position and uses the underlying stream in a synchronised manner
+    public class IndependentStream(Stream baseStream, object readLock) : Stream
     {
-        //Independantly uses the provided the stream, keeping track of its on Position and uses the underlying stream in a synchronised manner
-        public IndependentStream(Stream baseStream, object readLock)
-        {
-            BaseStream = Synchronized(baseStream);
-            ReadLock = readLock;
-        }
-
         public override bool CanRead => true;
 
         public override bool CanSeek => true;
@@ -40,8 +34,8 @@ namespace libCommon.Streams
                 }
             }
         }
-        public Stream BaseStream { get; }
-        public object ReadLock { get; }
+        public Stream BaseStream { get; } = Synchronized(baseStream);
+        public object ReadLock { get; } = readLock;
 
         public override void Flush() => BaseStream.Flush();
 

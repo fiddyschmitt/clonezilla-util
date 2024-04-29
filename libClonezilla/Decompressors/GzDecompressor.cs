@@ -11,14 +11,9 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Decompressors
 {
-    public class GzDecompressor : Decompressor
+    public class GzDecompressor(Stream compressedStream, IPartitionCache? partitionCache) : Decompressor(compressedStream)
     {
-        public GzDecompressor(Stream compressedStream, IPartitionCache? partitionCache) : base(compressedStream)
-        {
-            PartitionCache = partitionCache;
-        }
-
-        public IPartitionCache? PartitionCache { get; }
+        public IPartitionCache? PartitionCache { get; } = partitionCache;
 
         public override Stream? GetSeekableStream()
         {

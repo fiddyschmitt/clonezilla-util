@@ -10,14 +10,9 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Extractors
 {
-    public class ExtractorUsing7zFM : IExtractor
+    public class ExtractorUsing7zFM(string archiveFilename) : IExtractor
     {
-        readonly SevenZipExtractorUsing7zFM FileManagerExtractor;
-
-        public ExtractorUsing7zFM(string archiveFilename)
-        {
-            FileManagerExtractor = new SevenZipExtractorUsing7zFM(archiveFilename);
-        }
+        readonly SevenZipExtractorUsing7zFM FileManagerExtractor = new(archiveFilename);
 
         public Stream Extract(string pathInArchive)
         {

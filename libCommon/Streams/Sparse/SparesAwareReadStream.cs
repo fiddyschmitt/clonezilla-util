@@ -8,9 +8,9 @@ using System.Threading.Tasks;
 
 namespace libCommon.Streams.Sparse
 {
-    public class SparseAwareReader : Stream, ISparseAwareReader
+    public class SparseAwareReader(Stream stream) : Stream, ISparseAwareReader
     {
-        public Stream Stream { get; }
+        public Stream Stream { get; } = stream;
         public bool LatestReadWasAllNull { get; set; } = false;
         public bool StopReadingWhenRemainderOfFileIsNull { get; set; } = false;
 
@@ -23,11 +23,6 @@ namespace libCommon.Streams.Sparse
         public override long Length => Stream.Length;
 
         public override long Position { get => Stream.Position; set => Stream.Position = value; }
-
-        public SparseAwareReader(Stream stream)
-        {
-            Stream = stream;
-        }
 
         public static bool IsAllZerosLINQParallel(byte[] data, int offset, int count)
         {

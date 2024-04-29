@@ -78,7 +78,7 @@ namespace libClonezilla.Partitions
             catch (Exception ex)
             {
                 Log.Error(ex, $"[{container.ContainerName}] [{partitionName}] The image file for this partition ({ImageFileEntry.FullPath}) is not considered an archive by 7-Zip. Returning empty file list.");
-                return new List<FileSystemEntry>();
+                return [];
             }
 
             Log.Information($"[{container.ContainerName}] [{partitionName}] Contains {filesInArchive.Count:N0} files.");
@@ -308,11 +308,9 @@ namespace libClonezilla.Partitions
                 {
                     var parentFolder = pathLookup[fileSystemEntry];
 
-                    if (folderLookup.ContainsKey(parentFolder))
+                    if (folderLookup.TryGetValue(parentFolder, out Folder? value))
                     {
-                        var parent = folderLookup[parentFolder];
-
-                        fileSystemEntry.Parent = parent;
+                        fileSystemEntry.Parent = value;
                     }
                     else
                     {

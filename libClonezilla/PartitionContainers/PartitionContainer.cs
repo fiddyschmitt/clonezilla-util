@@ -14,7 +14,7 @@ namespace libClonezilla.PartitionContainers
 {
     public abstract class PartitionContainer
     {
-        public List<Partition> Partitions { get; protected set; } = new List<Partition>();
+        public List<Partition> Partitions { get; protected set; } = [];
 
         public abstract string ContainerName { get; protected set; }
 

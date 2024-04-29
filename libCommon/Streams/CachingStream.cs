@@ -8,18 +8,8 @@ using Serilog;
 
 namespace libCommon.Streams
 {
-    public class CachingStream : Stream
+    public class CachingStream(Stream baseStream, IReadSuggestor? readSuggestor, EnumCacheType cacheType, int cacheLimitValue, List<CacheEntry>? precapturedCache) : Stream
     {
-        public CachingStream(Stream baseStream, IReadSuggestor? readSuggestor, EnumCacheType cacheType, int cacheLimitValue, List<CacheEntry>? precapturedCache)
-        {
-            BaseStream = baseStream;
-            ReadSuggestor = readSuggestor;    //gives us insight into the most optimal way to read from the underyling stream
-            CacheType = cacheType;
-            CacheLimitValue = cacheLimitValue;
-
-            cache = precapturedCache ?? new List<CacheEntry>();
-        }
-
         public override bool CanRead => true;
 
         public override bool CanSeek => true;
@@ -34,13 +24,13 @@ namespace libCommon.Streams
             get => position;
             set => Seek(value, SeekOrigin.Begin);
         }
-        public Stream BaseStream { get; }
-        public IReadSuggestor? ReadSuggestor { get; }
+        public Stream BaseStream { get; } = baseStream;
+        public IReadSuggestor? ReadSuggestor { get; } = readSuggestor;    //gives us insight into the most optimal way to read from the underyling stream
         public int BufferSize { get; set; }
-        public EnumCacheType CacheType { get; set; }
-        public int CacheLimitValue { get; set; }
+        public EnumCacheType CacheType { get; set; } = cacheType;
+        public int CacheLimitValue { get; set; } = cacheLimitValue;
 
-        readonly List<CacheEntry> cache;
+        readonly List<CacheEntry> cache = precapturedCache ?? [];
 
         public IList<CacheEntry> GetCacheContents()
         {
@@ -250,19 +240,12 @@ namespace libCommon.Streams
     }
 
     [Serializable]
-    public class CacheEntry
+    public class CacheEntry(long start, long end, byte[] content)
     {
-        public long Start;
-        public long End;
+        public long Start = start;
+        public long End = end;
         public long Length => End - Start;
-        public byte[] Content;
-
-        public CacheEntry(long start, long end, byte[] content)
-        {
-            Start = start;
-            End = end;
-            Content = content;
-        }
+        public byte[] Content = content;
 
         public override string ToString()
         {

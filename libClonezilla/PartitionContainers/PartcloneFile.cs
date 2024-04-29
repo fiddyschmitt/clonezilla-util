@@ -25,7 +25,7 @@ namespace libClonezilla.PartitionContainers
             var partcloneInfo = new PartcloneImageInfo(ContainerName, partitionName, partcloneStream, null);
             var uncompressedLength = partcloneInfo.Length;
 
-            Partitions = new();
+            Partitions = [];
 
             if (partitionsToLoad.Count == 0 || partitionsToLoad.Contains(partitionName))
             {

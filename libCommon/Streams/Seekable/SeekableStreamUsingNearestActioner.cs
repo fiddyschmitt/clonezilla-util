@@ -15,7 +15,7 @@ namespace libCommon.Streams.Seekable
     {
         long position = 0;
         long? length = null;
-        readonly List<Stream> Actioners = new();
+        readonly List<Stream> Actioners = [];
 
         readonly Queue<(Stream Stream, long MarchDistance)> MarchesToPerform = new();
         Task? marchTask;

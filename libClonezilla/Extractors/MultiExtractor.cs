@@ -13,7 +13,7 @@ namespace libClonezilla.Extractors
     {
         public MultiExtractor(List<IExtractor> extractors, bool forceFullRead)
         {
-            Extractors = new BlockingCollection<IExtractor>();
+            Extractors = [];
 
             extractors
                 .ForEach(extractor => Extractors.Add(extractor));

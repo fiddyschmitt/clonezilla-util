@@ -12,7 +12,7 @@ namespace libCommon
 {
     public static class DesktopUtility
     {
-        static readonly List<IntPtr> DesktopsCreated = new();
+        static readonly List<IntPtr> DesktopsCreated = [];
 
         public static void Cleanup()
         {

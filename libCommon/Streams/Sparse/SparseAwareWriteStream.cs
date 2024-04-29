@@ -7,15 +7,9 @@ using System.Threading.Tasks;
 
 namespace libCommon.Streams.Sparse
 {
-    public class SparseAwareWriteStream : ISparseAwareWriter
+    public class SparseAwareWriteStream(Stream stream, bool explicitlyWriteNullBytes) : ISparseAwareWriter
     {
-        public Stream Stream { get; }
-        public bool ExplicitlyWriteNullBytes { get; set; } = true;
-
-        public SparseAwareWriteStream(Stream stream, bool explicitlyWriteNullBytes)
-        {
-            Stream = stream;
-            ExplicitlyWriteNullBytes = explicitlyWriteNullBytes;
-        }
+        public Stream Stream { get; } = stream;
+        public bool ExplicitlyWriteNullBytes { get; set; } = explicitlyWriteNullBytes;
     }
 }

@@ -17,17 +17,10 @@ using FileAccess = DokanNet.FileAccess;
 
 namespace libDokan
 {
-    public class DokanVFS : IDokanOperations
+    public class DokanVFS(string volumeLabel, RootFolder root) : IDokanOperations
     {
-        readonly RootFolder Root;
-        private readonly string VolumeLabel;
-
-        public DokanVFS(string volumeLabel, RootFolder root)
-        {
-            Root = root;
-            VolumeLabel = volumeLabel;
-        }
-
+        readonly RootFolder Root = root;
+        private readonly string VolumeLabel = volumeLabel;
         private const FileAccess DataAccess = FileAccess.ReadData | FileAccess.WriteData | FileAccess.AppendData |
                                       FileAccess.Execute |
                                       FileAccess.GenericExecute | FileAccess.GenericWrite |
@@ -350,13 +343,7 @@ namespace libDokan
 
             // may be called with info.Context == null, but usually it isn't
 
-            var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId);
-
-            if (fileSystemEntry == null)
-            {
-                throw new Exception($"Could not traverse to: {fileName}");
-            }
-
+            var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId) ?? throw new Exception($"Could not traverse to: {fileName}");
             fileInfo = fileSystemEntry.ToFileInformation();
 
             return Trace(nameof(GetFileInformation), fileName, info, DokanResult.Success);
