@@ -163,21 +163,46 @@ namespace libClonezilla.Decompressors
 
                             using (var wipStream = File.Create(wipFilename))
                             {
+                                using var sparseAwareReader = new SparseAwareReader(decompressedStream);
                                 using var trainCompressor = new TrainCompressor(wipStream, compressors, 10 * 1024 * 1024);
-                                decompressedStream.CopyTo(trainCompressor, Buffers.ARBITARY_LARGE_SIZE_BUFFER, progress =>
-                                {
-                                    try
-                                    {
-                                        var perThroughCompressedSource = (double)CompressedStream.Position / CompressedStream.Length * 100;
 
-                                        Log.Information($"{StreamName} Cached {progress.TotalRead.BytesToString()}. ({perThroughCompressedSource:N0}% through source file)");
-                                    }
-                                    catch
+                                var totalUncompressedBytes = 0L;
+                                var sequenceOfEmptyBytes = 0L;
+
+                                while (true)
+                                {
+                                    var read = sparseAwareReader.CopyTo(trainCompressor, Buffers.ARBITARY_LARGE_SIZE_BUFFER, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
+                                    if (read == 0)
                                     {
-                                        //just in case the Close() call below causes the percentage calculation to fail
+                                        break;
                                     }
-                                });
+
+                                    totalUncompressedBytes += read;
+
+                                    var percentThroughCompressedSource = (double)CompressedStream.Position / CompressedStream.Length * 100;
+                                    Log.Information($"{StreamName} Cached {totalUncompressedBytes.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
+
+                                    //disabled for now, because it's hard to know where the trailing nulls start
+                                    if (!ProcessTrailingNulls && percentThroughCompressedSource > 90 && false)
+                                    {
+                                        if (sparseAwareReader.LatestReadWasAllNull)
+                                        {
+                                            sequenceOfEmptyBytes += read;
+                                        }
+                                        else
+                                        {
+                                            sequenceOfEmptyBytes = 0;
+                                        }
+
+                                        if (sequenceOfEmptyBytes > 4L * 1024 * 1024 * 1024)
+                                        {
+                                            Log.Warning($"{StreamName} The end of this stream has more than 4GB of empty bytes. Assuming the rest of the file is empty.");
+                                            break;
+                                        }
+                                    }
+                                }
                             }
+
                             File.Move(wipFilename, cachedFilename);
 
                             Log.Information($"Successfully cached to: {cachedFilename}");
