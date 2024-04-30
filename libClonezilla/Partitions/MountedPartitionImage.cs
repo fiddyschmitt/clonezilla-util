@@ -155,6 +155,7 @@ namespace libClonezilla.Partitions
                 var extractors = Enumerable
                                     .Range(1, instanceCount)
                                     .AsParallel()
+                                    .WithDegreeOfParallelism(4)
                                     .Select(_ => new ExtractorUsing7zFM(ImageFileEntry.FullPath))
                                     .OfType<IExtractor>()
                                     .ToList();
