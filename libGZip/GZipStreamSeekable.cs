@@ -33,13 +33,11 @@ namespace libGZip
                 Log.Information($"Resuming gzip index creation.");
 
                 ProcessUtility.ExecuteProcess(GZTOOL_EXE, $"-n {lastIndexedCompressedStartByte - 1} -I \"{tempIndexFilename}\"", compressedStream, null, 0,
-                    totalInputRead =>
+                    progress =>
                     {
-                        var totalCopiedStr = Extensions.BytesToString(compressedStream.Position);
-                        var totalStr = Extensions.BytesToString(compressedStream.Length);
-                        var per = (double)compressedStream.Position / compressedStream.Length * 100;
+                        var percentThroughCompressedSource = (double)compressedStream.Position / compressedStream.Length * 100;
 
-                        Log.Information($"Indexed {totalCopiedStr} / {totalStr} ({per:N0}%)");
+                        Log.Information($"Indexed {progress.TotalRead.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
                     });
 
                 indexCreationComplete = true;
@@ -50,15 +48,18 @@ namespace libGZip
             {
                 if (!File.Exists(indexFilename))
                 {
+                    //var startTime = DateTime.Now;
+
                     Log.Information($"Generating gzip index.");
                     ProcessUtility.ExecuteProcess(GZTOOL_EXE, $"-I \"{tempIndexFilename}\"", compressedStream, null, 0,
-                         totalInputRead =>
+                         progress =>
                          {
-                             var totalCopiedStr = Extensions.BytesToString(compressedStream.Position);
-                             var totalStr = Extensions.BytesToString(compressedStream.Length);
-                             var per = (double)compressedStream.Position / compressedStream.Length * 100;
+                             var percentThroughCompressedSource = (double)compressedStream.Position / compressedStream.Length * 100;
 
-                             Log.Information($"Indexed {totalCopiedStr} / {totalStr} ({per:N0}%)");
+                             Log.Information($"Indexed {progress.TotalRead.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
+
+                             //var secs = DateTime.Now - startTime;
+                             //Log.Information($"{compressedStream.Position},{compressedStream.Length},{progress.Read},{progress.TotalRead},{(ulong)secs.TotalMilliseconds}");
                          });
 
                     indexCreationComplete = true;
