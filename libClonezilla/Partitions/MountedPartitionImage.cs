@@ -155,7 +155,7 @@ namespace libClonezilla.Partitions
                 var extractors = Enumerable
                                     .Range(1, instanceCount)
                                     .AsParallel()
-                                    .WithDegreeOfParallelism(4)
+                                    .WithDegreeOfParallelism(2)     //Loading 4 in parallel ocassionally causes one 7zFM instance to show 'Insufficient system resources'
                                     .Select(_ => new ExtractorUsing7zFM(ImageFileEntry.FullPath))
                                     .OfType<IExtractor>()
                                     .ToList();
