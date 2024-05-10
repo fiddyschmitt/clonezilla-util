@@ -1,5 +1,6 @@
 ﻿using DokanNet;
 using DokanNet.Logging;
+using libCommon;
 using libDokan;
 using libDokan.Processes;
 using libDokan.VFS.Folders;
@@ -7,6 +8,7 @@ using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -78,7 +80,7 @@ namespace libClonezilla.VFS
             });
             TempFolderRoot = new Lazy<Folder>(() =>
             {
-                var tempFolderRootName = $"{Guid.NewGuid()} - Temp";
+                var tempFolderRootName = Path.GetFileName(TempUtility.GetTempFilename(false));
 
                 /*
                 var processesAllowedToAccessTemp = new Func<ProcInfo, bool>(procInfo =>
@@ -109,7 +111,7 @@ namespace libClonezilla.VFS
 
         public Folder CreateTempFolder()
         {
-            var tempFolderName = $"{Guid.NewGuid()}";
+            var tempFolderName = Path.GetFileName(TempUtility.GetTempFilename(false));
             var tempFolder = new Folder(tempFolderName, TempFolderRoot.Value);
 
             return tempFolder;
