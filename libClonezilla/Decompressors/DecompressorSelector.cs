@@ -161,6 +161,7 @@ namespace libClonezilla.Decompressors
                                 File.Delete(wipFilename);
                             }
 
+                            /*
                             using (var wipStream = File.Create(wipFilename))
                             {
                                 using var sparseAwareReader = new SparseAwareReader(decompressedStream);
@@ -201,6 +202,25 @@ namespace libClonezilla.Decompressors
                                         }
                                     }
                                 }
+                            }
+                            */
+
+                            using (var wipStream = File.Create(wipFilename))
+                            {
+                                using var trainCompressor = new TrainCompressor(wipStream, compressors, 10 * 1024 * 1024);
+                                decompressedStream.CopyTo(trainCompressor, Buffers.ARBITARY_LARGE_SIZE_BUFFER, progress =>
+                                {
+                                    try
+                                    {
+                                        var perThroughCompressedSource = (double)CompressedStream.Position / CompressedStream.Length * 100;
+
+                                        Log.Information($"{StreamName} Cached {progress.TotalRead.BytesToString()}. ({perThroughCompressedSource:N0}% through source file)");
+                                    }
+                                    catch
+                                    {
+                                        //just in case the Close() call below causes the percentage calculation to fail
+                                    }
+                                });
                             }
 
                             File.Move(wipFilename, cachedFilename);
