@@ -66,7 +66,7 @@ namespace libCommon.Streams
                     throw new Exception($"Could not get recommendation for reading {count:N0} bytes from position {Position:N0}");
                 }
 
-                Log.Debug($"Want to read from {Position:N0} to {Position + count:N0}. Was recommended to read {(recommendedRead.End - recommendedRead.Start).BytesToString()} from position {recommendedRead.Start:N0} to {recommendedRead.End:N0}");
+                Log.Debug($"Want to read from {Position:N0} to {Position + count:N0} ({count.BytesToString()}). Was recommended to read {(recommendedRead.End - recommendedRead.Start).BytesToString()} from position {recommendedRead.Start:N0} to {recommendedRead.End:N0}");
 
                 var maxReadSize = Math.Min(int.MaxValue, Array.MaxLength);
 
