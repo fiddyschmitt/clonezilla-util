@@ -45,6 +45,23 @@ namespace libCommon.Streams.Sparse
             return result;
         }
 
+        //This is up to 3x faster than IsAllZerosLINQ.
+        /*
+        public static unsafe bool IsAllZerosUnsafe(byte[] data, int offset, int count)
+        {
+            fixed (byte* p = data)
+            {
+                byte* start = p + offset;
+                byte* end = start + count;
+                for (byte* current = start; current < end; current++)
+                {
+                    if (*current != 0) return false;
+                }
+            }
+            return true;
+        }
+        */
+
         public override int Read(byte[] buffer, int offset, int count)
         {
             var bytesRead = Stream.Read(buffer, offset, count);
