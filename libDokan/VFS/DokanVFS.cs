@@ -309,7 +309,8 @@ namespace libDokan
                     }
 
                     stream.Position = offset;
-                    bytesRead = stream.Read(buffer, 0, buffer.Length);
+                    //bytesRead = stream.Read(buffer, 0, buffer.Length);
+                    bytesRead = stream.ReadAtLeast(buffer, buffer.Length);
                 }
             }
             return Trace(nameof(ReadFile), fileName, info, DokanResult.Success, "out " + bytesRead.ToString(),
