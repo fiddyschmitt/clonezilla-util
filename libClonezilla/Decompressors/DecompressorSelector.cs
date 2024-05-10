@@ -161,6 +161,8 @@ namespace libClonezilla.Decompressors
                                 File.Delete(wipFilename);
                             }
 
+                            //The following slowed gz processing from 91 mins to 114 mins for LargeDriveImages.Gz()
+
                             /*
                             using (var wipStream = File.Create(wipFilename))
                             {
