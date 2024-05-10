@@ -80,7 +80,7 @@ namespace libClonezilla.VFS
             });
             TempFolderRoot = new Lazy<Folder>(() =>
             {
-                var tempFolderRootName = Path.GetFileName(TempUtility.GetTempFilename(false));
+                var tempFolderRootName = Path.GetFileNameWithoutExtension(Path.GetFileName(TempUtility.GetTempFilename(false)));
 
                 /*
                 var processesAllowedToAccessTemp = new Func<ProcInfo, bool>(procInfo =>

@@ -50,7 +50,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                     decompressedStream = decompressorSelector.GetSeekableStream();
                 }
 
-                var tempName = Path.GetFileName(TempUtility.GetTempFilename(false));
+                var tempName = Path.GetFileNameWithoutExtension(Path.GetFileName(TempUtility.GetTempFilename(false)));
                 var virtualDecompressedFile = new StreamBackedFileEntry(tempName, tempFolder, decompressedStream);
 
                 currentFilename = virtualDecompressedFile.FullPath;
