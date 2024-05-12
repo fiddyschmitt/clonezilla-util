@@ -302,15 +302,17 @@ namespace libDokan
                     }
                     */
 
-                    var toRead = buffer.Length;
+                    var toRead = Math.Min(stream.Length - offset, buffer.Length);
                     if (!Environment.Is64BitOperatingSystem)
                     {
                         toRead = Math.Min(toRead, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
                     }
+                    toRead = Math.Min(toRead, Array.MaxLength);
 
                     stream.Position = offset;
-                    //bytesRead = stream.Read(buffer, 0, buffer.Length);
-                    bytesRead = stream.ReadAtLeast(buffer, buffer.Length);
+
+                    //bytesRead = stream.Read(buffer, 0, (int)toRead);
+                    bytesRead = stream.ReadAtLeast(buffer, (int)toRead);
                 }
             }
             return Trace(nameof(ReadFile), fileName, info, DokanResult.Success, "out " + bytesRead.ToString(),
