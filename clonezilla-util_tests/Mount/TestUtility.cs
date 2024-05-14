@@ -53,8 +53,16 @@ namespace clonezilla_util_tests.Mount
 
                         // 13/04/2024: 40 seconds
                         using var virtualFile = File.OpenRead(expectedFile.FullPath);
-                        var tempFile = File.Create(TempUtility.GetTempFilename(false));
-                        virtualFile.CopyTo(tempFile);
+                        using var tempFile = File.Create(TempUtility.GetTempFilename(false), 4096, FileOptions.DeleteOnClose);
+
+                        if (expectedFile.LengthForMd5 == null)
+                        {
+                            virtualFile.CopyTo(tempFile);
+                        }
+                        else
+                        {
+                            virtualFile.CopyTo(tempFile, expectedFile.LengthForMd5.Value, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
+                        }
                         var md5 = Utility.CalculateMD5(tempFile);
 
                         var md5Match = md5.Equals(expectedFile.MD5);
@@ -85,16 +93,17 @@ namespace clonezilla_util_tests.Mount
                 Thread.Sleep(1000);
             } while (!allSuccessful);
 
-            
+
 
             process?.Kill();
             process?.WaitForExit();
         }
 
-        public class FileDetails(string fullPath, string md5)
+        public class FileDetails(string fullPath, string md5, long? lengthForMd5 = null)
         {
             public string FullPath = fullPath;
             public string MD5 = md5;
+            public long? LengthForMd5 = lengthForMd5;
         }
     }
 }
