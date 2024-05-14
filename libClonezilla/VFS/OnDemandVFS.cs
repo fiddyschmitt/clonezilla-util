@@ -111,7 +111,7 @@ namespace libClonezilla.VFS
 
         public Folder CreateTempFolder()
         {
-            var tempFolderName = Path.GetFileName(TempUtility.GetTempFilename(false));
+            var tempFolderName = Path.GetFileNameWithoutExtension(Path.GetFileName(TempUtility.GetTempFilename(false)));
             var tempFolder = new Folder(tempFolderName, TempFolderRoot.Value);
 
             return tempFolder;
