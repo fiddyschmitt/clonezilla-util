@@ -54,7 +54,9 @@ namespace libCommon.Streams
                 (long Start, long End) recommendedRead;
                 if (ReadSuggestor == null)
                 {
-                    recommendedRead = (Position, Position + count);
+                    var to = Math.Max(Position + count, Position + 1024 * 1024);
+                    to = Math.Min(to, Length);
+                    recommendedRead = (Position, to);
                 }
                 else
                 {
