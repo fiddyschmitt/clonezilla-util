@@ -41,26 +41,26 @@ namespace clonezilla_util_tests.Mount.AsFiles
         public void luks_ext4_500GB_gz()
         {
             //500 GB ext4 -> luks -> partclone -> gz
-            //ConfirmFilesExist(
-            //    Main.ExeUnderTest,
-            //    """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-10-img_luks_test_500GB_ext4_gz" --mount L:\ """,
-            //    new[] {
-            //        new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
-            //        new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
-            //    });
+            ConfirmFilesExist(
+                Main.ExeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-10-img_luks_test_500GB_ext4_gz" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
+                    new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
+                });
         }
 
         [TestMethod]
         public void luks_ext4_500GB_zst()
         {
             //500GB ext4 -> luks -> partclone -> zst
-            //ConfirmFilesExist(
-            //    Main.ExeUnderTest,
-            //    """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-09-img_luks_test_500GB_ext4_zst" --mount L:\ """,
-            //    new[] {
-            //        new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
-            //        new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
-            //    });
+            ConfirmFilesExist(
+                Main.ExeUnderTest,
+                """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-09-img_luks_test_500GB_ext4_zst" --mount L:\ """,
+                new[] {
+                    new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
+                    new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
+                });
         }
     }
 }
