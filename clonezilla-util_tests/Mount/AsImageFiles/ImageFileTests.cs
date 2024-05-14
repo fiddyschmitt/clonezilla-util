@@ -25,13 +25,12 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
         [TestMethod]
         public void Partclone()
         {
-            //partclone image. This is 2TB - takes ages to calculate the hash
-            //Maybe only hash first 10 GB
+            //partclone image
             TestUtility.ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount-as-image-files --input "E:\clonezilla-util-test resources\partclone images\2021-12-29 - partclone file\sdb1.ntfs-ptcl-img" -m L:\ """,
                 new[] {
-                    new FileDetails(@"L:\sdb1.ntfs-ptcl-img.img", "abc"),
+                    new FileDetails(@"L:\sdb1.ntfs-ptcl-img.img", "82b4fbf40812fe3354c855ee10fdc839", 1024 * 1024 * 1024),
                 });
         }
 
