@@ -100,7 +100,7 @@ namespace libCommon
                     });
 
                 outputItems.CompleteAdding();
-            });
+            }, TaskCreationOptions.LongRunning);
 
             var currentIndexToReturn = 0;
             foreach (var _ in outputItems.GetConsumingEnumerable())
@@ -136,7 +136,7 @@ namespace libCommon
 
                 blockingCollection.CompleteAdding();
                 inputFinished = true;
-            });
+            }, TaskCreationOptions.LongRunning);
 
             foreach (var item in blockingCollection.GetConsumingEnumerable())
             {

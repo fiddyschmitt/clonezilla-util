@@ -41,7 +41,7 @@ namespace MountDocushare.Streams
                 }
 
                 totalLength = totalBytesRead;
-            });
+            }, TaskCreationOptions.LongRunning);
         }
 
         readonly Task pump;

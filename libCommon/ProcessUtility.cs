@@ -121,7 +121,7 @@ namespace libCommon
                     }
                     Thread.Sleep(100);
                 }
-            });
+            }, TaskCreationOptions.LongRunning);
 
             // begin async read
             p.BeginOutputReadLine();
@@ -222,7 +222,7 @@ namespace libCommon
                     }
                     catch { }
 
-                });
+                }, TaskCreationOptions.LongRunning);
             }
 
             return process;
@@ -269,7 +269,7 @@ namespace libCommon
                     }
                     catch { }
 
-                });
+                }, TaskCreationOptions.LongRunning);
             }
 
             int bytesRead = 0;

@@ -64,7 +64,7 @@ namespace libClonezilla.VFS
                     {
                         Log.Error(ex.ToString());
                     }
-                });
+                }, TaskCreationOptions.LongRunning);
                 Utility.WaitForFolderToExist(root.MountPoint);
 
                 //Didn't get this to work

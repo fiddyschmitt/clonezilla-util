@@ -103,7 +103,7 @@ namespace libClonezilla.Partitions
                     var testDuration = DateTime.Now - testStart;
                     Log.Debug($"[{container.ContainerName}] [{partitionName}] Archive opened in {testDuration.TotalSeconds:N1} seconds.");
                 }
-            });
+            }, TaskCreationOptions.LongRunning);
 
             bool use7z;
             if (Task.WhenAny(performanceTestTask, Task.Delay(performanceTestTimeout)).Result == performanceTestTask)

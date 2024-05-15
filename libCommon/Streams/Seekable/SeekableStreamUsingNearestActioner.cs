@@ -132,7 +132,7 @@ namespace libCommon.Streams.Seekable
                 }
 
                 Log.Information($"Marched {marched:N0} of {totalMarches:N0}");
-            });
+            }, TaskCreationOptions.LongRunning);
         }
 
         bool readRequested = false;
