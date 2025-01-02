@@ -19,7 +19,7 @@ First, install [this version](https://github.com/dokan-dev/dokany/releases/tag/v
 
 Now run the following command:
 
-`clonezilla-util.exe mount --input <clonzilla folder> --mount L:\`
+`clonezilla-util.exe mount --input <clonezilla folder> --mount L:\`
 
 A virtual drive is created, containing all the files in the Clonezilla archive:
 
