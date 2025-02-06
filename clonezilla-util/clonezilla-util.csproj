@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -26,12 +26,6 @@
     <ProjectReference Include="..\libCommon\libCommon.csproj" />
     <ProjectReference Include="..\libDokan\libDokan.csproj" />
     <ProjectReference Include="..\libPartclone\libPartclone.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Update="License.txt">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
   </ItemGroup>
 
 </Project>
