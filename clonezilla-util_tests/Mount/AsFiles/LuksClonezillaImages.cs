@@ -18,10 +18,10 @@ namespace clonezilla_util_tests.Mount.AsFiles
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-15-img_luks_test_20GB_ntfs" --mount L:\ """,
-                new[] {
+                [
                     new FileDetails(@"L:\howdy.txt", "f521b93b9a4f632a537163f599ded439"),
                     new FileDetails(@"L:\second_file.txt", "b1946ac92492d2347c6235b4d2611184"),
-                });
+                ]);
         }
 
         [TestMethod]
@@ -31,10 +31,10 @@ namespace clonezilla_util_tests.Mount.AsFiles
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-20-img_luks_test_6GB_ext4_zst" --mount L:\ """,
-                new[] {
+                [
                     new FileDetails(@"L:\another_file.txt", "42690a6bf443aa07821ccc51e58e950c"),
                     new FileDetails(@"L:\hello.txt", "ce55c98ac24d4c7764877fa58ab441ef"),
-                });
+                ]);
         }
 
         [TestMethod]
@@ -44,10 +44,10 @@ namespace clonezilla_util_tests.Mount.AsFiles
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-10-img_luks_test_500GB_ext4_gz" --mount L:\ """,
-                new[] {
+                [
                     new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
                     new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
-                });
+                ]);
         }
 
         [TestMethod]
@@ -57,10 +57,10 @@ namespace clonezilla_util_tests.Mount.AsFiles
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\clonezilla images\2022-08-16-09-img_luks_test_500GB_ext4_zst" --mount L:\ """,
-                new[] {
+                [
                     new FileDetails(@"L:\file1.txt", "bad9425ff652b1bd52b49720abecf0ba"),
                     new FileDetails(@"L:\file2.txt", "0f007fde795734c616b558bc6692c06a"),
-                });
+                ]);
         }
     }
 }

@@ -80,7 +80,7 @@ namespace rextractor
             }
             catch { }
 
-            return new List<T>();
+            return [];
         }
 
         public static IList<string> FindFilesEmulator(string pattern, IList<string> names)

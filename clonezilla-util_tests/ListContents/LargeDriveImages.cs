@@ -24,11 +24,10 @@ namespace clonezilla_util_tests.ListContents
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.bz2" """,
-                new List<string>()
-                {
+                [
                     @"2021-12-28_pb-devops1_sda.img\partition0\Recovery\WindowsRE\ReAgent.xml",
                     @"2021-12-28_pb-devops1_sda.img\partition1\Windows\INF\cpu.inf"
-                });
+                ]);
         }
 
         [TestMethod]
@@ -43,11 +42,10 @@ namespace clonezilla_util_tests.ListContents
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.gz""",
-                new List<string>()
-                {
+                [
                     @"2021-12-28_pb-devops1_sda.img\partition0\Recovery\WindowsRE\ReAgent.xml",
                     @"2021-12-28_pb-devops1_sda.img\partition1\Windows\INF\cpu.inf"
-                });
+                ]);
         }
 
         [TestMethod]
@@ -56,11 +54,10 @@ namespace clonezilla_util_tests.ListContents
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img""",
-                new List<string>()
-                {
+                [
                     @"2021-12-28_pb-devops1_sda\partition0\Recovery\WindowsRE\ReAgent.xml",
                     @"2021-12-28_pb-devops1_sda\partition1\Windows\INF\cpu.inf"
-                });
+                ]);
         }
 
         [TestMethod]
@@ -75,11 +72,10 @@ namespace clonezilla_util_tests.ListContents
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.xz""",
-                new List<string>()
-                {
+                [
                     @"2021-12-28_pb-devops1_sda.img\partition0\Recovery\WindowsRE\ReAgent.xml",
                     @"2021-12-28_pb-devops1_sda.img\partition1\Windows\INF\cpu.inf"
-                });
+                ]);
         }
 
         [TestMethod]
@@ -88,11 +84,10 @@ namespace clonezilla_util_tests.ListContents
             TestUtility.ConfirmContainsStrings(
                 Main.ExeUnderTest,
                 """list --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.zst""",
-                new List<string>()
-                {
+                [
                     @"2021-12-28_pb-devops1_sda.img\partition0\Recovery\WindowsRE\ReAgent.xml",
                     @"2021-12-28_pb-devops1_sda.img\partition1\Windows\INF\cpu.inf"
-                });
+                ]);
         }
     }
 }

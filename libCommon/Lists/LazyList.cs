@@ -13,7 +13,7 @@ namespace libCommon.Lists
     public class LazyList<T> : IList<T>
     {
         private readonly IEnumerator<T> _source;
-        private readonly List<T> _internalList = new();
+        private readonly List<T> _internalList = [];
         private bool _isSourceExhausted = false;
 
         public bool FinishedReading

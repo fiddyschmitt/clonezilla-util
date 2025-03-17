@@ -103,7 +103,7 @@ namespace libUIHelpers
             }
             else
             {
-                rootWindows = new();
+                rootWindows = [];
 
                 EnumDesktopWindows(desktopHandle.Value, (handle, lParam) =>
                 {
@@ -113,7 +113,7 @@ namespace libUIHelpers
                 IntPtr.Zero);
             }
 
-            List<IntPtr> dsProcRootWindows = new();
+            var dsProcRootWindows = new List<IntPtr>();
             foreach (IntPtr hWnd in rootWindows)
             {
                 _ = GetWindowThreadProcessId(hWnd, out uint lpdwProcessId);
@@ -127,7 +127,7 @@ namespace libUIHelpers
 
         public static List<(IntPtr Handle, string ControlClass, string Text, string ClassNN)> GetChildWindowsDetailsRecursively(IntPtr handle)
         {
-            var result = GetChildWindowsDetailsRecursively(new List<IntPtr>() { handle });
+            var result = GetChildWindowsDetailsRecursively([handle]);
             return result;
         }
 
@@ -145,12 +145,13 @@ namespace libUIHelpers
                                 var text = GetWindowText(h);
                                 var className = GetClassName(h);
 
-                                if (!classCounts.ContainsKey(className))
+                                if (!classCounts.TryGetValue(className, out int value))
                                 {
-                                    classCounts.Add(className, 0);
+                                    value = 0;
+                                    classCounts.Add(className, value);
                                 }
 
-                                classCounts[className] = classCounts[className] + 1;
+                                classCounts[className] = value + 1;
 
                                 var classNN = $"{className}{classCounts[className]}";
 

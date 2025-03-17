@@ -11,7 +11,7 @@ namespace lib7Zip
 {
     public class SevenZipExtractorUsingSevenZipExtractor
     {
-        ArchiveFile archiveFile;
+        readonly ArchiveFile archiveFile;
 
         public SevenZipExtractorUsingSevenZipExtractor(string archiveFilename)
         {

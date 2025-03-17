@@ -43,7 +43,7 @@ namespace libPartclone
                 }
             }
 
-            return result.ToArray();
+            return [.. result];
         }
 
         public static List<List<T>> ChunkBy<T>(this List<T> source, int chunkSize)
@@ -81,7 +81,7 @@ namespace libPartclone
                     else
                     {
                         yield return list;
-                        list = new List<T> { e.Current };
+                        list = [e.Current];
                     }
                     pred = e.Current;
                 }
@@ -91,7 +91,7 @@ namespace libPartclone
 
         public static IEnumerable<T> Cached<T>(this IEnumerable<T> enumerable)
         {
-            return CachedImpl(enumerable.GetEnumerator(), new List<T>());
+            return CachedImpl(enumerable.GetEnumerator(), []);
         }
 
         static IEnumerable<T> CachedImpl<T>(IEnumerator<T> source, List<T> buffer)

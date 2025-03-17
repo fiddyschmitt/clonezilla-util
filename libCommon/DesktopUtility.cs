@@ -65,10 +65,8 @@ namespace libCommon
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         static extern IntPtr CreateDesktop(string lpszDesktop, IntPtr lpszDevice, IntPtr pDevmode, int dwFlags, uint dwDesiredAccess, IntPtr lpsa);
 
-#pragma warning disable CA2101 // Specify marshaling for P/Invoke string arguments
         //[DllImport("kernel32.dll", CharSet = CharSet.Unicode)]    //This causes 7zFM.exe not to run. Unsure why
         [DllImport("kernel32.dll")]
-#pragma warning restore CA2101 // Specify marshaling for P/Invoke string arguments
         private static extern bool CreateProcess(
             string? lpApplicationName,
             string lpCommandLine,

@@ -161,9 +161,7 @@ namespace lib7Zip.UI
                             Index = index,
                             Row = row
                         })
-                        .FirstOrDefault(row => row.Row[columnName].Equals(itemText));
-
-            if (item == null) throw new Exception($"Could not find item with text: {itemText}");
+                        .FirstOrDefault(row => row.Row[columnName].Equals(itemText)) ?? throw new Exception($"Could not find item with text: {itemText}");
 
             SelectItemByIndex(item.Index);
         }
@@ -229,7 +227,7 @@ namespace lib7Zip.UI
             public int iImage;
             private int iOrder;
 
-            public int IOrder { get => iOrder; set => iOrder = value; }
+            public int IOrder { readonly get => iOrder; set => iOrder = value; }
         }
 
         [Flags()]

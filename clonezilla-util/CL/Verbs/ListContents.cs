@@ -15,6 +15,6 @@ namespace clonezilla_util.CL.Verbs
         public bool UseNullSeparator { get; set; } = false;
 
         [Option('p', "partitions", HelpText = "The partition(s) to list contents of. Eg. sda1. If not provided, all partitions will be processed.", Required = false)]
-        public IEnumerable<string> PartitionsToInspect { get; set; } = new List<string>();
+        public IEnumerable<string> PartitionsToInspect { get; set; } = [];
     }
 }

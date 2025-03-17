@@ -20,7 +20,7 @@ namespace clonezilla_util_tests.Train
         {
             TestTrain(
                 @"E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda1.img",
-                new Compressor[] { new zstdCompressor() }
+                [new zstdCompressor()]
                 );
         }
 
@@ -29,7 +29,7 @@ namespace clonezilla_util_tests.Train
         {
             TestTrain(
                 @"E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda1.img",
-                new Compressor[] { new gzCompressor() }
+                [new gzCompressor()]
                 );
         }
 
@@ -38,7 +38,7 @@ namespace clonezilla_util_tests.Train
         {
             TestTrain(
                 @"E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda1.img",
-                new Compressor[] { new xzCompressor() }
+                [new xzCompressor()]
                 );
         }
 

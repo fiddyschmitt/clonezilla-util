@@ -87,7 +87,7 @@ namespace libBzip2
             var compressedContent = new SubStream(independentStream, block.CompressedStartByte, block.UncompressedEndByte);
 
             var fileHeaderContent = new MemoryStream(FileHeader);
-            var fullBlockContent = new Multistream(new Stream[] { fileHeaderContent, compressedContent });
+            var fullBlockContent = new Multistream([fileHeaderContent, compressedContent]);
 
 
             //determine where we should start reading in the substream
@@ -149,7 +149,7 @@ namespace libBzip2
 
 
                                 var fileHeaderContent = new MemoryStream(FileHeader);
-                                var fullBlockContent = new Multistream(new Stream[] { fileHeaderContent, compressedContent });
+                                var fullBlockContent = new Multistream([fileHeaderContent, compressedContent]);
 
                                 //var blockMD5 = Utility.CalculateMD5(fullBlockContent);
                                 //Debug.WriteLine($"Block at {block.Start:N0} - {block.End:N0}: {blockMD5}");

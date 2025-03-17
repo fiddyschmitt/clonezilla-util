@@ -23,10 +23,10 @@ namespace clonezilla_util_tests.Mount.AsFiles
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.bz2" -m L:\""",
-                new[] {
+                [
                     new FileDetails(@"L:\partition0\Recovery\WindowsRE\ReAgent.xml", "464bd66c6443e55b791f16cb6bc28c2e"),
                     new FileDetails(@"L:\partition1\Windows\INF\cpu.inf", "b724a9d3590bab87235fe1de985e748c"),
-                });
+                ]);
         }
 
         [TestMethod]
@@ -35,10 +35,10 @@ namespace clonezilla_util_tests.Mount.AsFiles
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.gz" -m L:\""",
-                new[] {
+                [
                     new FileDetails(@"L:\partition0\Recovery\WindowsRE\ReAgent.xml", "464bd66c6443e55b791f16cb6bc28c2e"),
                     new FileDetails(@"L:\partition1\Windows\INF\cpu.inf", "b724a9d3590bab87235fe1de985e748c"),
-                });
+                ]);
         }
 
         [TestMethod]
@@ -47,10 +47,10 @@ namespace clonezilla_util_tests.Mount.AsFiles
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img" -m L:\""",
-                new[] {
+                [
                     new FileDetails(@"L:\partition0\Recovery\WindowsRE\ReAgent.xml", "464bd66c6443e55b791f16cb6bc28c2e"),
                     new FileDetails(@"L:\partition1\Windows\INF\cpu.inf", "b724a9d3590bab87235fe1de985e748c"),
-                });
+                ]);
         }
 
         [TestMethod]
@@ -59,10 +59,10 @@ namespace clonezilla_util_tests.Mount.AsFiles
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.xz" -m L:\""",
-                new[] {
+                [
                     new FileDetails(@"L:\partition0\Recovery\WindowsRE\ReAgent.xml", "464bd66c6443e55b791f16cb6bc28c2e"),
                     new FileDetails(@"L:\partition1\Windows\INF\cpu.inf", "b724a9d3590bab87235fe1de985e748c"),
-                });
+                ]);
         }
 
         [TestMethod]
@@ -71,10 +71,10 @@ namespace clonezilla_util_tests.Mount.AsFiles
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\drive images\ddrescue backups (even includes deleted)\2021-12-28_pb-devops1_sda.img.zst" -m L:\""",
-                new[] {
+                [
                     new FileDetails(@"L:\partition0\Recovery\WindowsRE\ReAgent.xml", "464bd66c6443e55b791f16cb6bc28c2e"),
                     new FileDetails(@"L:\partition1\Windows\INF\cpu.inf", "b724a9d3590bab87235fe1de985e748c"),
-                });
+                ]);
         }
     }
 }

@@ -30,8 +30,8 @@ namespace libCommon
             }
         }
 
-        static readonly List<string> Folders = new();
-        static readonly List<string> Files = new();
+        static readonly List<string> Folders = [];
+        static readonly List<string> Files = [];
 
         public static string GetTemporaryDirectory()
         {

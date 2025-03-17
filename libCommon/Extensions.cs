@@ -56,11 +56,11 @@ namespace libCommon
                 var child = childSelector(item);
                 if (child == null)
                 {
-                    return new List<T>();
+                    return [];
                 }
                 else
                 {
-                    return new List<T>() { child };
+                    return [child];
                 }
             });
 

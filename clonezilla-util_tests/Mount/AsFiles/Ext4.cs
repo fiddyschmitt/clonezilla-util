@@ -17,10 +17,10 @@ namespace clonezilla_util_tests.Mount.AsFiles
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\drive images\ext4\2022-08-16_ext4.img" --mount L:\ """,
-                new[] {
+                [
                     new FileDetails(@"L:\hello.txt", "bad9425ff652b1bd52b49720abecf0ba"),
                     new FileDetails(@"L:\config_files\test.xml", "81dfa8e288df74cebc654c582a3abebc"),
-                });
+                ]);
         }
 
         [TestMethod]
@@ -31,10 +31,10 @@ namespace clonezilla_util_tests.Mount.AsFiles
             ConfirmFilesExist(
                 Main.ExeUnderTest,
                 """mount --input "E:\clonezilla-util-test resources\drive images\ext4\2022-08-16_ext4.img.zst" --mount L:\ """,
-                new[] {
+                [
                     new FileDetails(@"L:\hello.txt", "bad9425ff652b1bd52b49720abecf0ba"),
                     new FileDetails(@"L:\config_files\test.xml", "81dfa8e288df74cebc654c582a3abebc"),
-                });
+                ]);
         }
     }
 }

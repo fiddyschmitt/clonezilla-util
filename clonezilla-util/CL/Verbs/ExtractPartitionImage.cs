@@ -13,7 +13,7 @@ namespace clonezilla_util.CL.Verbs
         public string? OutputFolder { get; set; }
 
         [Option('p', "partitions", HelpText = "The partition(s) to extract from the Clonezilla archive. Eg. sda1. If not provided, all partitions will be extracted.", Required = false)]
-        public IEnumerable<string> PartitionsToExtract { get; set; } = new List<string>();
+        public IEnumerable<string> PartitionsToExtract { get; set; } = [];
 
         [Option("no-sparse-output", HelpText = "By default, the program produces a sparse output file which is faster to generate and takes less disk space, while being identical to the original. Using this option, a full file is produced rather than a sparse file.", Required = false)]
         public bool NoSparseOutput { get; set; } = false;
