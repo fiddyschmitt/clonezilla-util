@@ -41,8 +41,9 @@ namespace libClonezilla.Cache
                                         .Take(100)
                                         .Select(filename => libCommon.Utility.CalculateMD5(filename))
                                         .ToString(Environment.NewLine);
+                var smallFileHashesBytes = Encoding.UTF8.GetBytes(smallFileHashes);
 
-                uniqueIdForClonezillaImage = libCommon.Utility.CalculateMD5(smallFileHashes);
+                uniqueIdForClonezillaImage = libCommon.Utility.CalculateMD5(smallFileHashesBytes);
             }
 
             var clonezillaCacheFolder = Path.Combine(CacheRootFolder, uniqueIdForClonezillaImage);
