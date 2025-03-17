@@ -34,7 +34,7 @@ namespace clonezilla_util_tests.Mount.AsFiles
         }
 
         [TestMethod]
-        private static void dd()
+        public void dd()
         {
             //clonezilla (partclone.dd + gz)
             ConfirmFilesExist(
