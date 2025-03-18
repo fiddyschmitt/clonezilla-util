@@ -20,7 +20,7 @@ namespace clonezilla_util
     public class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "2.5.1";
+        const string PROGRAM_VERSION = "2.5.2";
 
         private enum ReturnCode
         {
@@ -29,7 +29,7 @@ namespace clonezilla_util
             GeneralException = 2,
         }
 
-        static readonly string CacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
+        static string CacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
 
         //To get the binary to work when using 'Trim unused code', had to add the TrimMode:
         //  <PublishTrimmed>true</PublishTrimmed>
@@ -54,8 +54,6 @@ namespace clonezilla_util
                             .WriteTo.Debug(restrictedToMinimumLevel: LogEventLevel.Debug)
                             .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day, restrictedToMinimumLevel: LogEventLevel.Information)
                             .CreateLogger();
-
-            WholeFileCacheManager.Initialize(CacheFolder);
 
             Log.Debug("Start");
             PrintProgramVersion();
@@ -91,7 +89,14 @@ namespace clonezilla_util
                 {
                     TempUtility.TempRoot = baseVerb.TempFolder;
                 }
+
+                if (baseVerb.CacheFolder != null)
+                {
+                    CacheFolder = baseVerb.CacheFolder;
+                }
             }
+
+            WholeFileCacheManager.Initialize(CacheFolder);
 
             switch (obj)
             {
