@@ -3,6 +3,7 @@ using CommandLine;
 using libClonezilla.Cache;
 using libClonezilla.PartitionContainers;
 using libCommon;
+using libCommon.Logging;
 using libPartclone;
 using Serilog;
 using Serilog.Events;
@@ -50,6 +51,7 @@ namespace clonezilla_util
 
             Log.Logger = new LoggerConfiguration()
                             .MinimumLevel.Debug()
+                            .Filter.With(new SuppressConsecutiveDuplicateFilter())
                             .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Information)
                             .WriteTo.Debug(restrictedToMinimumLevel: LogEventLevel.Debug)
                             .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day, restrictedToMinimumLevel: LogEventLevel.Information)
