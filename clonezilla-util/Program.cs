@@ -21,7 +21,7 @@ namespace clonezilla_util
     public class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "2.5.2";
+        const string PROGRAM_VERSION = "2.6.0";
 
         private enum ReturnCode
         {
@@ -34,7 +34,7 @@ namespace clonezilla_util
 
         //To get the binary to work when using 'Trim unused code', had to add the TrimMode:
         //  <PublishTrimmed>true</PublishTrimmed>
-	    //  <TrimMode>partial</TrimMode>
+        //  <TrimMode>partial</TrimMode>
 
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(ExtractFiles))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(ExtractPartitionImage))]
@@ -133,11 +133,11 @@ namespace clonezilla_util
             var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
 
             var containers = PartitionContainer.FromPaths(
-                listContentsOptions.InputPaths.ToList(), 
-                CacheFolder, 
-                listContentsOptions.PartitionsToInspect.ToList(), 
-                true, 
-                vfs, 
+                listContentsOptions.InputPaths.ToList(),
+                CacheFolder,
+                listContentsOptions.PartitionsToInspect.ToList(),
+                true,
+                vfs,
                 listContentsOptions.ProcessTrailingNulls)
                                 .OrderBy(container => container.ContainerName)
                                 .ToList();
@@ -191,10 +191,10 @@ namespace clonezilla_util
             var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
 
             var containers = PartitionContainer.FromPaths(
-                mountAsImageOptions.InputPaths.ToList(), 
-                CacheFolder, 
-                mountAsImageOptions.PartitionsToMount.ToList(), 
-                true, 
+                mountAsImageOptions.InputPaths.ToList(),
+                CacheFolder,
+                mountAsImageOptions.PartitionsToMount.ToList(),
+                true,
                 vfs,
                 mountAsImageOptions.ProcessTrailingNulls);
 
@@ -214,10 +214,10 @@ namespace clonezilla_util
             var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
 
             var containers = PartitionContainer.FromPaths(
-                mountAsFilesOptions.InputPaths.ToList(), 
-                CacheFolder, 
-                mountAsFilesOptions.PartitionsToMount.ToList(), 
-                true, 
+                mountAsFilesOptions.InputPaths.ToList(),
+                CacheFolder,
+                mountAsFilesOptions.PartitionsToMount.ToList(),
+                true,
                 vfs,
                 mountAsFilesOptions.ProcessTrailingNulls);
 
