@@ -280,13 +280,13 @@ namespace libDokan
                     var distanceFromCurrentPosition = offset - stream.Position;
 
                     //experimental
-                    if (distanceFromCurrentPosition > Buffers.ARBITARY_HUGE_SIZE_BUFFER * 2 && offset + buffer.Length == stream.Length)
-                    {
-                        Log.Debug($"External process has asked to read the last {buffer.Length.BytesToString()} of the {stream.Length.BytesToString()} file. Ignoring.");
+                    //if (distanceFromCurrentPosition > Buffers.ARBITARY_HUGE_SIZE_BUFFER * 2 && offset + buffer.Length == stream.Length)
+                    //{
+                    //    Log.Debug($"External process has asked to read the last {buffer.Length.BytesToString()} of the {stream.Length.BytesToString()} file. Ignoring.");
 
-                        bytesRead = 0;
-                        return DokanResult.Unsuccessful;
-                    }
+                    //    bytesRead = 0;
+                    //    return DokanResult.Unsuccessful;
+                    //}
 
                     /*
                     //7-Zip doesn't like it when we do this
