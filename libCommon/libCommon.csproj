@@ -9,8 +9,8 @@
   <ItemGroup>
     <PackageReference Include="Serilog" Version="4.2.0" />
     <PackageReference Include="Serilog.Sinks.Debug" Version="3.0.0" />
-    <PackageReference Include="System.Management" Version="9.0.1" />
-    <PackageReference Include="System.Memory" Version="4.6.0" />
+    <PackageReference Include="System.Management" Version="9.0.3" />
+    <PackageReference Include="System.Memory" Version="4.6.2" />
   </ItemGroup>
 
 </Project>
