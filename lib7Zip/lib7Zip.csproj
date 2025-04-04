@@ -8,46 +8,35 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <ItemGroup>
-    <None Remove="ext\7-Zip\win-x64\7z.exe" />
-  </ItemGroup>
 
   <ItemGroup>
+    <Content Include="ext\7-Zip\win-x64\7z.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="ext\7-Zip\win-x64\7z.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="ext\7-Zip\win-x64\7zFM.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="ext\7-Zip\win-x86\7z.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="ext\7-Zip\win-x86\7z.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="ext\7-Zip\win-x86\7zFM.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
 
-  <ItemGroup>
-    <Resource Include="ext\7-Zip\win-x64\7z.dll" />
-  </ItemGroup>
+
 
   <ItemGroup>
     <ProjectReference Include="..\libCommon\libCommon.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Update="ext\7-Zip\win-x64\7z.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="ext\7-Zip\win-x64\7zFM.exe">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="ext\7-Zip\win-x86\7z.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="ext\7-Zip\win-x86\7z.exe">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="ext\7-Zip\win-x86\7zFM.exe">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="ext\7-Zip\linux-x64\" />
-    <Folder Include="ext\7-Zip\win-x86\" />
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="PInvoke.User32" Version="0.7.124" />
