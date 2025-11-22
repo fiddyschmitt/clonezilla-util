@@ -60,8 +60,9 @@ namespace libClonezilla.VFS
                         var dokanBuilder = new DokanInstanceBuilder(dokan)
                             .ConfigureOptions(options =>
                             {
-                                //Didn't get this to work
-                                //options.Options = DokanOptions.WriteProtection | DokanOptions.NetworkDrive;
+                                //Didn't get mount as network to work
+                                //FPS 22/11/2025: Got a bit closer by installing the network driver: .\dokanctl.exe /i n
+                                //options.Options = DokanOptions.WriteProtection | DokanOptions.NetworkDrive | DokanOptions.MountManager;
                                 //options.UNCName = @"\myfs\dokan";
 
                                 options.Options = DokanOptions.WriteProtection;
