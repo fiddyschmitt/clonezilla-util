@@ -24,6 +24,18 @@ namespace libClonezilla.VFS
             ProgramName = programName;
             MountPoint = mountPoint;
 
+            try
+            {
+                using var dokan = new Dokan(new NullLogger());
+
+                Log.Logger.Information($"Detected Dokan version {dokan.Version}, Driver version {dokan.DriverVersion}.");
+            }
+            catch
+            {
+                Log.Fatal("Dokan driver not detected. Please install the version specified here: https://github.com/fiddyschmitt/clonezilla-util/releases/latest");
+                Environment.Exit(1);
+            }
+
             //requesting the root will trigger the Virtual File System to be created
             RootFolder = new Lazy<RootFolder>(() =>
             {
