@@ -76,20 +76,11 @@ namespace libPartclone
 
                 if (ImageDescV2.FileSystemInfoV2 != null)
                 {
-                    //var bytesUsedByBitmap = (int)Math.Ceiling(ImageDescV2.FileSystemInfoV2.TotalBlocks / 8M);
-                    var bytesUsedByBitmap = (int)(ImageDescV2.FileSystemInfoV2.TotalBlocks / 8) + 1;
+                    var bytesUsedByBitmap = (int)(ImageDescV2.FileSystemInfoV2.TotalBlocks + 7) / 8;
+
                     Bitmap = binaryReader.ReadBytes(bytesUsedByBitmap);
 
-                    //skip something
-                    if (ImageDescV2.FileSystemInfoV2.FileSystemType?.Equals("EXTFS") ?? false)
-                    {
-                        //Not sure why this is different, or if it's anything related to EXTFS at all.
-                        binaryReader.ReadBytes(3);
-                    }
-                    else
-                    {
-                        binaryReader.ReadBytes(4);
-                    }
+                    binaryReader.ReadBytes(4);
                 }
             }
             else
