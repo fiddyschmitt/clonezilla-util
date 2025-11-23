@@ -92,7 +92,7 @@ namespace libClonezilla.Partitions
                 Log.Information($"[{container.ContainerName}] [{partitionName}] Determining optimal way to extract files from this partition.");
                 var testStart = DateTime.Now;
 
-                SevenZipUtility.IsArchive(ImageFileEntry.FullPath, performanceTestCancellationToken);
+                SevenZipUtility.IsArchive(ImageFileEntry.FullPath, true, performanceTestCancellationToken.Token);
 
                 if (performanceTestCancellationToken.IsCancellationRequested)
                 {

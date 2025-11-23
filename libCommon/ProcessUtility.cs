@@ -15,7 +15,7 @@ namespace libCommon
 {
     public class ProcessUtility
     {
-        public static IEnumerable<string> RunCommand(string cpath, string args, bool verbose, bool throwExceptionIfProcessHadErrors, Func<string, bool>? shouldStop = null, CancellationTokenSource? cancellationTokenSource = null)
+        public static IEnumerable<string> RunCommand(string cpath, string args, bool verbose, bool displayErrors, Func<string, bool>? shouldStop = null, CancellationToken? cancellationToken = null)
         {
             using var p = new Process();
             p.StartInfo.FileName = cpath;
@@ -110,11 +110,11 @@ namespace libCommon
             var processTerminatorCancellationToken = new CancellationTokenSource();
             var processTerminator = Task.Factory.StartNew(() =>
             {
-                if (cancellationTokenSource == null) return;
+                if (cancellationToken == null) return;
 
                 while (!processTerminatorCancellationToken.IsCancellationRequested)
                 {
-                    if (cancellationTokenSource.IsCancellationRequested)
+                    if (cancellationToken.Value.IsCancellationRequested)
                     {
                         p.Kill();
                         break;
@@ -138,7 +138,7 @@ namespace libCommon
             }
 
             // wait for process to terminate
-            var processWasCancelled = cancellationTokenSource?.IsCancellationRequested ?? false;
+            var processWasCancelled = cancellationToken?.IsCancellationRequested ?? false;
             if (!processWasCancelled)
             {
                 p.WaitForExit();
@@ -154,7 +154,7 @@ namespace libCommon
             stdoutWaitHandle.WaitOne();
             stderrWaitHandle.WaitOne();
 
-            if (throwExceptionIfProcessHadErrors && errorLines.Count > 0)
+            if (displayErrors && errorLines.Count > 0)
             {
                 var allErrorsStr = errorLines
                                     .ToString(Environment.NewLine);
