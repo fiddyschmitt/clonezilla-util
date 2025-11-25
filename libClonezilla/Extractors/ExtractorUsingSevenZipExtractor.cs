@@ -4,30 +4,52 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace libClonezilla.Extractors
 {
-    public class ExtractorUsingSevenZipExtractor : IExtractor
+    public class ExtractorUsingSevenZipExtractor : IExtractor, IFileListProvider
     {
-        readonly SevenZipExtractorUsingSevenZipExtractor sevenZipExtractorEx;
+        protected SevenZipExtractorUsingSevenZipExtractor? sevenZipExtractorEx;
 
-        public ExtractorUsingSevenZipExtractor(Stream archiveStream)
+        public bool Initialise(string path)
         {
-            sevenZipExtractorEx = new SevenZipExtractorUsingSevenZipExtractor(archiveStream);
+            sevenZipExtractorEx = new SevenZipExtractorUsingSevenZipExtractor(path);
+
+            var success = sevenZipExtractorEx.GetEntries().Any();
+            return success;
         }
 
-        public ExtractorUsingSevenZipExtractor(string archiveFilename)
+        public Stream Extract(string path)
         {
-            sevenZipExtractorEx = new SevenZipExtractorUsingSevenZipExtractor(archiveFilename);
-        }
+            if (sevenZipExtractorEx == null)
+            {
+                return Stream.Null;
+            }
 
-        public Stream Extract(string pathInArchive)
-        {
             var stream = new MemoryStream();
-            sevenZipExtractorEx.ExtractFile(pathInArchive, stream);
+            sevenZipExtractorEx.ExtractFile(path, stream);
             stream.Seek(0, SeekOrigin.Begin);
             return stream;
+        }
+
+        public IEnumerable<ArchiveEntry> GetFileList()
+        {
+            var result = sevenZipExtractorEx?
+                            .GetEntries()
+                            .Select(entry => new ArchiveEntry(entry.FileName)
+                            {
+                                Created = entry.CreationTime,
+                                Accessed = entry.LastAccessTime,
+                                Modified = entry.LastWriteTime,
+
+                                IsFolder = entry.IsFolder,
+                                Offset = 0,
+                                Size = (long)entry.Size
+                            }) ?? [];
+
+            return result;
         }
     }
 }

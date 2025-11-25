@@ -1,6 +1,8 @@
 ﻿using clonezilla_util.CL.Verbs;
 using CommandLine;
+using lib7Zip;
 using libClonezilla.Cache;
+using libClonezilla.Extractors;
 using libClonezilla.PartitionContainers;
 using libCommon;
 using libCommon.Logging;
@@ -10,6 +12,7 @@ using Serilog.Events;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
@@ -162,21 +165,33 @@ namespace clonezilla_util
 
                             Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
-                            var filesInArchive = mountedPartition.GetFilesInPartition();
+                            var determineExtractor = new DetermineExtractor();
+                            var foundExtractor = determineExtractor.Initialise(mountedPartition.ImageFileEntry.FullPath);
 
-                            foreach (var archiveEntry in filesInArchive)
+                            List<ArchiveEntry> filesInArchive;
+
+                            if (foundExtractor)
                             {
-                                var filenameIncludingPartition = Path.Combine(container.ContainerName, partitionName, archiveEntry.Path);
+                                filesInArchive = mountedPartition.GetFilesInPartition(determineExtractor).ToList();
 
-                                Console.Write(filenameIncludingPartition);
-                                if (listContentsOptions.UseNullSeparator)
+                                foreach (var archiveEntry in filesInArchive)
                                 {
-                                    Console.Write(char.MinValue);
+                                    var filenameIncludingPartition = Path.Combine(container.ContainerName, partitionName, archiveEntry.Path);
+
+                                    Console.Write(filenameIncludingPartition);
+                                    if (listContentsOptions.UseNullSeparator)
+                                    {
+                                        Console.Write(char.MinValue);
+                                    }
+                                    else
+                                    {
+                                        Console.Write(listContentsOptions.OutputSeparator);
+                                    }
                                 }
-                                else
-                                {
-                                    Console.Write(listContentsOptions.OutputSeparator);
-                                }
+                            }
+                            else
+                            {
+                                Log.Error($"[{container.ContainerName}] [{partitionName}] Could not find a suitable extractor for this partition. Returning empty file list.");
                             }
                         });
                 });

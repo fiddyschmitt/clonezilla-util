@@ -8,26 +8,53 @@ using System.Threading.Tasks;
 
 namespace libClonezilla.Extractors
 {
-    public class ExtractorUsingSevenZipSharp : IExtractor
+    public class ExtractorUsingSevenZipSharp : IExtractor, IFileListProvider
     {
-        readonly SevenZipExtractorUsingSevenZipSharp sevenZipExtractorEx;
+        protected SevenZipExtractorUsingSevenZipSharp? sevenZipExtractorEx;
 
-        public ExtractorUsingSevenZipSharp(Stream archiveStream)
+        public bool Initialise(string path)
         {
-            sevenZipExtractorEx = new SevenZipExtractorUsingSevenZipSharp(archiveStream);
+            sevenZipExtractorEx = new SevenZipExtractorUsingSevenZipSharp(path);
+
+            var success = sevenZipExtractorEx.GetEntries().Any();
+            return success;
         }
 
-        public ExtractorUsingSevenZipSharp(string archiveFilename)
+        public Stream Extract(string path)
         {
-            sevenZipExtractorEx = new SevenZipExtractorUsingSevenZipSharp(archiveFilename);
-        }
+            if (sevenZipExtractorEx == null)
+            {
+                return Stream.Null;
+            }
 
-        public Stream Extract(string pathInArchive)
-        {
             var stream = new MemoryStream();
-            sevenZipExtractorEx.ExtractFile(pathInArchive, stream);
+            sevenZipExtractorEx.ExtractFile(path, stream);
             stream.Seek(0, SeekOrigin.Begin);
             return stream;
+        }
+
+        public IEnumerable<ArchiveEntry> GetFileList()
+        {
+            if (sevenZipExtractorEx == null)
+            {
+                return [];
+            }
+
+            var result = sevenZipExtractorEx
+                            .GetEntries()
+                            .Select(data => new ArchiveEntry(data.FileName)
+                            {
+                                Created = data.CreationTime,
+                                Accessed = data.LastAccessTime,
+                                Modified = data.LastWriteTime,
+
+                                IsFolder = data.IsDirectory,
+                                Offset = 0,
+                                Path = "",
+                                Size = (long)data.Size
+                            });
+
+            return result;
         }
     }
 }

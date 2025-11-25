@@ -31,5 +31,10 @@ namespace lib7Zip
 
             entry?.Extract(stream);
         }
+
+        public IEnumerable<Entry> GetEntries()
+        {
+            return archiveFile.Entries;
+        }
     }
 }

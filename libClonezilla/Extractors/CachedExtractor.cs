@@ -1,4 +1,5 @@
-﻿using libCommon;
+﻿using lib7Zip;
+using libCommon;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -19,6 +20,12 @@ namespace libClonezilla.Extractors
         }
 
         public IExtractor BaseExtractor { get; }
+
+        public bool Initialise(string path)
+        {
+            //can't use this class directly
+            return false;
+        }
 
         public Stream Extract(string path)
         {

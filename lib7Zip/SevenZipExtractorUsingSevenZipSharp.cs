@@ -102,5 +102,10 @@ namespace lib7Zip
 
             return result;
         }
+
+        public IEnumerable<ArchiveFileInfo> GetEntries()
+        {
+            return Extractor.ArchiveFileData;
+        }
     }
 }
