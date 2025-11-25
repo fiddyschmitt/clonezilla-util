@@ -201,6 +201,8 @@ namespace clonezilla_util
             libClonezilla.Utility.PopulateVFS(vfs, vfs.RootFolder.Value, containers, DesiredContent.ImageFiles);
 
             Log.Information($"Mounting complete. Mounted to: {mountPoint}");
+            Process.Start("explorer.exe", mountPoint);
+
             Console.WriteLine("Running. Press Enter to exit.");
             Console.ReadLine();
         }
@@ -224,6 +226,8 @@ namespace clonezilla_util
             libClonezilla.Utility.PopulateVFS(vfs, vfs.RootFolder.Value, containers, DesiredContent.Files);
 
             Log.Information($"Mounting complete. Mounted to: {mountPoint}");
+            Process.Start("explorer.exe", mountPoint);
+
             Console.WriteLine("Running. Press Enter to exit.");
             Console.ReadLine();
         }
