@@ -23,12 +23,6 @@ namespace libClonezilla.Extractors
         public BlockingCollection<IExtractor> Extractors { get; }
         public bool ForceFullRead { get; }
 
-        public bool Initialise(string path)
-        {
-            //can't use this class directly
-            return false;
-        }
-
         public Stream Extract(string path)
         {
             //find an idle worker

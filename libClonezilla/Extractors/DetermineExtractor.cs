@@ -7,11 +7,9 @@ using System.Text;
 
 namespace libClonezilla.Extractors
 {
-    public class DetermineExtractor : IExtractor, IFileListProvider
+    public static class DetermineExtractor
     {
-        IExtractor? extractor;
-
-        public bool Initialise(string path)
+        public static IExtractor FindExtractor(string path)
         {
             //List<IExtractor> candidates = [
             //    new ExtractorUsing7zip(),
@@ -22,35 +20,7 @@ namespace libClonezilla.Extractors
             //            .FirstOrDefault(candidate => candidate.Initialise(path));
 
             //For now, we only support extracting using 7z, so short-circuit to that.
-            extractor = new ExtractorUsing7zip(path);
-
-            var result = extractor != null;
-            return result;
-        }
-
-        public Stream Extract(string path)
-        {
-            if (extractor == null)
-            {
-                return Stream.Null;
-            }
-
-            var result = extractor.Extract(path);
-
-            return result;
-        }
-
-        public IEnumerable<ArchiveEntry> GetFileList()
-        {
-            IEnumerable<ArchiveEntry> result;
-            if (extractor is IFileListProvider fileListProvider)
-            {
-                result = fileListProvider.GetFileList();
-            }
-            else
-            {
-                result = [];
-            }
+            var result = new ExtractorUsing7zip(path);
 
             return result;
         }

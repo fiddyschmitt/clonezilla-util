@@ -69,14 +69,13 @@ namespace libClonezilla.Partitions
 
             Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
-            IExtractor extractor = new DetermineExtractor();
-            var foundExtractor = extractor.Initialise(ImageFileEntry.FullPath);
+            IExtractor extractor = DetermineExtractor.FindExtractor(ImageFileEntry.FullPath);
 
             List<ArchiveEntry> filesInArchive;
 
             try
             {
-                if (foundExtractor && extractor is IFileListProvider fileListProvider)
+                if (extractor is IFileListProvider fileListProvider)
                 {
                     filesInArchive = GetFilesInPartition(fileListProvider).ToList();
 

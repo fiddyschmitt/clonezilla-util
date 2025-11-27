@@ -17,16 +17,10 @@ namespace libClonezilla.Extractors
 
         public string ArchiveFilename { get; }
 
-        public ExtractorUsing7zFM(string archiveFilename)
+        public ExtractorUsing7zFM(string path)
         {
-            FileManagerExtractor = new(archiveFilename);
-            ArchiveFilename = archiveFilename;
-        }
-
-        public bool Initialise(string path)
-        {
-            var result = SevenZipUtility.IsArchive(path, true, CancellationToken.None);
-            return result;
+            ArchiveFilename = path;
+            FileManagerExtractor = new SevenZipExtractorUsing7zFM(path);
         }
 
         public Stream Extract(string path)
@@ -43,11 +37,6 @@ namespace libClonezilla.Extractors
         }
         public IEnumerable<ArchiveEntry> GetFileList()
         {
-            if (ArchiveFilename == null)
-            {
-                return [];
-            }
-
             var result = SevenZipUtility.GetArchiveEntries(ArchiveFilename, false, false);
             return result;
         }

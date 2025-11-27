@@ -165,14 +165,13 @@ namespace clonezilla_util
 
                             Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
-                            var determineExtractor = new DetermineExtractor();
-                            var foundExtractor = determineExtractor.Initialise(mountedPartition.ImageFileEntry.FullPath);
+                            var extractor = DetermineExtractor.FindExtractor(mountedPartition.ImageFileEntry.FullPath);
 
                             List<ArchiveEntry> filesInArchive;
 
-                            if (foundExtractor)
+                            if (extractor is IFileListProvider fileListProvider)
                             {
-                                filesInArchive = mountedPartition.GetFilesInPartition(determineExtractor).ToList();
+                                filesInArchive = mountedPartition.GetFilesInPartition(fileListProvider).ToList();
 
                                 foreach (var archiveEntry in filesInArchive)
                                 {

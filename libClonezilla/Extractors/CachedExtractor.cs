@@ -21,12 +21,6 @@ namespace libClonezilla.Extractors
 
         public IExtractor BaseExtractor { get; }
 
-        public bool Initialise(string path)
-        {
-            //can't use this class directly
-            return false;
-        }
-
         public Stream Extract(string path)
         {
             var result = AlreadyExtracted

@@ -15,28 +15,14 @@ namespace libClonezilla.Extractors
 {
     public class ExtractorUsing7zip : IExtractor, IFileListProvider
     {
-        public string? ArchiveFilename { get; protected set; }
+        public string ArchiveFilename { get; protected set; }
 
-        protected IExtractor? extractor;
+        protected IExtractor extractor;
 
         public ExtractorUsing7zip(string path)
         {
             ArchiveFilename = path;
             extractor = DetermineOptimalExtractor(path);
-        }
-
-        public bool Initialise(string path)
-        {
-            ArchiveFilename = path;
-
-            var result = SevenZipUtility.IsArchive(path, true, CancellationToken.None);
-
-            if (result)
-            {
-                extractor ??= DetermineOptimalExtractor(path);
-            }
-
-            return result;
         }
 
         static IExtractor DetermineOptimalExtractor(string archiveFilename)
@@ -153,22 +139,12 @@ namespace libClonezilla.Extractors
 
         public Stream Extract(string path)
         {
-            if (extractor == null)
-            {
-                return Stream.Null;
-            }
-
             var result = extractor.Extract(path);
             return result;
         }
 
         public IEnumerable<ArchiveEntry> GetFileList()
         {
-            if (ArchiveFilename == null)
-            {
-                return [];
-            }
-
             var result = SevenZipUtility.GetArchiveEntries(ArchiveFilename, false, false);
             return result;
         }

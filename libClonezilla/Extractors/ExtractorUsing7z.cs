@@ -17,17 +17,9 @@ namespace libClonezilla.Extractors
     {
         public string ArchiveFilename { get; protected set; }
 
-        public ExtractorUsing7z(string archiveFilename)
-        {
-            ArchiveFilename = archiveFilename;
-        }
-
-        public bool Initialise(string path)
+        public ExtractorUsing7z(string path)
         {
             ArchiveFilename = path;
-
-            var result = SevenZipUtility.IsArchive(path, true, CancellationToken.None);
-            return result;
         }
 
         public Stream Extract(string path)

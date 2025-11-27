@@ -10,7 +10,6 @@ namespace libClonezilla.Extractors
 {
     public interface IExtractor
     {
-        bool Initialise(string path);
         Stream Extract(string path);
     }
 }

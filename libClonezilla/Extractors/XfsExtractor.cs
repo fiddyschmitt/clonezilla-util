@@ -25,14 +25,9 @@ namespace libClonezilla.Extractors
 {
     public class XfsExtractor : IExtractor, IFileListProvider
     {
-        protected XfsFileSystem? xfsStream;
+        protected XfsFileSystem xfsStream;
 
-        public XfsExtractor()
-        {
-
-        }
-
-        public bool Initialise(string path)
+        public XfsExtractor(string path)
         {
             //var types = FileSystemManager.DetectFileSystems(fileStream);
 
@@ -58,29 +53,12 @@ namespace libClonezilla.Extractors
             //    Console.WriteLine("Could not initialize XFS system.");
             //}
 
-            bool canHandle;
-
-            try
-            {
-                var fs = File.OpenRead(path);
-                xfsStream = new XfsFileSystem(fs);
-                canHandle = true;
-            }
-            catch
-            {
-                canHandle = false;
-            }
-
-            return canHandle;
+            var fs = File.OpenRead(path);
+            xfsStream = new XfsFileSystem(fs);
         }
 
         public Stream Extract(string path)
         {
-            if (xfsStream == null)
-            {
-                return Stream.Null;
-            }
-
             var result = xfsStream.OpenFile(path, FileMode.Open, FileAccess.Read);
 
             return result;
@@ -88,11 +66,6 @@ namespace libClonezilla.Extractors
 
         public IEnumerable<ArchiveEntry> GetFileList()
         {
-            if (xfsStream == null)
-            {
-                return [];
-            }
-
             var allFolders = new List<string>() { "" }
                                 .Recurse(folder =>
                                 {
