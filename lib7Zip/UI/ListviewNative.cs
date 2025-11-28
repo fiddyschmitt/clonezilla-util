@@ -137,9 +137,7 @@ namespace lib7Zip.UI
                 out var _);
 
             // convert the byte array to a string. assume the remote process uses Unicode
-            var text = Encoding.Unicode.GetString(localTextBuffer);
-            // the trailing zeros are not cleared automatically
-            text = text[..text.IndexOf('\0')];
+            var text = Encoding.Unicode.GetString(localTextBuffer).TrimEnd('\0');
 
             // finally free all the memory we allocated, and close the process handle we opened
             WinAPI.VirtualFreeEx(processHandle, textBufferPtr, 0, WinAPI.AllocationType.Release);
