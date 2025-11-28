@@ -90,8 +90,14 @@ namespace libClonezilla.Cache
         {
             try
             {
-                var json = JsonConvert.SerializeObject(filenames, Formatting.Indented);
-                File.WriteAllText(FileListFilename, json);
+                using var fs = File.Create(FileListFilename);
+                using var sw = new StreamWriter(fs);
+                using var writer = new JsonTextWriter(sw);
+
+                writer.Formatting = Formatting.Indented;
+
+                var serializer = JsonSerializer.CreateDefault();
+                serializer.Serialize(writer, filenames);
             }
             catch (Exception ex)
             {
