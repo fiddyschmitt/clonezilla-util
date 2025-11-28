@@ -137,7 +137,7 @@ namespace lib7Zip.UI
                 out var _);
 
             // convert the byte array to a string. assume the remote process uses Unicode
-            var text = Encoding.Unicode.GetString(localTextBuffer).TrimEnd('\0');
+            var text = Encoding.Unicode.GetString(localTextBuffer).TrimEnd(['\0', '\uFFFD']);
 
             // finally free all the memory we allocated, and close the process handle we opened
             WinAPI.VirtualFreeEx(processHandle, textBufferPtr, 0, WinAPI.AllocationType.Release);
@@ -191,9 +191,6 @@ namespace lib7Zip.UI
 
             return result;
         }
-
-
-
     }
 
     public static class HeaderHelper
