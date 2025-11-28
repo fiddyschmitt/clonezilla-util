@@ -99,7 +99,7 @@ namespace libClonezilla.Partitions
 
             Log.Information($"[{container.ContainerName}] [{partitionName}] Contains {filesInArchive.Count:N0} files.");
 
-
+            Log.Information($"[{container.ContainerName}] [{partitionName}] Creating file system tree.");
             var tree = CreateTree(container.ContainerName, partitionName, filesInArchive, extractor);
 
             return tree;
