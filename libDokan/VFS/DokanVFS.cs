@@ -497,12 +497,13 @@ namespace libDokan
             out string fileSystemName, out uint maximumComponentLength, IDokanFileInfo info)
         {
             volumeLabel = VolumeLabel;
-            fileSystemName = "NTFS";
+            fileSystemName = "clonezilla-util";
             maximumComponentLength = 256;
 
-            features = FileSystemFeatures.CasePreservedNames | FileSystemFeatures.CaseSensitiveSearch |
-                       FileSystemFeatures.PersistentAcls | FileSystemFeatures.SupportsRemoteStorage |
-                       FileSystemFeatures.UnicodeOnDisk;
+            features = FileSystemFeatures.CasePreservedNames |
+                        FileSystemFeatures.CaseSensitiveSearch |
+                        FileSystemFeatures.UnicodeOnDisk |
+                        FileSystemFeatures.ReadOnlyVolume;
 
             return Trace(nameof(GetVolumeInformation), null, info, DokanResult.Success, "out " + volumeLabel,
                 "out " + features.ToString(), "out " + fileSystemName);
