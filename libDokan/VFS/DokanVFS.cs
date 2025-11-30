@@ -60,6 +60,7 @@ namespace libDokan
         readonly ConcurrentDictionary<int, string> pidToProcessName = new();
 
         const long STATUS_FILE_IS_A_DIRECTORY = 0xC00000BAL;
+        const FileOptions FileNonDirectoryFile = (FileOptions)0x40;
 
         public NtStatus CreateFile(string fileName, FileAccess access, FileShare share, FileMode mode,
             FileOptions options, FileAttributes attributes, IDokanFileInfo info)
@@ -127,9 +128,19 @@ namespace libDokan
                 //See: https://github.com/dokan-dev/dokan-dotnet/issues/274
                 if (pathIsDirectory)
                 {
-                    if (access == FileAccess.GenericRead) //<=== createOptions & FileOptions.NonDirectoryFile
+                    // Explorer opens directories with GenericRead and expects success.
+                    // Previously we treated GenericRead as "NonDirectoryFile", which broke folder copies
+                    // (especially for special folders like Users) and caused UAC prompts / failures.
+                    if ((options & FileNonDirectoryFile) != 0)
+                    {
                         return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
-                                                            (NtStatus)STATUS_FILE_IS_A_DIRECTORY);
+                            (NtStatus)STATUS_FILE_IS_A_DIRECTORY);
+                    }
+
+                    // CRITICAL: Do NOT return failure here just because access is GenericRead.
+                    // Explorer NEEDS GenericRead to copy folders.
+
+                    info.IsDirectory = true;
                 }
 
                 switch (mode)
@@ -510,7 +521,7 @@ namespace libDokan
         }
 
         public NtStatus GetFileSecurity(string fileName, out FileSystemSecurity? security, AccessControlSections sections,
-            IDokanFileInfo info)
+                            IDokanFileInfo info)
         {
             security = null;
             return DokanResult.NotImplemented;
