@@ -70,7 +70,7 @@ namespace libDokan.VFS
             bool isRestricted = restrictedAncestors
                                     .Any(ancestor => !ancestor.IsProcessPermitted(procInfo));
 
-            return isRestricted;
+            return !isRestricted;
         }
 
         public string FullPath

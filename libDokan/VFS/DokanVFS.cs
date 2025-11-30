@@ -554,7 +554,7 @@ namespace libDokan
 
             var result = new List<FileInformation>();
 
-            if (fileSystemEntry != null && fileSystemEntry.IsAccessibleToProcess(requestingPID))
+            if (fileSystemEntry != null && !fileSystemEntry.IsAccessibleToProcess(requestingPID))
             {
                 return result;
             }
