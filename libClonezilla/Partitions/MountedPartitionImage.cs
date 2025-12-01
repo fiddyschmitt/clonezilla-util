@@ -21,7 +21,7 @@ namespace libClonezilla.Partitions
 {
     public class MountedPartitionImage
     {
-        public MountedPartitionImage(Partition partition, Folder partitionFolder, IVFS vfs, DesiredContent desiredContent)
+        public MountedPartitionImage(Partition partition, Folder partitionFolder, Lazy<IVFS> vfs, DesiredContent desiredContent)
         {
             Partition = partition;
             var imageFilename = $"{partition.PartitionName}.img";
@@ -35,7 +35,7 @@ namespace libClonezilla.Partitions
             }
             else
             {
-                imagesFolder = vfs.CreateTempFolder();
+                imagesFolder = vfs.Value.CreateTempFolder();
             }
 
             ImageFileEntry = new StreamBackedFileEntry(imageFilename, imagesFolder, partition.FullPartitionImage)

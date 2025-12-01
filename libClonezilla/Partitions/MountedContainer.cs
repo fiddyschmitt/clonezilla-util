@@ -14,7 +14,7 @@ namespace libClonezilla.Partitions
 {
     public class MountedContainer
     {
-        public MountedContainer(PartitionContainer container, Folder containerFolder, IVFS vfs, DesiredContent desiredContent)
+        public MountedContainer(PartitionContainer container, Folder containerFolder, Lazy<IVFS> vfs, DesiredContent desiredContent)
         {
             Container = container;
 

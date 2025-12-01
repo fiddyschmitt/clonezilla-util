@@ -4,6 +4,7 @@ using lib7Zip;
 using libClonezilla.Cache;
 using libClonezilla.Extractors;
 using libClonezilla.PartitionContainers;
+using libClonezilla.VFS;
 using libCommon;
 using libCommon.Logging;
 using libPartclone;
@@ -131,9 +132,12 @@ namespace clonezilla_util
         {
             if (listContentsOptions.InputPaths == null) throw new Exception($"{nameof(listContentsOptions.InputPaths)} not specified.");
 
-            var mountPoint = libDokan.Utility.GetAvailableDriveLetter();
-
-            var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
+            var vfs = new Lazy<IVFS>(() =>
+            {
+                var mountPoint = libDokan.Utility.GetAvailableDriveLetter();
+                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint);
+                return result;
+            });
 
             var containers = PartitionContainer.FromPaths(
                 listContentsOptions.InputPaths.ToList(),
@@ -145,7 +149,7 @@ namespace clonezilla_util
                                 .OrderBy(container => container.ContainerName)
                                 .ToList();
 
-            var tempFolder = vfs.CreateTempFolder();
+            var tempFolder = vfs.Value.CreateTempFolder();
             var mountedContainers = libClonezilla.Utility.PopulateVFS(vfs, tempFolder, containers, DesiredContent.ImageFiles);
 
             var partitions = containers
@@ -202,7 +206,11 @@ namespace clonezilla_util
             mountAsImageOptions.MountPoint ??= libDokan.Utility.GetAvailableDriveLetter();
 
             var mountPoint = mountAsImageOptions.MountPoint;
-            var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
+            var vfs = new Lazy<IVFS>(() =>
+            {
+                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint);
+                return result;
+            });
 
             var containers = PartitionContainer.FromPaths(
                 mountAsImageOptions.InputPaths.ToList(),
@@ -212,7 +220,7 @@ namespace clonezilla_util
                 vfs,
                 mountAsImageOptions.ProcessTrailingNulls);
 
-            libClonezilla.Utility.PopulateVFS(vfs, vfs.RootFolder.Value, containers, DesiredContent.ImageFiles);
+            libClonezilla.Utility.PopulateVFS(vfs, vfs.Value.RootFolder.Value, containers, DesiredContent.ImageFiles);
 
             Log.Information($"Mounting complete. Mounted to: {mountPoint}");
             Process.Start("explorer.exe", mountPoint);
@@ -227,7 +235,11 @@ namespace clonezilla_util
             mountAsFilesOptions.MountPoint ??= libDokan.Utility.GetAvailableDriveLetter();
 
             var mountPoint = mountAsFilesOptions.MountPoint;
-            var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
+            var vfs = new Lazy<IVFS>(() =>
+            {
+                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint);
+                return result;
+            });
 
             var containers = PartitionContainer.FromPaths(
                 mountAsFilesOptions.InputPaths.ToList(),
@@ -237,7 +249,7 @@ namespace clonezilla_util
                 vfs,
                 mountAsFilesOptions.ProcessTrailingNulls);
 
-            libClonezilla.Utility.PopulateVFS(vfs, vfs.RootFolder.Value, containers, DesiredContent.Files);
+            libClonezilla.Utility.PopulateVFS(vfs, vfs.Value.RootFolder.Value, containers, DesiredContent.Files);
 
             Log.Information($"Mounting complete. Mounted to: {mountPoint}");
             Process.Start("explorer.exe", mountPoint);
@@ -256,8 +268,13 @@ namespace clonezilla_util
                 Directory.CreateDirectory(extractPartitionImageOptions.OutputFolder);
             }
 
-            var mountPoint = libDokan.Utility.GetAvailableDriveLetter();
-            var vfs = new libClonezilla.VFS.OnDemandVFS(PROGRAM_NAME, mountPoint);
+
+            var vfs = new Lazy<IVFS>(() =>
+            {
+                var mountPoint = libDokan.Utility.GetAvailableDriveLetter();
+                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint);
+                return result;
+            });
 
             var containers = PartitionContainer.FromPaths(
                                 extractPartitionImageOptions.InputPaths.ToList(),

@@ -10,5 +10,7 @@ namespace libClonezilla.VFS
     public interface IVFS
     {
         public Folder CreateTempFolder();
+
+        public Lazy<RootFolder> RootFolder { get; }
     }
 }

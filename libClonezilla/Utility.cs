@@ -36,7 +36,7 @@ namespace libClonezilla
             }
         }
 
-        public static List<MountedContainer> PopulateVFS(IVFS vfs, Folder containersRoot, List<PartitionContainer> containers, DesiredContent desiredContent)
+        public static List<MountedContainer> PopulateVFS(Lazy<IVFS> vfs, Folder containersRoot, List<PartitionContainer> containers, DesiredContent desiredContent)
         {
             var totalPartitions = containers.Sum(container => container.Partitions.Count);
 

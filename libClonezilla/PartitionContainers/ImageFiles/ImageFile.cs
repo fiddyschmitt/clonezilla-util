@@ -20,7 +20,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class ImageFile : PartitionContainer
     {
-        public ImageFile(string filename, List<string> partitionsToLoad, bool willPerformRandomSeeking, IVFS vfs, bool processTrailingNulls)
+        public ImageFile(string filename, List<string> partitionsToLoad, bool willPerformRandomSeeking, Lazy<IVFS> vfs, bool processTrailingNulls)
         {
             Stream mainFileStream = File.OpenRead(filename);
 
@@ -51,7 +51,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 {
                     //To inspect compressed images, we need a virtual temp folder.
                     //Let's get one from the VFS.
-                    var tempFolder = vfs.CreateTempFolder();
+                    var tempFolder = vfs.Value.CreateTempFolder();
                     container = new CompressedImage(filename, partitionsToLoad, willPerformRandomSeeking, tempFolder, processTrailingNulls);
                 }
             }
