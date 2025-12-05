@@ -74,45 +74,20 @@ namespace libCommon
         //1. Processes in parallel
         //2. Preserves original order
         //3. Returns items immediately after they are available
-        public static IEnumerable<TOutput> SelectParallelPreserveOrder<TInput, TOutput>(this IEnumerable<TInput> list, Func<TInput, TOutput> selector, int? threads = null)
+        public static IEnumerable<TOutput> SelectParallelPreserveOrder<TInput, TOutput>(
+            this IEnumerable<TInput> source,
+            Func<TInput, TOutput> selector,
+            int? degree = null)
         {
-            var resultDictionary = new ConcurrentDictionary<int, TOutput>();
+            var dop = Math.Max(degree ?? Environment.ProcessorCount, 1);
 
-            threads ??= Environment.ProcessorCount;
-
-            var outputItems = new BlockingCollection<int>(threads.Value);
-
-            Task.Factory.StartNew(() =>
-            {
-                list
-                    .Select((item, index) => new
-                    {
-                        Index = index,
-                        Value = item
-                    })
-                    .AsParallel()
-                    .WithDegreeOfParallelism(threads.Value)
-                    .ForAll(item =>
-                    {
-                        var result = selector(item.Value);
-                        resultDictionary.TryAdd(item.Index, result);
-                        outputItems.Add(item.Index);
-                    });
-
-                outputItems.CompleteAdding();
-            }, TaskCreationOptions.LongRunning);
-
-            var currentIndexToReturn = 0;
-            foreach (var _ in outputItems.GetConsumingEnumerable())
-            {
-                while (resultDictionary.TryGetValue(currentIndexToReturn, out var result))
-                {
-                    yield return result;
-
-                    resultDictionary.TryRemove(currentIndexToReturn, out var _);
-                    currentIndexToReturn++;
-                };
-            }
+            return source
+                .AsParallel()
+                .AsOrdered()                                // preserve source order
+                .WithDegreeOfParallelism(dop)
+                .WithMergeOptions(ParallelMergeOptions.NotBuffered) // stream ASAP
+                .Select(selector)
+                .AsSequential();                            // return as IEnumerable<TOutput>
         }
 
         public static IEnumerable<T> Buffer<T>(this IEnumerable<T> input, Action<(int InputDiscovered, bool InputFinished, int OutputProcessed)>? progressCallback = null)
