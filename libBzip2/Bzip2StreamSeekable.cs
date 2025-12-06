@@ -105,8 +105,6 @@ namespace libBzip2
             var bytesActuallyRead = decompressor.Read(buffer, offset, count);
             decompressor.Close();
 
-            Position += bytesActuallyRead;
-
             return bytesActuallyRead;
         }
 
