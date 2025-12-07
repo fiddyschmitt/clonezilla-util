@@ -80,7 +80,7 @@ namespace libClonezilla.Partitions
                     filesInArchive = GetFilesInPartition(fileListProvider).ToList();
 
                     //this layer caches streams as they're created, so that they are extracted only once
-                    extractor = new CachedExtractor(extractor);
+                    //extractor = new CachedExtractor(extractor);
 
                     //this layer makes the extractor thread-safe by wrapping each stream in a Stream.Synchronized()
                     extractor = new SynchronisedExtractor(extractor);
