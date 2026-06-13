@@ -1,4 +1,4 @@
-﻿using libCommon.Streams;
+using libCommon.Streams;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -10,86 +10,58 @@ namespace libCommon.Streams.Sparse
 {
     public class SparseAwareReader(Stream stream) : Stream, ISparseAwareReader
     {
-        public Stream Stream { get; } = stream;
+        readonly Stream baseStream = stream;
+
+        //must return this wrapper (not the base stream), so that reads through ISparseAwareReader.Stream update LatestReadWasAllNull
+        public Stream Stream => this;
         public bool LatestReadWasAllNull { get; set; } = false;
         public bool StopReadingWhenRemainderOfFileIsNull { get; set; } = false;
 
-        public override bool CanRead => Stream.CanRead;
+        public override bool CanRead => baseStream.CanRead;
 
-        public override bool CanSeek => Stream.CanSeek;
+        public override bool CanSeek => baseStream.CanSeek;
 
-        public override bool CanWrite => Stream.CanWrite;
+        public override bool CanWrite => baseStream.CanWrite;
 
-        public override long Length => Stream.Length;
+        public override long Length => baseStream.Length;
 
-        public override long Position { get => Stream.Position; set => Stream.Position = value; }
+        public override long Position { get => baseStream.Position; set => baseStream.Position = value; }
 
-        public static bool IsAllZerosLINQParallel(byte[] data, int offset, int count)
+        public static bool IsAllZeros(byte[] data, int offset, int count)
         {
-            IEnumerable<byte> dat = data;
-            if (offset > 0)
-            {
-                dat = dat.Skip(offset);
-            }
-
-            if (count != data.Length)
-            {
-                dat = dat.Take(count);
-            }
-
-            var result = dat
-                            .AsParallel()
-                            .WithDegreeOfParallelism(Environment.ProcessorCount)
-                            .All(b => b == 0x0);
-
+            var result = data.AsSpan(offset, count).IndexOfAnyExcept((byte)0) < 0;
             return result;
         }
 
-        //This is up to 3x faster than IsAllZerosLINQ.
-        /*
-        public static unsafe bool IsAllZerosUnsafe(byte[] data, int offset, int count)
-        {
-            fixed (byte* p = data)
-            {
-                byte* start = p + offset;
-                byte* end = start + count;
-                for (byte* current = start; current < end; current++)
-                {
-                    if (*current != 0) return false;
-                }
-            }
-            return true;
-        }
-        */
-
         public override int Read(byte[] buffer, int offset, int count)
         {
-            var bytesRead = Stream.Read(buffer, offset, count);
+            var bytesRead = baseStream.Read(buffer, offset, count);
 
-            LatestReadWasAllNull = IsAllZerosLINQParallel(buffer, offset, count);
+            //only inspect the bytes actually read; beyond that the buffer holds stale content
+            LatestReadWasAllNull = IsAllZeros(buffer, offset, bytesRead);
 
             return bytesRead;
         }
 
         public override void Flush()
         {
-            Stream.Flush();
+            baseStream.Flush();
         }
 
         public override long Seek(long offset, SeekOrigin origin)
         {
-            var result = Stream.Seek(offset, origin);
+            var result = baseStream.Seek(offset, origin);
             return result;
         }
 
         public override void SetLength(long value)
         {
-            Stream.SetLength(value);
+            baseStream.SetLength(value);
         }
 
         public override void Write(byte[] buffer, int offset, int count)
         {
-            Stream.Write(buffer, offset, count);
+            baseStream.Write(buffer, offset, count);
         }
     }
 }

@@ -33,7 +33,7 @@ namespace libCommon.Streams
                 var outputStream = new SparseAwareWriteStream(fileStream, false);
 
                 sparseAwareInput
-                    .Sparsify(outputStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER,
+                    .Sparsify(outputStream, Buffers.ARBITRARY_LARGE_SIZE_BUFFER,
                     progress =>
                     {
                         var totalCopiedStr = Extensions.BytesToString(progress.TotalRead);
@@ -73,7 +73,7 @@ namespace libCommon.Streams
             {
                 //just a regular file, with null bytes and all
                 decompressedStream
-                    .CopyTo(fileStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER,
+                    .CopyTo(fileStream, Buffers.ARBITRARY_LARGE_SIZE_BUFFER,
                     progress =>
                     {
                         var per = (double)progress.TotalRead / decompressedStream.Length * 100;

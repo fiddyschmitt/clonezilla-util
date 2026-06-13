@@ -44,17 +44,16 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
             Partitions = partitionImageFiles
                             .Where(partitionImageFile => partitionImageFile.Offset != null)
-                            .Sandwich()
                             .Select(partitionImageFile =>
                             {
-                                var startByte = partitionImageFile.Current.Offset!.Value;
-                                var length = partitionImageFile.Current.Size;
+                                var startByte = partitionImageFile.Offset!.Value;
+                                var length = partitionImageFile.Size;
                                 var endByte = startByte + length;
 
                                 return new
                                 {
-                                    PartitionFilename = partitionImageFile.Current,
-                                    PartitionName = $"partition{Path.GetFileNameWithoutExtension(partitionImageFile.Current.Path)}",
+                                    PartitionFilename = partitionImageFile,
+                                    PartitionName = $"partition{Path.GetFileNameWithoutExtension(partitionImageFile.Path)}",
                                     StartByte = startByte,
                                     PartitionLength = length,
                                     EndByte = endByte

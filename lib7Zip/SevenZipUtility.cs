@@ -91,8 +91,9 @@ namespace lib7Zip
 
                 if (!currentEntry.IsFolder)
                 {
-                    if (line.StartsWith($"Size =")) currentEntry.Size = long.Parse(line.Replace("Size = ", ""));
-                    if (line.StartsWith($"Offset =")) currentEntry.Offset = long.Parse(line.Replace("Offset = ", ""));
+                    //TryParse, because folder entries can have an empty Size value
+                    if (line.StartsWith($"Size =") && long.TryParse(line.Replace("Size = ", ""), out var size)) currentEntry.Size = size;
+                    if (line.StartsWith($"Offset =") && long.TryParse(line.Replace("Offset = ", ""), out var entryOffset)) currentEntry.Offset = entryOffset;
                 }
 
                 if (line.StartsWith($"Modified =")) _ = DateTime.TryParse(line.Replace("Modified = ", ""), out currentEntry.Modified);

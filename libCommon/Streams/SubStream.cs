@@ -79,7 +79,8 @@ namespace libCommon.Streams
                     break;
 
                 case SeekOrigin.End:
-                    BaseStream.Seek(EndByte + offset, origin);
+                    //EndByte + offset is an absolute position in the base stream
+                    BaseStream.Seek(EndByte + offset, SeekOrigin.Begin);
                     break;
             }
 

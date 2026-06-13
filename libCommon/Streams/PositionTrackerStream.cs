@@ -53,7 +53,7 @@ namespace libCommon.Streams
                 case SeekOrigin.End:
                     lock (positionLock)
                     {
-                        position = Length - offset;
+                        position = Length + offset;
                     }
                     break;
             }

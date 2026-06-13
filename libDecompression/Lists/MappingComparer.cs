@@ -11,8 +11,9 @@ namespace libDecompression.Lists
     {
         public int Compare(Mapping range, long value)
         {
+            //UncompressedEndByte is exclusive (it equals the next block's UncompressedStartByte)
             if (value < range.UncompressedStartByte) return 1;
-            if (value > range.UncompressedEndByte) return -1;
+            if (value >= range.UncompressedEndByte) return -1;
             return 0;
         }
     }

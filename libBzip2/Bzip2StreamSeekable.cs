@@ -27,7 +27,7 @@ namespace libBzip2
 
             compressedInputStream.Seek(0, SeekOrigin.Begin);
             FileHeader = new byte[4];
-            compressedInputStream.Read(FileHeader, 0, FileHeader.Length);
+            compressedInputStream.ReadExactly(FileHeader);
 
             //Read all the blocks synchronously
             //blocks = GetIndexContent(compressedInputStream, indexFilename).ToList();
@@ -84,7 +84,13 @@ namespace libBzip2
         public override int ReadFromChunk(Mapping block, byte[] buffer, int offset, int count)
         {
             var independentStream = new IndependentStream(CompressedInputStream, sourceStreamLock);
-            var compressedContent = new SubStream(independentStream, block.CompressedStartByte, block.UncompressedEndByte);
+
+            //index files created before CompressedEndByte existed deserialize it as 0; fall back to the old
+            //(generous) bound of UncompressedEndByte, which works as long as the block compressed at all
+            var compressedEndByte = block.CompressedEndByte > block.CompressedStartByte
+                                        ? block.CompressedEndByte
+                                        : block.UncompressedEndByte;
+            var compressedContent = new SubStream(independentStream, block.CompressedStartByte, compressedEndByte);
 
             var fileHeaderContent = new MemoryStream(FileHeader);
             var fullBlockContent = new Multistream([fileHeaderContent, compressedContent]);
@@ -99,7 +105,7 @@ namespace libBzip2
             if (positionInBlock > 0)
             {
                 Debug.WriteLine($"Skipping {positionInBlock.BytesToString()} to read {count.BytesToString()} from position {Position.BytesToString()}");
-                decompressor.CopyTo(Null, positionInBlock, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
+                decompressor.CopyTo(Null, positionInBlock, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
             }
 
             var bytesActuallyRead = decompressor.Read(buffer, offset, count);
@@ -142,7 +148,7 @@ namespace libBzip2
 
                                 var compressedContent = new MemoryStream();
                                 independentStream.Seek(block.Start, SeekOrigin.Begin);
-                                independentStream.CopyTo(compressedContent, block.End - block.Start, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
+                                independentStream.CopyTo(compressedContent, block.End - block.Start, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
                                 compressedContent.Seek(0, SeekOrigin.Begin);
 
 
@@ -166,7 +172,7 @@ namespace libBzip2
 
                                     while (true)
                                     {
-                                        var read = sparseAwareReader.CopyTo(Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
+                                        var read = sparseAwareReader.CopyTo(Null, Buffers.ARBITRARY_LARGE_SIZE_BUFFER, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
                                         if (read == 0)
                                         {
                                             break;
@@ -194,7 +200,7 @@ namespace libBzip2
                                 {
                                     using var positionTrackingStream = new PositionTrackerStream();
 
-                                    bzip2Decompressor.CopyTo(positionTrackingStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER,
+                                    bzip2Decompressor.CopyTo(positionTrackingStream, Buffers.ARBITRARY_LARGE_SIZE_BUFFER,
                                         progress =>
                                         {
                                             lock (largestCompressedPositionProcessedLock)
@@ -224,6 +230,7 @@ namespace libBzip2
                                 var blockInfo = new Mapping()
                                 {
                                     CompressedStartByte = block.Metadata.Start,
+                                    CompressedEndByte = block.Metadata.End,
                                     UncompressedStartByte = uncompressedStartPos,
                                     UncompressedEndByte = uncompressedStartPos + block.UncompressedLength
                                 };

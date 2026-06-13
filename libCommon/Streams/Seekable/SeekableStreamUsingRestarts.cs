@@ -38,7 +38,7 @@ namespace libCommon.Streams.Seekable
                     else
                     {
                         var originalPosition = Position;
-                        Extensions.CopyTo(this, Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+                        Extensions.CopyTo(this, Null, Buffers.ARBITRARY_LARGE_SIZE_BUFFER);
                         length = Position;
                         //We are now at the end of the stream. Let's go back to the original position
                         Seek(originalPosition, SeekOrigin.Begin);
@@ -101,7 +101,7 @@ namespace libCommon.Streams.Seekable
                 //The original stream can't go backwards. So we need to start over
                 Log.Debug($"Restarting stream. Need to seek from beginning to position {position.BytesToString()}");
                 underlyingStream = StreamFactory.Invoke();
-                underlyingStream.CopyTo(Null, position, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+                underlyingStream.CopyTo(Null, position, Buffers.ARBITRARY_LARGE_SIZE_BUFFER);
             }
             else
             {
@@ -112,17 +112,17 @@ namespace libCommon.Streams.Seekable
                     Log.Debug($"Was asked to seek from position {oldPosition:N0} to {position:N0}. To get there, need to read {toSeek.BytesToString()}");
 
                     /*
-                    if (toSeek > Buffers.ARBITARY_HUGE_SIZE_BUFFER)
+                    if (toSeek > Buffers.ARBITRARY_HUGE_SIZE_BUFFER)
                     {
                         //Experiment
 
                         //7-Zip didn't like us doing this? Why? It's fine in SiphonStream
-                        toSeek = Buffers.ARBITARY_HUGE_SIZE_BUFFER;
+                        toSeek = Buffers.ARBITRARY_HUGE_SIZE_BUFFER;
                         Log.Debug($"That's a bit far. How about a {toSeek.BytesToString()} seek instead?");
                     }
                     */
 
-                    var seeked = underlyingStream.CopyTo(Null, toSeek, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+                    var seeked = underlyingStream.CopyTo(Null, toSeek, Buffers.ARBITRARY_LARGE_SIZE_BUFFER);
 
                     position = oldPosition + seeked;
                 }

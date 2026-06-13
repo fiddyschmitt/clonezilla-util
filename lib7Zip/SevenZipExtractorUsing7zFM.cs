@@ -35,13 +35,13 @@ namespace lib7Zip
             }
         }
 
+        const int MaxAttempts = 5;
+
         public void ExtractFile(string archiveEntryPath, string folder)
         {
             lock (usageLock)
             {
-                var fileExtractedSuccessfully = false;
-
-                while (!fileExtractedSuccessfully)
+                for (var attempt = 1; ; attempt++)
                 {
                     try
                     {
@@ -60,6 +60,7 @@ namespace lib7Zip
 
                         //wait for the "Extract to" prompt to appear
                         IntPtr? hWndExtractWindow = null;
+                        var extractPromptDeadline = DateTime.Now + TimeSpan.FromSeconds(60);
                         while (true)
                         {
                             hWndExtractWindow = WindowHandleHelper.GetRootWindowByTitle(PID, desktopHandle, title => title.Equals("Copy")); //7zFM displays different titles based on globalization settings. Perhaps search for windows that has specific controls
@@ -67,6 +68,11 @@ namespace lib7Zip
                             if (hWndExtractWindow.HasValue)
                             {
                                 break;
+                            }
+
+                            if (DateTime.Now > extractPromptDeadline)
+                            {
+                                throw new Exception("Timed out waiting for the Extract prompt to appear.");
                             }
 
                             Thread.Sleep(100);
@@ -122,11 +128,17 @@ namespace lib7Zip
                             Thread.Sleep(100);
                         }
 
-                        fileExtractedSuccessfully = true;
+                        return;
                     }
                     catch (Exception ex)
                     {
                         Log.Error($"Error while extracting {archiveEntryPath}: {ex}");
+
+                        if (attempt == MaxAttempts)
+                        {
+                            throw new Exception($"Failed to extract {archiveEntryPath} after {MaxAttempts} attempts.", ex);
+                        }
+
                         Log.Debug($"Retrying to extract {archiveEntryPath}");
                     }
                 }
@@ -136,8 +148,7 @@ namespace lib7Zip
 
         static void NavigateToFilename(int pid, IntPtr hWndFM, IntPtr? desktopHandle, string fullFilename)
         {
-            var navigatedToFilename = false;
-            while (!navigatedToFilename)
+            for (var attempt = 1; ; attempt++)
             {
                 try
                 {
@@ -151,7 +162,7 @@ namespace lib7Zip
                     //type the folder into the address bar
                     var currentPath = WindowHandleHelper.GetWindowText(filenameTextbox.Handle);
 
-                    if (currentPath != null && currentPath.Equals($"{folder}\\", StringComparison.CurrentCultureIgnoreCase))
+                    if (currentPath != null && currentPath.Equals($"{folder}\\", StringComparison.OrdinalIgnoreCase))
                     {
                         //we are already at the correct path
                     }
@@ -172,8 +183,8 @@ namespace lib7Zip
                     {
                         var rows = lv.GetRows();
 
-                        var lastRowFileName = rows.Last()["Name"];
-                        if (!string.IsNullOrEmpty(lastRowFileName))
+                        var lastRow = rows.LastOrDefault();
+                        if (lastRow != null && lastRow.TryGetValue("Name", out var lastRowFileName) && !string.IsNullOrEmpty(lastRowFileName))
                         {
                             break;
                         }
@@ -189,11 +200,17 @@ namespace lib7Zip
 
                     lv.SelectItemByText("Name", fileName);
 
-                    navigatedToFilename = true;
+                    return;
                 }
                 catch (Exception ex)
                 {
                     Log.Error($"Error while navigating to {fullFilename}: {ex}");
+
+                    if (attempt == MaxAttempts)
+                    {
+                        throw new Exception($"Failed to navigate to {fullFilename} after {MaxAttempts} attempts.", ex);
+                    }
+
                     Log.Debug($"Retrying to navigate to {fullFilename}");
                 }
             }

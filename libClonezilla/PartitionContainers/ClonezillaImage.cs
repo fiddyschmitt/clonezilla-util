@@ -75,6 +75,7 @@ namespace libClonezilla.PartitionContainers
                                 Compression compressionInUse = Compression.None;
                                 var splitFilenames = Directory
                                                         .GetFiles(clonezillaArchiveFolder, $"{partitionName}.*-ptcl-img*")
+                                                        .OrderBy(filename => filename, StringComparer.OrdinalIgnoreCase)   //GetFiles does not guarantee order; split volumes (.aa, .ab, ...) must be concatenated in sequence
                                                         .ToList();
 
                                 compressionInUse = GetCompressionInUse(splitFilenames.First());
@@ -107,7 +108,7 @@ namespace libClonezilla.PartitionContainers
                                     }
                                     catch (Exception ex)
                                     {
-                                        Log.Error(ex, $"[{containerName}] [{partitionName}] Error while opening partition as {nameof(ImageFilePartition)}");
+                                        Log.Error(ex, $"[{ContainerName}] [{partitionName}] Error while opening partition as {nameof(ImageFilePartition)}");
                                     }
                                 }
                                 else
@@ -127,7 +128,7 @@ namespace libClonezilla.PartitionContainers
                                     }
                                     catch (Exception ex)
                                     {
-                                        Log.Error(ex, $"[{containerName}] [{partitionName}] Error while opening partition as {nameof(PartclonePartition)}");
+                                        Log.Error(ex, $"[{ContainerName}] [{partitionName}] Error while opening partition as {nameof(PartclonePartition)}");
                                     }
                                 }
 

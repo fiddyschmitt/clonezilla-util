@@ -261,17 +261,6 @@ namespace libCommon
             return totalRead;
         }
 
-        //Forward seeking in Streams that don't support seeking
-        public static void SkipTo(this Stream input, Stream output, long count, int bufferSize)
-        {
-            while (true)
-            {
-                var bytesRead = input.CopyTo(Stream.Null, bufferSize, bufferSize);
-
-                if (bytesRead == 0) break;
-            }
-        }
-
         public static void ForEach<T>(this IEnumerable<T> enumeration, Action<T> action)
         {
             foreach (T item in enumeration)
@@ -307,6 +296,8 @@ namespace libCommon
         public static IEnumerable<(T? Previous, T Current, T? Next)> Sandwich<T>(this IEnumerable<T> source, T? beforeFirst = default, T? afterLast = default)
         {
             var sourceList = source.ToList();
+
+            if (sourceList.Count == 0) yield break;
 
             T? previous = beforeFirst;
 

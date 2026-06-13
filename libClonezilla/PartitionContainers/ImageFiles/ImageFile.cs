@@ -8,7 +8,6 @@ using libCommon.Streams.Seekable;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
 using libPartclone;
-using MountDocushare.Streams;
 using System;
 using System.Collections.Generic;
 using System.IO;

@@ -10,11 +10,12 @@ namespace libCommon
     public static class TempUtility
     {
         static string tempRoot = Path.GetTempPath();
+        static readonly object tempRootLock = new();
         public static string TempRoot
         {
             get
             {
-                lock (tempRoot)
+                lock (tempRootLock)
                 {
                     if (!Directory.Exists(tempRoot))
                     {

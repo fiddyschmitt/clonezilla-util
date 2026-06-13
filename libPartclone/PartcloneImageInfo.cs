@@ -208,7 +208,8 @@ namespace libPartclone
                     populatedBlockIndex++;
                 }
 
-                if (currentRange.OutputFileRange.EndByte > totalLength)
+                //EndByte is inclusive, so the last valid index is totalLength - 1
+                if (currentRange.OutputFileRange.EndByte >= totalLength)
                 {
                     currentRange.OutputFileRange.EndByte = totalLength - 1;
                 }

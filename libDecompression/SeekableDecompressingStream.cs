@@ -63,7 +63,7 @@ namespace libDecompression
 
         public (long Start, long End) GetRecommendation(long start)
         {
-            var startIndexPoint = Blocks.BinarySearch(start + 1, MappingComparer) ?? throw new Exception($"Could not find block which contains position {start:N0}");
+            var startIndexPoint = Blocks.BinarySearch(start, MappingComparer) ?? throw new Exception($"Could not find block which contains position {start:N0}");
 
             return (startIndexPoint.UncompressedStartByte, startIndexPoint.UncompressedEndByte);
         }
@@ -81,7 +81,7 @@ namespace libDecompression
                     break;
 
                 case SeekOrigin.End:
-                    position = Length - offset;
+                    position = Length + offset;
                     break;
             }
 
@@ -96,6 +96,7 @@ namespace libDecompression
     public class Mapping
     {
         public long CompressedStartByte;
+        public long CompressedEndByte;  //0 in index files created before this field existed
 
         public long UncompressedStartByte;
         public long UncompressedEndByte;

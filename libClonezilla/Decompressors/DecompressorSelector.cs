@@ -76,7 +76,7 @@ namespace libClonezilla.Decompressors
 
                     try
                     {
-                        bytesRead = testStream.CopyTo(Stream.Null, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER, Buffers.ARBITARY_SMALL_SIZE_BUFFER);
+                        bytesRead = testStream.CopyTo(Stream.Null, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER, Buffers.ARBITRARY_SMALL_SIZE_BUFFER);
                     }
                     catch { }
                     if (bytesRead == 0) break;
@@ -128,7 +128,8 @@ namespace libClonezilla.Decompressors
                     //we have to come up with a unique string to represent this stream, without reading the whole stream.
                     var streamForHashing = Decompressor.GetSequentialStream();
                     var beginningOfFile = new byte[50 * 1024 * 1024];
-                    streamForHashing.Read(beginningOfFile);
+                    //a single Read() can return fewer bytes than requested (and how many is not deterministic), which would make the cache key vary from run to run
+                    streamForHashing.ReadAtLeast(beginningOfFile, beginningOfFile.Length, throwOnEndOfStream: false);
                     var md5 = libCommon.Utility.CalculateMD5(beginningOfFile);
                     md5 = libCommon.Utility.CalculateMD5(Encoding.UTF8.GetBytes($"{md5} {StreamName} {CompressedStream.Length}"));
                     var cacheFolder = Path.Combine(WholeFileCacheManager.RootCacheFolder, md5);
@@ -174,7 +175,7 @@ namespace libClonezilla.Decompressors
 
                                 while (true)
                                 {
-                                    var read = sparseAwareReader.CopyTo(trainCompressor, Buffers.ARBITARY_LARGE_SIZE_BUFFER, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
+                                    var read = sparseAwareReader.CopyTo(trainCompressor, Buffers.ARBITRARY_LARGE_SIZE_BUFFER, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
                                     if (read == 0)
                                     {
                                         break;
@@ -210,7 +211,7 @@ namespace libClonezilla.Decompressors
                             using (var wipStream = File.Create(wipFilename))
                             {
                                 using var trainCompressor = new TrainCompressor(wipStream, compressors, 10 * 1024 * 1024);
-                                decompressedStream.CopyTo(trainCompressor, Buffers.ARBITARY_LARGE_SIZE_BUFFER, progress =>
+                                decompressedStream.CopyTo(trainCompressor, Buffers.ARBITRARY_LARGE_SIZE_BUFFER, progress =>
                                 {
                                     try
                                     {

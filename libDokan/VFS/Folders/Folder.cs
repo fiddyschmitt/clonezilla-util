@@ -12,14 +12,29 @@ namespace libDokan.VFS.Folders
     public class Folder : FileSystemEntry
     {
         readonly List<FileSystemEntry> children = [];
-        public IEnumerable<FileSystemEntry> Children => children;
+        readonly object childrenLock = new();
+
+        //returns a snapshot, because Dokan callbacks can enumerate while other threads are still populating
+        public IEnumerable<FileSystemEntry> Children
+        {
+            get
+            {
+                lock (childrenLock)
+                {
+                    return children.ToList();
+                }
+            }
+        }
 
         public void AddChild(FileSystemEntry entry)
         {
-            if (!children.Contains(entry))
+            lock (childrenLock)
             {
-                children.Add(entry);
-                entry.Parent = this;
+                if (!children.Contains(entry))
+                {
+                    children.Add(entry);
+                    entry.Parent = this;
+                }
             }
         }
 

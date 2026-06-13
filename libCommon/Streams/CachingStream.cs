@@ -43,7 +43,18 @@ namespace libCommon.Streams
             throw new NotImplementedException();
         }
 
+        readonly object cacheLock = new();
+
         public override int Read(byte[] buffer, int offset, int count)
+        {
+            //the cache list is not safe to mutate concurrently; callers may serve multiple readers
+            lock (cacheLock)
+            {
+                return ReadInternal(buffer, offset, count);
+            }
+        }
+
+        int ReadInternal(byte[] buffer, int offset, int count)
         {
             var cacheEntry = cache.FirstOrDefault(entry => Position >= entry.Start && Position < entry.End);
 
@@ -91,7 +102,7 @@ namespace libCommon.Streams
                         else
                         {
                             recommendedRead.Start = Position;
-                            recommendedRead.End = Position + Buffers.ARBITARY_MEDIUM_SIZE_BUFFER;
+                            recommendedRead.End = Position + Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER;
                         }
                     }
                 }
@@ -137,13 +148,17 @@ namespace libCommon.Streams
                         addToCache = true;
                         break;
 
+                    case EnumCacheType.Unlimited:
+                        addToCache = true;
+                        break;
+
                     case EnumCacheType.LimitByRAMUsage:
 
                         var newEntrySizeInMegabytes = (int)(cacheEntry.Length / (double)(1024 * 1024));
 
                         while (true)
                         {
-                            var currentCacheSizeInBytes = cache.Sum(c => cacheEntry.Length);
+                            var currentCacheSizeInBytes = cache.Sum(c => c.Length);
                             var currentCacheSizeInMegabytes = (int)(currentCacheSizeInBytes / (double)(1024 * 1024));
 
                             if (newEntrySizeInMegabytes > CacheLimitValue)
@@ -218,7 +233,7 @@ namespace libCommon.Streams
                     break;
 
                 case SeekOrigin.End:
-                    position = Length - offset;
+                    position = Length + offset;
                     break;
             }
 

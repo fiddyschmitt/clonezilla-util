@@ -1,6 +1,5 @@
 ﻿using lib7Zip;
 using libCommon;
-using MountDocushare.Streams;
 using Serilog;
 using System;
 using System.Collections.Concurrent;
@@ -32,7 +31,7 @@ namespace libClonezilla.Extractors
 
             //Do a performance test. If the archive can be opened quickly, then use 7z.exe which is slow but reliable. If it takes a long time, then use 7zFM which is fast but less reliable.
             var performanceTestTimeout = TimeSpan.FromSeconds(10);
-            var performanceTestCancellationToken = new CancellationTokenSource();
+            using var performanceTestCancellationToken = new CancellationTokenSource();
 
             var performanceTestTask = Task.Factory.StartNew(() =>
             {
@@ -43,7 +42,7 @@ namespace libClonezilla.Extractors
 
                 if (performanceTestCancellationToken.IsCancellationRequested)
                 {
-                    Log.Debug($"{originFriendlyName} Test did not finish within the {performanceTestTimeout.TotalSeconds:N0)} second timeout.");
+                    Log.Debug($"{originFriendlyName} Test did not finish within the {performanceTestTimeout.TotalSeconds:N0} second timeout.");
                 }
                 else
                 {

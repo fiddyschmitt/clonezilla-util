@@ -121,7 +121,7 @@ namespace libClonezilla.Partitions
 
             foreach (var archiveEntry in archiveFiles)
             {
-                if (Path.GetFileName(archiveEntry.Path).Equals("desktop.ini", StringComparison.CurrentCultureIgnoreCase)) continue; //a micro-optimisation to stop Windows from requesting this file and causing a lot of unecessary IO
+                if (Path.GetFileName(archiveEntry.Path).Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)) continue; //a micro-optimisation to stop Windows from requesting this file and causing a lot of unecessary IO
 
                 fullListOfFiles.Add(archiveEntry);
                 yield return archiveEntry;
@@ -148,7 +148,8 @@ namespace libClonezilla.Partitions
                                         var virtualFolderPath = archiveEntry.Path;
                                         if (virtualFolderPath.EndsWith(@"\."))
                                         {
-                                            virtualFolderPath = virtualFolderPath.Replace(@"\.", "");
+                                            //trim only the trailing "\." - a blanket Replace would corrupt dot-folders elsewhere in the path (eg. home\.config\.)
+                                            virtualFolderPath = virtualFolderPath[..^2];
                                         }
 
                                         var name = Path.GetFileName(virtualFolderPath);

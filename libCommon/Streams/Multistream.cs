@@ -87,7 +87,7 @@ namespace libCommon.Streams
                     break;
 
                 case SeekOrigin.End:
-                    position = Length - offset;
+                    position = Length + offset;
                     break;
             }
 

@@ -56,7 +56,7 @@ namespace rextractor
                                 .Where(item =>
                                 {
                                     var name = nameRetriever(item);
-                                    return name.Equals(pattern, StringComparison.CurrentCultureIgnoreCase);
+                                    return name.Equals(pattern, StringComparison.OrdinalIgnoreCase);
                                 });
 
             if (directMatch.Any())
@@ -85,7 +85,7 @@ namespace rextractor
 
         public static IList<string> FindFilesEmulator(string pattern, IList<string> names)
         {
-            var directMatch = names.Where(name => name.Equals(pattern, StringComparison.CurrentCultureIgnoreCase));
+            var directMatch = names.Where(name => name.Equals(pattern, StringComparison.OrdinalIgnoreCase));
             if (directMatch.Any())
             {
                 return directMatch.ToArray();
@@ -109,7 +109,7 @@ namespace rextractor
         //Warning, this is slow because it has to generate a Regex every time
         public static bool FindFilesEmulator(string pattern, string name)
         {
-            var directMatch = name.Equals(pattern, StringComparison.CurrentCultureIgnoreCase);
+            var directMatch = name.Equals(pattern, StringComparison.OrdinalIgnoreCase);
             if (directMatch)
             {
                 return directMatch;

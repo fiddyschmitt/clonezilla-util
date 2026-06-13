@@ -24,6 +24,8 @@ namespace libDokan.VFS.Files
             Length = fileSize;
         }
 
+        public override bool CreatesNewStreamPerCall => StreamFactory != null;
+
         public override Stream GetStream()
         {
             Stream? result = null;

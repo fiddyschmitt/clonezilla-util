@@ -66,12 +66,26 @@ namespace clonezilla_util
 
             var types = LoadVerbs();
 
-            Parser.Default.ParseArguments(args, types)
-                  .WithParsed(Run)
-                  .WithNotParsed(HandleErrors);
+            ReturnCode returnCode;
+            try
+            {
+                returnCode = Parser.Default.ParseArguments(args, types)
+                                .MapResult(
+                                    obj =>
+                                    {
+                                        Run(obj);
+                                        return ReturnCode.Success;
+                                    },
+                                    HandleErrors);
+            }
+            catch (Exception ex)
+            {
+                Log.Fatal(ex, "Unhandled exception");
+                returnCode = ReturnCode.GeneralException;
+            }
 
-            Log.Debug("Exit successfully");
-            return (int)ReturnCode.Success;
+            Log.Debug($"Exiting with code {(int)returnCode} ({returnCode})");
+            return (int)returnCode;
         }
 
         static void PrintProgramVersion()
@@ -310,12 +324,22 @@ namespace clonezilla_util
                 });
         }
 
-        private static void HandleErrors(IEnumerable<Error> obj)
+        private static ReturnCode HandleErrors(IEnumerable<Error> obj)
         {
-            var msg = obj
+            var errors = obj.ToList();
+
+            //help and version requests are not failures
+            if (errors.All(e => e is HelpRequestedError or HelpVerbRequestedError or VersionRequestedError))
+            {
+                return ReturnCode.Success;
+            }
+
+            var msg = errors
                         .Select(e => e.ToString() ?? "")
                         .ToString(Environment.NewLine);
             Log.Error(msg);
+
+            return ReturnCode.InvalidArguments;
         }
 
         public static void TestFullCopy(Stream partcloneStream, Stream outputStream, Stream compareStream)

@@ -33,10 +33,12 @@ namespace libDokan.VFS.Folders
                 var component = pathComponents[i];
                 var isLatestItem = i == pathComponents.Length - 1;
 
-                var subFolder = currentFolder
-                                    .Children
+                //snapshot once per component; Children allocates a copy on each access
+                var children = currentFolder.Children;
+
+                var subFolder = children
                                     .OfType<Folder>()
-                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.CurrentCultureIgnoreCase));
+                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.OrdinalIgnoreCase));
 
                 if (subFolder == null)
                 {
@@ -44,10 +46,9 @@ namespace libDokan.VFS.Folders
                     {
                         //this is the last item. Perhaps it's a file
 
-                        var file = currentFolder
-                                    .Children
+                        var file = children
                                     .OfType<FileEntry>()
-                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.CurrentCultureIgnoreCase));
+                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.OrdinalIgnoreCase));
 
                         //Whilst this approach is nice, we could be preventing an antivirus from accessing the file. So let's check the restriction elsewhere
                         /*

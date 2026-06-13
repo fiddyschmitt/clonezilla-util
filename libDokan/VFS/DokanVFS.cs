@@ -57,32 +57,12 @@ namespace libDokan
             return result;
         }
 
-        readonly ConcurrentDictionary<int, string> pidToProcessName = new();
-
         const long STATUS_FILE_IS_A_DIRECTORY = 0xC00000BAL;
         const FileOptions FileNonDirectoryFile = (FileOptions)0x40;
 
         public NtStatus CreateFile(string fileName, FileAccess access, FileShare share, FileMode mode,
             FileOptions options, FileAttributes attributes, IDokanFileInfo info)
         {
-            /*
-            var processName = pidToProcessName.GetOrAdd(info.ProcessId, pid =>
-            {
-                var proc = Process.GetProcessById(pid);
-                var result = proc.ProcessName;
-
-                if (proc.MainModule != null)
-                {
-                    var exeFilename = Path.GetFileName(proc.MainModule.FileName);
-                    result += $" ({exeFilename})";
-                }
-
-                return result;
-            });
-
-            Console.WriteLine($"[{processName}] CreateFile: {fileName}");
-            */
-
             var result = DokanResult.Success;
             var filePath = GetPath(fileName);
 
@@ -190,19 +170,15 @@ namespace libDokan
                 {
                     if (fileSystemEntry is FileEntry file)
                     {
-                        info.Context = file.GetStream();
+                        info.Context = new FileEntryStream()
+                        {
+                            FileEntry = file,
+                            Stream = file.GetStream()
+                        };
                     }
                 }
                 catch (UnauthorizedAccessException) // don't have access rights
                 {
-                    if (info.Context is Stream stream)
-                    {
-                        // returning AccessDenied cleanup and close won't be called,
-                        // so we have to take care of the stream now
-
-                        //stream.Dispose();
-                        //info.Context = null;
-                    }
                     return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
                         DokanResult.AccessDenied);
                 }
@@ -230,6 +206,24 @@ namespace libDokan
                 result);
         }
 
+        static void ReleaseContext(IDokanFileInfo info)
+        {
+            if (info.Context is FileEntryStream fileEntryStream)
+            {
+                //only dispose streams the handle owns; shared streams (eg. mounted partition images) live for the lifetime of the VFS
+                if (fileEntryStream.FileEntry.CreatesNewStreamPerCall)
+                {
+                    try
+                    {
+                        fileEntryStream.Stream.Dispose();
+                    }
+                    catch { }
+                }
+
+                info.Context = null;
+            }
+        }
+
         public void Cleanup(string fileName, IDokanFileInfo info)
         {
 #if TRACE
@@ -237,8 +231,7 @@ namespace libDokan
                 Log.Debug(DokanFormat($"{nameof(Cleanup)}('{fileName}', {info} - entering"));
 #endif
 
-            //(info.Context as Stream)?.Dispose();
-            //info.Context = null;
+            ReleaseContext(info);
 
             Trace(nameof(Cleanup), fileName, info, DokanResult.Success);
         }
@@ -250,11 +243,10 @@ namespace libDokan
                 Log.Debug(DokanFormat($"{nameof(CloseFile)}('{fileName}', {info} - entering"));
 #endif
 
-            //(info.Context as Stream)?.Dispose();
-            //info.Context = null;
+            //backstop for the occasions where Cleanup wasn't called
+            ReleaseContext(info);
 
             Trace(nameof(CloseFile), fileName, info, DokanResult.Success);
-            // could recreate cleanup code here but this is not called sometimes
         }
 
         public NtStatus ReadFile(string fileName, byte[] buffer, out int bytesRead, long offset, IDokanFileInfo info)
@@ -266,15 +258,22 @@ namespace libDokan
                 var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId);
                 if (fileSystemEntry is FileEntry file)
                 {
-                    using var stream = file.GetStream();
-                    if (stream != null)
+                    lock (file.ReadLock)
                     {
-                        stream.Position = offset;
-                        bytesRead = stream.Read(buffer, 0, buffer.Length);
-                    }
-                    else
-                    {
-                        bytesRead = 0;
+                        var stream = file.GetStream();
+                        try
+                        {
+                            stream.Position = offset;
+                            bytesRead = stream.Read(buffer, 0, buffer.Length);
+                        }
+                        finally
+                        {
+                            //shared streams must stay alive for subsequent reads
+                            if (file.CreatesNewStreamPerCall)
+                            {
+                                stream.Dispose();
+                            }
+                        }
                     }
                 }
                 else
@@ -284,14 +283,16 @@ namespace libDokan
             }
             else // normal read
             {
-                if (info.Context is not Stream stream) throw new Exception("info.Context stream was null");
+                if (info.Context is not FileEntryStream stream) throw new Exception("info.Context stream was null");
 
-                lock (stream) //Protect from overlapped read
+                //lock on the FileEntry (not the per-handle wrapper), because GetStream() can return one
+                //shared stream for every open handle of this file
+                lock (stream.FileEntry.ReadLock)
                 {
-                    var distanceFromCurrentPosition = offset - stream.Position;
+                    var distanceFromCurrentPosition = offset - stream.Stream.Position;
 
                     //experimental
-                    //if (distanceFromCurrentPosition > Buffers.ARBITARY_HUGE_SIZE_BUFFER * 2 && offset + buffer.Length == stream.Length)
+                    //if (distanceFromCurrentPosition > Buffers.ARBITRARY_HUGE_SIZE_BUFFER * 2 && offset + buffer.Length == stream.Length)
                     //{
                     //    Log.Debug($"External process has asked to read the last {buffer.Length.BytesToString()} of the {stream.Length.BytesToString()} file. Ignoring.");
 
@@ -313,17 +314,18 @@ namespace libDokan
                     }
                     */
 
-                    var toRead = Math.Min(stream.Length - offset, buffer.Length);
+                    var toRead = Math.Min(stream.FileEntry.Length - offset, buffer.Length);
                     if (!Environment.Is64BitOperatingSystem)
                     {
-                        toRead = Math.Min(toRead, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
+                        toRead = Math.Min(toRead, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
                     }
                     toRead = Math.Min(toRead, Array.MaxLength);
+                    toRead = Math.Max(toRead, 0);   //reads beyond EOF would otherwise produce a negative count
 
-                    stream.Position = offset;
+                    stream.Stream.Position = offset;
 
                     //bytesRead = stream.Read(buffer, 0, (int)toRead);
-                    bytesRead = stream.ReadAtLeast(buffer, (int)toRead, false);
+                    bytesRead = stream.Stream.ReadAtLeast(buffer, (int)toRead, false);
                 }
             }
             return Trace(nameof(ReadFile), fileName, info, DokanResult.Success, "out " + bytesRead.ToString(),
@@ -342,7 +344,10 @@ namespace libDokan
         {
             try
             {
-                ((Stream)(info.Context)).Flush();
+                if (info.Context is FileEntryStream fileEntry)
+                {
+                    fileEntry.Stream.Flush();
+                }
                 return Trace(nameof(FlushFileBuffers), fileName, info, DokanResult.Success);
             }
             catch (IOException)
@@ -374,26 +379,8 @@ namespace libDokan
 
         public NtStatus SetFileAttributes(string fileName, FileAttributes attributes, IDokanFileInfo info)
         {
-            try
-            {
-                // MS-FSCC 2.6 File Attributes : There is no file attribute with the value 0x00000000
-                // because a value of 0x00000000 in the FileAttributes field means that the file attributes for this file MUST NOT be changed when setting basic information for the file
-                if (attributes != 0)
-                    File.SetAttributes(GetPath(fileName), attributes);
-                return Trace(nameof(SetFileAttributes), fileName, info, DokanResult.Success, attributes.ToString());
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return Trace(nameof(SetFileAttributes), fileName, info, DokanResult.AccessDenied, attributes.ToString());
-            }
-            catch (FileNotFoundException)
-            {
-                return Trace(nameof(SetFileAttributes), fileName, info, DokanResult.FileNotFound, attributes.ToString());
-            }
-            catch (DirectoryNotFoundException)
-            {
-                return Trace(nameof(SetFileAttributes), fileName, info, DokanResult.PathNotFound, attributes.ToString());
-            }
+            //this is a read-only virtual file system; attributes cannot be changed
+            return Trace(nameof(SetFileAttributes), fileName, info, DokanResult.NotImplemented, attributes.ToString());
         }
 
         public NtStatus SetFileTime(string fileName, DateTime? creationTime, DateTime? lastAccessTime, DateTime? lastWriteTime, IDokanFileInfo info)
@@ -403,28 +390,14 @@ namespace libDokan
 
         public NtStatus DeleteFile(string fileName, IDokanFileInfo info)
         {
-            var filePath = GetPath(fileName);
-
-            if (Directory.Exists(filePath))
-                return Trace(nameof(DeleteFile), fileName, info, DokanResult.AccessDenied);
-
-            if (!File.Exists(filePath))
-                return Trace(nameof(DeleteFile), fileName, info, DokanResult.FileNotFound);
-
-            if (File.GetAttributes(filePath).HasFlag(FileAttributes.Directory))
-                return Trace(nameof(DeleteFile), fileName, info, DokanResult.AccessDenied);
-
-            return Trace(nameof(DeleteFile), fileName, info, DokanResult.Success);
-            // we just check here if we could delete the file - the true deletion is in Cleanup
+            //this is a read-only virtual file system
+            return Trace(nameof(DeleteFile), fileName, info, DokanResult.AccessDenied);
         }
 
         public NtStatus DeleteDirectory(string fileName, IDokanFileInfo info)
         {
-            return Trace(nameof(DeleteDirectory), fileName, info,
-                Directory.EnumerateFileSystemEntries(GetPath(fileName)).Any()
-                    ? DokanResult.DirectoryNotEmpty
-                    : DokanResult.Success);
-            // if dir is not empty it can't be deleted
+            //this is a read-only virtual file system
+            return Trace(nameof(DeleteDirectory), fileName, info, DokanResult.AccessDenied);
         }
 
         public NtStatus MoveFile(string oldName, string newName, bool replace, IDokanFileInfo info)
@@ -435,32 +408,12 @@ namespace libDokan
 
         public NtStatus SetEndOfFile(string fileName, long length, IDokanFileInfo info)
         {
-            try
-            {
-                ((Stream)(info.Context)).SetLength(length);
-                return Trace(nameof(SetEndOfFile), fileName, info, DokanResult.Success,
-                    length.ToString(CultureInfo.InvariantCulture));
-            }
-            catch (IOException)
-            {
-                return Trace(nameof(SetEndOfFile), fileName, info, DokanResult.DiskFull,
-                    length.ToString(CultureInfo.InvariantCulture));
-            }
+            return NtStatus.NotImplemented;
         }
 
         public NtStatus SetAllocationSize(string fileName, long length, IDokanFileInfo info)
         {
-            try
-            {
-                ((Stream)(info.Context)).SetLength(length);
-                return Trace(nameof(SetAllocationSize), fileName, info, DokanResult.Success,
-                    length.ToString(CultureInfo.InvariantCulture));
-            }
-            catch (IOException)
-            {
-                return Trace(nameof(SetAllocationSize), fileName, info, DokanResult.DiskFull,
-                    length.ToString(CultureInfo.InvariantCulture));
-            }
+            return NtStatus.NotImplemented;
         }
 
         public NtStatus LockFile(string fileName, long offset, long length, IDokanFileInfo info)
@@ -473,27 +426,45 @@ namespace libDokan
             return DokanResult.NotImplemented;
         }
 
+        long? cachedTotalInUse;
+        DateTime cachedTotalInUseTime;
+        readonly object diskFreeSpaceLock = new();
+
         public NtStatus GetDiskFreeSpace(out long freeBytesAvailable, out long totalNumberOfBytes, out long totalNumberOfFreeBytes, IDokanFileInfo info)
         {
-            long totalInUse = 0;
-            _ = new Folder[] { Root }
-                .Recurse(folder =>
+            long totalInUse;
+
+            //walking the whole tree is expensive and this gets called often; memoize briefly
+            lock (diskFreeSpaceLock)
+            {
+                if (cachedTotalInUse == null || (DateTime.Now - cachedTotalInUseTime) > TimeSpan.FromSeconds(10))
                 {
-                    var totalFileSizes = folder
-                                            .Children
-                                            .OfType<FileEntry>()
-                                            .Sum(f => f.Length);
+                    long sum = 0;
+                    _ = new Folder[] { Root }
+                        .Recurse(folder =>
+                        {
+                            var totalFileSizes = folder
+                                                    .Children
+                                                    .OfType<FileEntry>()
+                                                    .Sum(f => f.Length);
 
-                    totalInUse += totalFileSizes;
+                            sum += totalFileSizes;
 
-                    var subfolders = folder
-                                        .Children
-                                        .OfType<Folder>()
-                                        .ToList();
+                            var subfolders = folder
+                                                .Children
+                                                .OfType<Folder>()
+                                                .ToList();
 
-                    return subfolders;
-                })
-                .ToList();
+                            return subfolders;
+                        })
+                        .ToList();
+
+                    cachedTotalInUse = sum;
+                    cachedTotalInUseTime = DateTime.Now;
+                }
+
+                totalInUse = cachedTotalInUse.Value;
+            }
 
             totalNumberOfBytes = totalInUse * 10;
 
@@ -511,8 +482,8 @@ namespace libDokan
             fileSystemName = "clonezilla-util";
             maximumComponentLength = 256;
 
+            //note: no CaseSensitiveSearch, because path lookups are case-insensitive
             features = FileSystemFeatures.CasePreservedNames |
-                        FileSystemFeatures.CaseSensitiveSearch |
                         FileSystemFeatures.UnicodeOnDisk |
                         FileSystemFeatures.ReadOnlyVolume;
 
@@ -656,5 +627,11 @@ namespace libDokan
             var testFS = new DokanVFS("DokanVFS", rootFolder);
             //testFS.Mount(rootFolder.MountPoint);
         }
+    }
+
+    public class FileEntryStream
+    {
+        public required FileEntry FileEntry;
+        public required Stream Stream;
     }
 }

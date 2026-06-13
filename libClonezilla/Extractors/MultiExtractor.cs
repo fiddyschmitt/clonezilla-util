@@ -28,19 +28,24 @@ namespace libClonezilla.Extractors
             //find an idle worker
             var worker = Extractors.GetConsumingEnumerable().First();
 
-            //do the work
-            var result = worker.Extract(path);
-
-            if (ForceFullRead)
+            try
             {
-                //some streams are non-blocking. We've been asked to read the stream in its entirety before calling it done
-                result.CopyTo(Stream.Null, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+                //do the work
+                var result = worker.Extract(path);
+
+                if (ForceFullRead)
+                {
+                    //some streams are non-blocking. We've been asked to read the stream in its entirety before calling it done
+                    result.CopyTo(Stream.Null, Buffers.ARBITRARY_LARGE_SIZE_BUFFER);
+                }
+
+                return result;
             }
-
-            //go to the back of the line
-            Extractors.Add(worker);
-
-            return result;
+            finally
+            {
+                //go to the back of the line. Even if the extraction failed, the worker must be returned, otherwise the pool drains
+                Extractors.Add(worker);
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 ﻿using lib7Zip;
 using libCommon;
-using MountDocushare.Streams;
+using libCommon.Streams;
 using Serilog;
 using System;
 using System.Collections.Concurrent;

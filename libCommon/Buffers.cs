@@ -8,34 +8,34 @@ namespace libCommon
     public static class Buffers
     {
 
-        public const int ARBITARY_SMALL_SIZE_BUFFER = 1 * 1024 * 1024;
-        public const int ARBITARY_MEDIUM_SIZE_BUFFER = 5 * ARBITARY_SMALL_SIZE_BUFFER;
-        public static int ARBITARY_LARGE_SIZE_BUFFER
+        public const int ARBITRARY_SMALL_SIZE_BUFFER = 1 * 1024 * 1024;
+        public const int ARBITRARY_MEDIUM_SIZE_BUFFER = 5 * ARBITRARY_SMALL_SIZE_BUFFER;
+        public static int ARBITRARY_LARGE_SIZE_BUFFER
         {
             get
             {
                 if (Environment.Is64BitProcess)
                 {
-                    return ARBITARY_MEDIUM_SIZE_BUFFER * 10;
+                    return ARBITRARY_MEDIUM_SIZE_BUFFER * 10;
                 }
                 else
                 {
-                    return ARBITARY_MEDIUM_SIZE_BUFFER;
+                    return ARBITRARY_MEDIUM_SIZE_BUFFER;
                 }
             }
         }
 
-        public static int ARBITARY_HUGE_SIZE_BUFFER
+        public static int ARBITRARY_HUGE_SIZE_BUFFER
         {
             get
             {
                 if (Environment.Is64BitProcess)
                 {
-                    return ARBITARY_LARGE_SIZE_BUFFER * 10;
+                    return ARBITRARY_LARGE_SIZE_BUFFER * 10;
                 }
                 else
                 {
-                    return ARBITARY_MEDIUM_SIZE_BUFFER;
+                    return ARBITRARY_MEDIUM_SIZE_BUFFER;
                 }
             }
         }
@@ -44,6 +44,6 @@ namespace libCommon
         //See: https://adamsitnik.com/Array-Pool/
         //Always remember to return the array back into the pool.
         //Never trust buffer.Length
-        public static readonly ArrayPool<byte> BufferPool = ArrayPool<byte>.Create(ARBITARY_LARGE_SIZE_BUFFER + 1, 50);
+        public static readonly ArrayPool<byte> BufferPool = ArrayPool<byte>.Create(ARBITRARY_LARGE_SIZE_BUFFER + 1, 50);
     }
 }

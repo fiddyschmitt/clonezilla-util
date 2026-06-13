@@ -136,7 +136,7 @@ namespace libTrainCompress
                     //read and discard anything before it
                     if (positionInCarriage > 0)
                     {
-                        decompressor.CopyTo(Stream.Null, positionInCarriage, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
+                        decompressor.CopyTo(Stream.Null, positionInCarriage, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
                     }
 
                     var bytesToRead = count - bytesRead;
@@ -172,7 +172,7 @@ namespace libTrainCompress
                     break;
 
                 case SeekOrigin.End:
-                    position = Length - offset;
+                    position = Length + offset;
                     break;
             }
 

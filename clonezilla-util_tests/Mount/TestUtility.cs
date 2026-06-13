@@ -61,7 +61,7 @@ namespace clonezilla_util_tests.Mount
                         }
                         else
                         {
-                            virtualFile.CopyTo(tempFile, expectedFile.LengthForMd5.Value, Buffers.ARBITARY_MEDIUM_SIZE_BUFFER);
+                            virtualFile.CopyTo(tempFile, expectedFile.LengthForMd5.Value, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
                         }
                         var md5 = Utility.CalculateMD5(tempFile);
 

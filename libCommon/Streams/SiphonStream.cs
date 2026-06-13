@@ -1,4 +1,4 @@
-﻿using libCommon;
+using libCommon;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -9,7 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace MountDocushare.Streams
+namespace libCommon.Streams
 {
     public class SiphonStream : Stream
     {
@@ -20,33 +20,46 @@ namespace MountDocushare.Streams
 
             pump = Task.Factory.StartNew(() =>
             {
-                var buffer = new byte[Buffers.ARBITARY_LARGE_SIZE_BUFFER];
+                var buffer = new byte[Buffers.ARBITRARY_LARGE_SIZE_BUFFER];
                 var totalBytesRead = 0L;
 
-                while (true)
+                try
                 {
-                    var bytesRead = underlyingStream.Read(buffer, 0, buffer.Length);
-
-                    if (bytesRead == 0) break;
-
-                    totalBytesRead += bytesRead;
-
-                    Log.Debug($"{nameof(SiphonStream)} pumped {totalBytesRead.BytesToString()} from original stream.");
-
-                    lock (TemporaryStorage)
+                    while (true)
                     {
-                        TemporaryStorage.Position = TemporaryStorage.Length;
-                        TemporaryStorage.Write(buffer, 0, bytesRead);
+                        var bytesRead = underlyingStream.Read(buffer, 0, buffer.Length);
+
+                        if (bytesRead == 0) break;
+
+                        totalBytesRead += bytesRead;
+
+                        Log.Debug($"{nameof(SiphonStream)} pumped {totalBytesRead.BytesToString()} from original stream.");
+
+                        lock (TemporaryStorage)
+                        {
+                            TemporaryStorage.Position = TemporaryStorage.Length;
+                            TemporaryStorage.Write(buffer, 0, bytesRead);
+                        }
                     }
                 }
-
-                totalLength = totalBytesRead;
+                catch (Exception ex)
+                {
+                    Log.Error(ex, $"{nameof(SiphonStream)} pump stopped early after {totalBytesRead.BytesToString()}.");
+                }
+                finally
+                {
+                    //always record the total, otherwise readers waiting in WaitForPositionToBeAvailable() would spin forever
+                    lock (stateLock)
+                    {
+                        totalLength = totalBytesRead;
+                    }
+                }
             }, TaskCreationOptions.LongRunning);
         }
 
         readonly Task pump;
 
-        public long position = 0;
+        long position = 0;
         public override bool CanRead => true;
 
         public override bool CanSeek => false;
@@ -55,21 +68,21 @@ namespace MountDocushare.Streams
 
         public Stream UnderlyingStream { get; }
         public Stream TemporaryStorage { get; }
-        public bool ForceFullRead { get; }
 
+        readonly object stateLock = new();
         long? totalLength = null;
         public override long Length
         {
             get
             {
-                if (totalLength == null)
+                pump.Wait();    //the pump always sets totalLength when it finishes (even on error)
+
+                lock (stateLock)
                 {
-                    pump.Wait();
+                    if (totalLength == null) throw new Exception($"Read finished yet {nameof(totalLength)} was null.");
+
+                    return totalLength.Value;
                 }
-
-                if (totalLength == null) throw new Exception($"Read finished yet {nameof(totalLength)} was null.");
-
-                return totalLength.Value;
             }
         }
 
@@ -112,17 +125,29 @@ namespace MountDocushare.Streams
             long bytesAvailable;
             while (true)
             {
-                if (desiredPosition <= TemporaryStorage.Length)
+                long storedSoFar;
+                lock (TemporaryStorage)
+                {
+                    storedSoFar = TemporaryStorage.Length;
+                }
+
+                if (desiredPosition <= storedSoFar)
                 {
                     //the desired bytes is now available
-                    bytesAvailable = TemporaryStorage.Length - position;
+                    bytesAvailable = storedSoFar - position;
                     break;
                 }
 
-                if (desiredPosition > totalLength)
+                long? knownTotalLength;
+                lock (stateLock)
+                {
+                    knownTotalLength = totalLength;
+                }
+
+                if (knownTotalLength != null && desiredPosition > knownTotalLength)
                 {
                     //the total length is now known, and the desired byte is beyond it
-                    bytesAvailable = TemporaryStorage.Length - position;
+                    bytesAvailable = storedSoFar - position;
                     break;
                 }
 
@@ -152,11 +177,9 @@ namespace MountDocushare.Streams
                     break;
 
                 case SeekOrigin.End:
-                    position = Length - offset;
+                    position = Length + offset;
                     break;
             }
-
-            //WaitForPositionToBeAvailable(position);            
 
             if (position > TemporaryStorage.Length)
             {

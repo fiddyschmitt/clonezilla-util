@@ -63,7 +63,12 @@ namespace libCommon
 
                     if (stopRequested)
                     {
-                        p.Close();
+                        //Close() only releases handles; the child process would keep running (and the enumerator could hang waiting for it)
+                        try
+                        {
+                            p.Kill(entireProcessTree: true);
+                        }
+                        catch { }
                     }
 
                     if (!outputLines.IsAddingCompleted)
@@ -127,44 +132,60 @@ namespace libCommon
             p.BeginOutputReadLine();
             p.BeginErrorReadLine();
 
-            foreach (var line in outputLines.GetConsumingEnumerable())
+            try
             {
-                yield return line;
+                foreach (var line in outputLines.GetConsumingEnumerable())
+                {
+                    yield return line;
+                }
+
+                if (verbose)
+                {
+                    Log.Information($"Waiting for exit");
+                }
+
+                // wait for process to terminate
+                var processWasCancelled = cancellationToken?.IsCancellationRequested ?? false;
+                if (!processWasCancelled)
+                {
+                    p.WaitForExit();
+                }
+
+                if (verbose)
+                {
+                    Log.Information($"Exitted. Waiting on outputWaitHandle.");
+                }
+
+                // wait on handle
+                stdoutWaitHandle.WaitOne();
+                stderrWaitHandle.WaitOne();
+
+                if (displayErrors && errorLines.Count > 0)
+                {
+                    var allErrorsStr = errorLines
+                                        .ToString(Environment.NewLine);
+
+                    Log.Error($"{cpath} {args}{Environment.NewLine}Process encountered errors: {allErrorsStr}");
+                }
+
+                if (verbose)
+                {
+                    Log.Information($"Finished executing: {p.StartInfo.FileName} {p.StartInfo.Arguments}");
+                }
             }
-
-            if (verbose)
+            finally
             {
-                Log.Information($"Waiting for exit");
-            }
+                processTerminatorCancellationToken.Cancel();
 
-            // wait for process to terminate
-            var processWasCancelled = cancellationToken?.IsCancellationRequested ?? false;
-            if (!processWasCancelled)
-            {
-                p.WaitForExit();
-            }
-            processTerminatorCancellationToken.Cancel();
-
-            if (verbose)
-            {
-                Log.Information($"Exitted. Waiting on outputWaitHandle.");
-            }
-
-            // wait on handle
-            stdoutWaitHandle.WaitOne();
-            stderrWaitHandle.WaitOne();
-
-            if (displayErrors && errorLines.Count > 0)
-            {
-                var allErrorsStr = errorLines
-                                    .ToString(Environment.NewLine);
-
-                Log.Error($"{cpath} {args}{Environment.NewLine}Process encountered errors: {allErrorsStr}");
-            }
-
-            if (verbose)
-            {
-                Log.Information($"Finished executing: {p.StartInfo.FileName} {p.StartInfo.Arguments}");
+                //if the consumer abandoned the enumeration early, the child process would otherwise keep running
+                try
+                {
+                    if (!p.HasExited)
+                    {
+                        p.Kill(entireProcessTree: true);
+                    }
+                }
+                catch { }
             }
         }
 
@@ -212,7 +233,7 @@ namespace libCommon
                 {
                     try
                     {
-                        inputStream.CopyTo(process.StandardInput.BaseStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER, inputReadCallback);
+                        inputStream.CopyTo(process.StandardInput.BaseStream, Buffers.ARBITRARY_LARGE_SIZE_BUFFER, inputReadCallback);
                     }
                     catch { }
 
@@ -259,7 +280,7 @@ namespace libCommon
                 {
                     try
                     {
-                        inputStream.CopyTo(process.StandardInput.BaseStream, Buffers.ARBITARY_LARGE_SIZE_BUFFER, inputReadCallback);
+                        inputStream.CopyTo(process.StandardInput.BaseStream, Buffers.ARBITRARY_LARGE_SIZE_BUFFER, inputReadCallback);
                     }
                     catch { }
 
@@ -281,7 +302,7 @@ namespace libCommon
                 }
                 else
                 {
-                    bytesRead = (int)process.StandardOutput.BaseStream.CopyTo(outputStream, bytesToRead.Value, Buffers.ARBITARY_LARGE_SIZE_BUFFER);
+                    bytesRead = (int)process.StandardOutput.BaseStream.CopyTo(outputStream, bytesToRead.Value, Buffers.ARBITRARY_LARGE_SIZE_BUFFER);
                 }
                 process.StandardOutput.Close();
             }

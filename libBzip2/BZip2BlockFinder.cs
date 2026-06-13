@@ -70,14 +70,15 @@ namespace libBzip2
                     }
                 }
 
-                //just in case the search pattern is right on the border
+                //just in case the search pattern is right on the border.
+                //rewind one byte less than the pattern length - rewinding the full length would re-find a match that ended exactly on the buffer boundary
                 if (stream.Position == stream.Length)
                 {
                     break;
                 }
                 else
                 {
-                    stream.Seek(-find.Length, SeekOrigin.Current);
+                    stream.Seek(-(find.Length - 1), SeekOrigin.Current);
                 }
             }
         }

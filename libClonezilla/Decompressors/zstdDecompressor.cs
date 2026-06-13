@@ -30,7 +30,7 @@ namespace libClonezilla.Decompressors
             var tempFilename = TempUtility.GetTempFilename(true);
             var tempFileStream = new FileStream(tempFilename, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
 
-            decompressor.CopyTo(tempFileStream, Buffers.ARBITARY_HUGE_SIZE_BUFFER,
+            decompressor.CopyTo(tempFileStream, Buffers.ARBITRARY_HUGE_SIZE_BUFFER,
                 totalCopied =>
                 {
                     var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
