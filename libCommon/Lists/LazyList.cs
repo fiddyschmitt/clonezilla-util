@@ -62,8 +62,6 @@ namespace libCommon.Lists
                 {
                     _isSourceExhausted = true;
                 }
-
-                Log.Debug($"Currently at index {_internalList.Count - 1:N0}, seeking toward desired index {desiredIndex:N0}");
             }
 
 
@@ -105,8 +103,6 @@ namespace libCommon.Lists
                 var block = this[i];
                 yield return block;
                 i++;
-
-                Log.Debug($"GetEnumerator(): FinishedReading = {FinishedReading}, i = {i:N0}");
             }
         }
 

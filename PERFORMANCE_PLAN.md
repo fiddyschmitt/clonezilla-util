@@ -48,28 +48,35 @@ that case is unverified — worth adding one.**
 
 ---
 
-## Batch 2 — Hot-path logging & cheap allocations  (broad, lowest risk)
+## Batch 2 — Hot-path logging & cheap allocations  (broad, lowest risk)  **(done 2026-06-15, builds clean — awaiting 10h test run)**
 
-Only touches log output and per-call allocations; no data-path change. Safe to bundle.
+Only touches log output and per-call allocations; no data-path change.
 
-- [ ] **P2. Stop eager `Log.Debug($"…")` rendering on hot paths.** Global level is `Debug` with an active
-  Debug sink, so these are fully rendered *and* dispatched; and `$"…"` renders before the call regardless.
-  - `DokanVFS.Trace` (`DokanVFS.cs:38-47`) — every Dokan op; allocates `params object?[]` + LINQ
-    `Select`/`Join`/`Format`; `ReadFile` pre-builds `"out "+bytesRead` + `offset.ToString()` per read.
-  - `CachingStream.ReadInternal` (`CachingStream.cs:63, 82`) — per-read `BytesToString`.
-  - `SeekableDecompressingStream.Read` (`:54, 57`) — per-read interpolation + **two `DateTime.Now`** for timing.
-  - `LazyList.EnsureExists` / `GetEnumerator` (`LazyList.cs:66, 109`) — per-item log over millions of blocks.
-  - Fix: gate with a cached `static readonly bool` from `Log.IsEnabled(LogEventLevel.Debug)`, or delete the
-    per-read/per-item ones; use message templates where kept; replace timing `DateTime.Now` with
-    `Stopwatch.GetTimestamp()` behind the level check.
-  - **Risk: low** (logging only; the `DateTime.Now`→`Stopwatch` swap is behaviour-neutral).
-- [ ] **P3. `BytesToString` allocates its units array every call** — `libCommon/Extensions.cs:187`.
-  `string[] UNITS = [...]` → `static readonly`. Called pervasively from logging. **Risk: none.**
-- [ ] **P12. `Buffers.ARBITRARY_*_SIZE_BUFFER` are branching properties** — `libCommon/Buffers.cs:13-41`.
-  Re-evaluate `Environment.Is64BitProcess` per access → `static readonly` fields. **Risk: none.**
-- [ ] **P13. Dead code:** unused `distanceFromCurrentPosition` in `DokanVFS.ReadFile` normal-read path. **Risk: none.**
+- [x] **P2. Stop eager `Log.Debug($"…")` rendering on hot paths.**
+  - **Key fact:** the production config is `MinimumLevel.Debug()`, so `Log.IsEnabled(Debug)` is **true** — a
+    runtime gate would be a no-op today. So the per-read/per-item logs were **deleted** (the plan's endorsed
+    alternative), which is a guaranteed win regardless of config. Each deleted `Log.Debug` removes, per hot
+    iteration: eager `$"…"` interpolation + `BytesToString` + `LogEvent` alloc + the global
+    `SuppressConsecutiveDuplicateFilter.RenderMessage()` (it re-renders every event to dedupe) + Debug-sink dispatch.
+  - Deleted: `CachingStream` "Cache miss"/"Cache hit"/"Want to read…" (per read); `SeekableDecompressingStream.Read`
+    "Attempting to read"/"Finished reading" **and the two `DateTime.Now`** (timing removed entirely — no Stopwatch
+    needed); `LazyList.EnsureExists`/`GetEnumerator` per-item logs.
+  - `DokanVFS.Trace` (both overloads): added `if (!Log.IsEnabled(LogEventLevel.Debug)) return result;`.
+    **This is future-proofing only — no win while the global level is Debug.** The real lever for the per-op
+    Trace cost is raising `MinimumLevel` to `Information` in `Program.cs` (your file — not touched here);
+    do that and the guard starts paying off (and the `"out "+bytesRead` arg building at call sites would then
+    be the only remaining per-op cost, gateable later if it matters).
+  - **Risk: low** (logging only; behaviour-neutral).
+- [x] **P3. `BytesToString` allocated its units array every call** — `libCommon/Extensions.cs`.
+  Hoisted to `static readonly string[] ByteUnits`. **Risk: none.**
+- [x] **P12. `Buffers.ARBITRARY_LARGE/HUGE_SIZE_BUFFER` were branching properties** — `libCommon/Buffers.cs`.
+  Now `static readonly` fields resolved once at static init (declaration order LARGE→HUGE→BufferPool preserved,
+  so no forward-reference-to-default trap). **Risk: none.**
+- [x] **P13. Dead code:** removed unused `distanceFromCurrentPosition` in `DokanVFS.ReadFile`. **Risk: none.**
 
-**Verification:** full suite (mostly to confirm the logging changes didn't alter control flow).
+**Verification:** full suite (mostly to confirm the deletions didn't alter control flow). No test asserts on
+Debug log content, so this should be a clean pass; the win is reduced CPU/alloc on read/index hot loops, which
+may or may not surface above the suite's decompression-dominated noise.
 
 ---
 

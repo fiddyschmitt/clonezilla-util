@@ -60,8 +60,6 @@ namespace libCommon.Streams
 
             if (cacheEntry == null)
             {
-                Log.Debug($"Cache miss: {Position:N0}");
-
                 (long Start, long End) recommendedRead;
                 if (ReadSuggestor == null)
                 {
@@ -78,8 +76,6 @@ namespace libCommon.Streams
                 {
                     throw new Exception($"Could not get recommendation for reading {count:N0} bytes from position {Position:N0}");
                 }
-
-                Log.Debug($"Want to read from {Position:N0} to {Position + count:N0} ({count.BytesToString()}). Was recommended to read {(recommendedRead.End - recommendedRead.Start).BytesToString()} from position {recommendedRead.Start:N0} to {recommendedRead.End:N0}");
 
                 var maxReadSize = Math.Min(int.MaxValue, Array.MaxLength);
 
@@ -191,8 +187,6 @@ namespace libCommon.Streams
             }
             else
             {
-                Log.Debug($"Cache hit: {Position:N0}");
-
                 //move it to the beginning of the cache, to keep it fresh
                 cache.Remove(cacheEntry);
                 cache.Insert(0, cacheEntry);

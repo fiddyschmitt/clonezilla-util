@@ -10,35 +10,15 @@ namespace libCommon
 
         public const int ARBITRARY_SMALL_SIZE_BUFFER = 1 * 1024 * 1024;
         public const int ARBITRARY_MEDIUM_SIZE_BUFFER = 5 * ARBITRARY_SMALL_SIZE_BUFFER;
-        public static int ARBITRARY_LARGE_SIZE_BUFFER
-        {
-            get
-            {
-                if (Environment.Is64BitProcess)
-                {
-                    return ARBITRARY_MEDIUM_SIZE_BUFFER * 10;
-                }
-                else
-                {
-                    return ARBITRARY_MEDIUM_SIZE_BUFFER;
-                }
-            }
-        }
+        //Environment.Is64BitProcess is constant for the life of the process, so resolve these once at static init
+        //instead of branching on every access (these are read on hot buffer-allocation paths).
+        public static readonly int ARBITRARY_LARGE_SIZE_BUFFER = Environment.Is64BitProcess
+            ? ARBITRARY_MEDIUM_SIZE_BUFFER * 10
+            : ARBITRARY_MEDIUM_SIZE_BUFFER;
 
-        public static int ARBITRARY_HUGE_SIZE_BUFFER
-        {
-            get
-            {
-                if (Environment.Is64BitProcess)
-                {
-                    return ARBITRARY_LARGE_SIZE_BUFFER * 10;
-                }
-                else
-                {
-                    return ARBITRARY_MEDIUM_SIZE_BUFFER;
-                }
-            }
-        }
+        public static readonly int ARBITRARY_HUGE_SIZE_BUFFER = Environment.Is64BitProcess
+            ? ARBITRARY_LARGE_SIZE_BUFFER * 10
+            : ARBITRARY_MEDIUM_SIZE_BUFFER;
 
         //Initialised to something big, because otherwise it defaults to 1MB and smaller.
         //See: https://adamsitnik.com/Array-Pool/

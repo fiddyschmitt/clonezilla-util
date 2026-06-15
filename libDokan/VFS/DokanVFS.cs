@@ -6,6 +6,7 @@ using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
 using rextractor;
 using Serilog;
+using Serilog.Events;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
@@ -37,6 +38,9 @@ namespace libDokan
 
         protected static NtStatus Trace(string method, string? fileName, IDokanFileInfo? info, NtStatus result, params object?[] parameters)
         {
+            //skip all the message construction when Debug logging is off (no-op while the global level is Debug, but free future-proofing)
+            if (!Log.IsEnabled(LogEventLevel.Debug)) return result;
+
             var extraParameters = parameters != null && parameters.Length > 0
                 ? ", " + string.Join(", ", parameters.Select(x => string.Format(DefaultFormatProvider, "{0}", x)))
                 : string.Empty;
@@ -50,6 +54,8 @@ namespace libDokan
             FileAccess access, FileShare share, FileMode mode, FileOptions options, FileAttributes attributes,
             NtStatus result)
         {
+            if (!Log.IsEnabled(LogEventLevel.Debug)) return result;
+
             Log.Debug(
                 DokanFormat(
                     $"{method}('{fileName}', {info}, [{access}], [{share}], [{mode}], [{options}], [{attributes}]) -> {result}"));
@@ -289,8 +295,6 @@ namespace libDokan
                 //shared stream for every open handle of this file
                 lock (stream.FileEntry.ReadLock)
                 {
-                    var distanceFromCurrentPosition = offset - stream.Stream.Position;
-
                     //experimental
                     //if (distanceFromCurrentPosition > Buffers.ARBITRARY_HUGE_SIZE_BUFFER * 2 && offset + buffer.Length == stream.Length)
                     //{

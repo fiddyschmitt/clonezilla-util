@@ -51,10 +51,7 @@ namespace libDecompression
             var bytesLeftInFile = Length - position;
             var bytesToRead = (int)Math.Min(count, bytesLeftInFile);
 
-            Log.Debug($"Attempting to read {count.BytesToString()} from position {Position:N0}");
-            var startTime = DateTime.Now;
             var bytesRead = ReadFromChunk(chunkDetails, buffer, offset, bytesToRead);
-            Log.Debug($"Finished reading. Mananaged {bytesRead.BytesToString()} in {(DateTime.Now - startTime).TotalSeconds:N2} seconds");
 
             position += bytesRead;
 
