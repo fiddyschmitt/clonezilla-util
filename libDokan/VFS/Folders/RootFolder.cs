@@ -33,22 +33,15 @@ namespace libDokan.VFS.Folders
                 var component = pathComponents[i];
                 var isLatestItem = i == pathComponents.Length - 1;
 
-                //snapshot once per component; Children allocates a copy on each access
-                var children = currentFolder.Children;
-
-                var subFolder = children
-                                    .OfType<Folder>()
-                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.OrdinalIgnoreCase));
+                //O(1) lookup; GetChild returns the first child with this name (case-insensitive), folder or file
+                var match = currentFolder.GetChild(component);
+                var subFolder = match as Folder;
 
                 if (subFolder == null)
                 {
                     if (isLatestItem && !createFolderStructure)
                     {
-                        //this is the last item. Perhaps it's a file
-
-                        var file = children
-                                    .OfType<FileEntry>()
-                                    .FirstOrDefault(child => child.Name.Equals(component, StringComparison.OrdinalIgnoreCase));
+                        //this is the last item. Perhaps it's a file (match is non-null but not a folder)
 
                         //Whilst this approach is nice, we could be preventing an antivirus from accessing the file. So let's check the restriction elsewhere
                         /*
@@ -58,7 +51,7 @@ namespace libDokan.VFS.Folders
                         }
                         */
 
-                        return file;
+                        return match as FileEntry;
                     }
                     else
                     {
