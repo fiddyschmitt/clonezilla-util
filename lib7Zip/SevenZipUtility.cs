@@ -66,7 +66,7 @@ namespace lib7Zip
             ArchiveEntry? currentEntry = null;
             foreach (var line in sevenZipOutput)
             {
-                if (line.StartsWith($"Path ="))
+                if (line.StartsWith("Path =", StringComparison.Ordinal))
                 {
                     string name = line.Replace("Path = ", "");
 
@@ -92,13 +92,13 @@ namespace lib7Zip
                 if (!currentEntry.IsFolder)
                 {
                     //TryParse, because folder entries can have an empty Size value
-                    if (line.StartsWith($"Size =") && long.TryParse(line.Replace("Size = ", ""), out var size)) currentEntry.Size = size;
-                    if (line.StartsWith($"Offset =") && long.TryParse(line.Replace("Offset = ", ""), out var entryOffset)) currentEntry.Offset = entryOffset;
+                    if (line.StartsWith("Size =", StringComparison.Ordinal) && long.TryParse(line.Replace("Size = ", ""), out var size)) currentEntry.Size = size;
+                    if (line.StartsWith("Offset =", StringComparison.Ordinal) && long.TryParse(line.Replace("Offset = ", ""), out var entryOffset)) currentEntry.Offset = entryOffset;
                 }
 
-                if (line.StartsWith($"Modified =")) _ = DateTime.TryParse(line.Replace("Modified = ", ""), out currentEntry.Modified);
-                if (line.StartsWith($"Created =")) _ = DateTime.TryParse(line.Replace("Created = ", ""), out currentEntry.Created);
-                if (line.StartsWith($"Accessed =")) _ = DateTime.TryParse(line.Replace("Accessed = ", ""), out currentEntry.Accessed);
+                if (line.StartsWith("Modified =", StringComparison.Ordinal)) _ = DateTime.TryParse(line.Replace("Modified = ", ""), out currentEntry.Modified);
+                if (line.StartsWith("Created =", StringComparison.Ordinal)) _ = DateTime.TryParse(line.Replace("Created = ", ""), out currentEntry.Created);
+                if (line.StartsWith("Accessed =", StringComparison.Ordinal)) _ = DateTime.TryParse(line.Replace("Accessed = ", ""), out currentEntry.Accessed);
             }
         }
 
@@ -108,7 +108,7 @@ namespace lib7Zip
 
             foreach (var line in sevenZipOutput)
             {
-                if (line.StartsWith($"Path ="))
+                if (line.StartsWith("Path =", StringComparison.Ordinal))
                 {
                     var archiveFilename = line.Replace("Path = ", "");
                     if (File.Exists(archiveFilename))
@@ -129,7 +129,7 @@ namespace lib7Zip
 
             foreach (var line in sevenZipOutput)
             {
-                if (line.StartsWith($"Path ="))
+                if (line.StartsWith("Path =", StringComparison.Ordinal))
                 {
                     return true;
                 }

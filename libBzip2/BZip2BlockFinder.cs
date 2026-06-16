@@ -39,6 +39,10 @@ namespace libBzip2
 
         public static IEnumerable<long> FindInstances(this Stream stream, byte[] find)
         {
+            //Build the Boyer-Moore tables once for this needle and reuse them across
+            //every buffer subsection, rather than rebuilding them on each IndexOf call.
+            var searcher = new BoyerMooreSearcher(find);
+
             var buff = new byte[1 * 1024 * 1024];
             var ms = new MemoryStream(buff);
 
@@ -55,7 +59,7 @@ namespace libBzip2
                 {
                     var bytesRemainingInBuffer = bytesRead - positionThroughCurrentBuffer;
                     var subsectionToSearch = new Span<byte>(buff, positionThroughCurrentBuffer, bytesRemainingInBuffer);
-                    var foundPositionInBufferSubsection = BoyerMoore.IndexOf(subsectionToSearch, find);
+                    var foundPositionInBufferSubsection = searcher.IndexOf(subsectionToSearch);
 
                     if (foundPositionInBufferSubsection == -1)
                     {

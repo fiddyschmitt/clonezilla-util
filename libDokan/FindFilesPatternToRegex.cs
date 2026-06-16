@@ -46,7 +46,10 @@ namespace rextractor
             }
 
             regexString += "$";
-            var regex = new Regex(regexString, RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            //This Regex is built fresh on (almost) every call and used only a handful of
+            //times before being discarded, so don't pay the JIT cost of RegexOptions.Compiled.
+            //(The static, process-lifetime regexes above keep Compiled.)
+            var regex = new Regex(regexString, RegexOptions.IgnoreCase);
             return regex;
         }
 

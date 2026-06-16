@@ -1,13 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System;
 
 namespace libDecompression.Utilities
 {
     public static class BoyerMoore
     {
+        //Convenience overload that builds the search tables then searches once.
+        //For repeated searches with the same needle (e.g. scanning a large stream
+        //buffer-by-buffer), construct a BoyerMooreSearcher once and reuse it so the
+        //256-entry character table and offset table aren't rebuilt on every call.
         public static int IndexOf(Span<byte> haystack, byte[] needle)
         {
             if (needle.Length == 0)
@@ -15,8 +15,32 @@ namespace libDecompression.Utilities
                 return 0;
             }
 
-            int[] charTable = MakeCharTable(needle);
-            int[] offsetTable = MakeOffsetTable(needle);
+            return new BoyerMooreSearcher(needle).IndexOf(haystack);
+        }
+    }
+
+    //Holds the precomputed Boyer-Moore tables for a single needle so they can be
+    //reused across many IndexOf calls without reallocating/recomputing them.
+    public sealed class BoyerMooreSearcher
+    {
+        private readonly byte[] needle;
+        private readonly int[] charTable;
+        private readonly int[] offsetTable;
+
+        public BoyerMooreSearcher(byte[] needle)
+        {
+            this.needle = needle;
+            charTable = MakeCharTable(needle);
+            offsetTable = MakeOffsetTable(needle);
+        }
+
+        public int IndexOf(Span<byte> haystack)
+        {
+            if (needle.Length == 0)
+            {
+                return 0;
+            }
+
             for (int i = needle.Length - 1; i < haystack.Length;)
             {
                 int j;
@@ -30,7 +54,7 @@ namespace libDecompression.Utilities
 
                 i += Math.Max(offsetTable[needle.Length - 1 - j], charTable[haystack[i]]);
             }
-            
+
             return -1;
         }
 

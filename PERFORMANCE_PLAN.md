@@ -80,23 +80,34 @@ may or may not surface above the suite's decompression-dominated noise.
 
 ---
 
-## Batch 3 — Archive listing & index-build path
+## Batch 3 — Archive listing & index-build path  **(done 2026-06-16, builds clean — awaiting 10h test run)**
 
 All affect the `list` / tree-build / bzip2-index path, so one 10h run exercises them together.
 
-- [ ] **P6. Culture-sensitive `StartsWith` in 7z parsing** — `lib7Zip/SevenZipUtility.cs:69, 90-101`.
-  `line.StartsWith("Path =")` etc. default to `CurrentCulture` (much slower than ordinal) and run over
-  **every** output line for archives with up to millions of entries. Add `StringComparison.Ordinal` to all
-  `StartsWith`. Bonus: replace `line.Replace("Path = ","")` with a slice (`line["Path = ".Length..]`).
-  **Risk: low** (ordinal vs culture is identical for these ASCII literals).
-- [ ] **P5. Boyer-Moore rebuilds tables every call** — `libDecompression/Utilities/BoyerMoore.cs:18-19`.
-  `MakeCharTable`(256) + `MakeOffsetTable` rebuilt on every `IndexOf`; `BZip2BlockFinder.FindInstances`
-  calls it in a loop over the whole compressed stream. Precompute once (overload taking prebuilt tables, or a
-  small `readonly` searcher built once in `FindInstances`). **Risk: low/medium** (refactor of the index path —
-  verify generated bzip2 indexes are identical to before).
-- [ ] **P11. `RegexOptions.Compiled` on single-use patterns** — `libDokan/FindFilesPatternToRegex.cs`
-  (`Convert`). `Compiled` only pays off over many matches; for use-once enumeration patterns it's a net
-  pessimization (heavy IL emit). Drop `Compiled` on the dynamic pattern; keep it on the static reused regexes.
+- [x] **P6. Culture-sensitive `StartsWith` in 7z parsing** — `lib7Zip/SevenZipUtility.cs`.
+  `line.StartsWith("Path =")` etc. defaulted to `CurrentCulture` (much slower than ordinal) and run over
+  **every** output line for archives with up to millions of entries. Added `StringComparison.Ordinal` to all
+  eight `StartsWith` calls in the file (`GetArchiveEntries` Path/Size/Offset/Modified/Created/Accessed, plus the
+  `Path =` checks in `GetArchivesInFolder` and `IsArchive`). The `Folder = +` / archive-name `Equals` checks were
+  left untouched — `string.Equals(string)` is **already ordinal** by default (only `StartsWith(string)` is
+  culture-sensitive). **Bonus (`line.Replace(...)` → slice) deliberately skipped:** `Replace` strips all
+  occurrences whereas a prefix-slice strips only the prefix — equivalent for real 7z output but a behavioural
+  divergence on a pathological value containing the token, and slicing a token-only line with no trailing value
+  would throw. Not worth the risk for a one-time listing path; the culture→ordinal change is the real win.
+  **Risk: none** (ordinal vs culture is identical for these ASCII literals).
+- [x] **P5. Boyer-Moore rebuilt tables every call** — `libDecompression/Utilities/BoyerMoore.cs`,
+  `libBzip2/BZip2BlockFinder.cs`. `MakeCharTable`(256) + `MakeOffsetTable` were rebuilt on every `IndexOf`, and
+  `BZip2BlockFinder.FindInstances` calls `IndexOf` once per buffer-subsection over the whole compressed stream
+  with a **constant** needle (`StartOfBlockMagic`). Added a `BoyerMooreSearcher` class that precomputes both
+  tables in its constructor and exposes `IndexOf(Span<byte>)`; `FindInstances` now builds one searcher per call
+  and reuses it for every subsection. Kept the static `BoyerMoore.IndexOf(Span<byte>, byte[])` as a convenience
+  wrapper (builds a searcher then searches) so the public API is unchanged. The core search loop and table
+  construction are byte-for-byte the same code, just hoisted — generated `*.bzip2_index.json` must be identical.
+  **Risk: low/medium** (index-path refactor — verify generated bzip2 indexes are identical to before).
+- [x] **P11. `RegexOptions.Compiled` on single-use patterns** — `libDokan/FindFilesPatternToRegex.cs`
+  (`Convert`). Dropped `Compiled` on the per-call dynamic pattern (kept `IgnoreCase`); the static reused regexes
+  (`HasQuestionMarkRegEx`/`IllegalCharactersRegex`/`CatchExtensionRegex`) keep `Compiled`. `Compiled` only pays
+  off over many matches; for use-once enumeration patterns the heavy IL emit is a net pessimization.
   **Risk: none** (identical match results).
 
 **Verification:** full suite. Confirm `list` output and bzip2 `*.bzip2_index.json` contents are unchanged.
