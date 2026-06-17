@@ -31,6 +31,9 @@ namespace libCommon.Streams
         public int CacheLimitValue { get; set; } = cacheLimitValue;
 
         readonly List<CacheEntry> cache = precapturedCache ?? [];
+        //running total of cached byte size, kept in sync at every cache mutation so the
+        //LimitByRAMUsage eviction loop doesn't recompute cache.Sum(...) on each iteration
+        long currentCacheSizeBytes = precapturedCache?.Sum(c => c.Length) ?? 0;
 
         public IList<CacheEntry> GetCacheContents()
         {
@@ -56,7 +59,20 @@ namespace libCommon.Streams
 
         int ReadInternal(byte[] buffer, int offset, int count)
         {
-            var cacheEntry = cache.FirstOrDefault(entry => Position >= entry.Start && Position < entry.End);
+            //linear scan rather than FirstOrDefault, to avoid allocating a this-capturing
+            //closure on every read. The cache is LRU-ordered (newest first), so a hot entry
+            //is found near the front.
+            var pos = Position;
+            CacheEntry? cacheEntry = null;
+            for (int i = 0; i < cache.Count; i++)
+            {
+                var entry = cache[i];
+                if (pos >= entry.Start && pos < entry.End)
+                {
+                    cacheEntry = entry;
+                    break;
+                }
+            }
 
             if (cacheEntry == null)
             {
@@ -139,6 +155,7 @@ namespace libCommon.Streams
                     case EnumCacheType.LimitBySegmentCount:
                         while (cache.Count >= CacheLimitValue)
                         {
+                            currentCacheSizeBytes -= cache[cache.Count - 1].Length;
                             cache.RemoveAt(cache.Count - 1);
                         }
                         addToCache = true;
@@ -154,8 +171,7 @@ namespace libCommon.Streams
 
                         while (true)
                         {
-                            var currentCacheSizeInBytes = cache.Sum(c => c.Length);
-                            var currentCacheSizeInMegabytes = (int)(currentCacheSizeInBytes / (double)(1024 * 1024));
+                            var currentCacheSizeInMegabytes = (int)(currentCacheSizeBytes / (double)(1024 * 1024));
 
                             if (newEntrySizeInMegabytes > CacheLimitValue)
                             {
@@ -170,6 +186,7 @@ namespace libCommon.Streams
                             }
                             else
                             {
+                                currentCacheSizeBytes -= cache[cache.Count - 1].Length;
                                 cache.RemoveAt(cache.Count - 1);
                             }
                         }
@@ -183,11 +200,13 @@ namespace libCommon.Streams
                 if (addToCache)
                 {
                     cache.Insert(0, cacheEntry);
+                    currentCacheSizeBytes += cacheEntry.Length;
                 }
             }
             else
             {
-                //move it to the beginning of the cache, to keep it fresh
+                //move it to the beginning of the cache, to keep it fresh.
+                //net-zero for currentCacheSizeBytes (same entry removed then re-added).
                 cache.Remove(cacheEntry);
                 cache.Insert(0, cacheEntry);
             }
@@ -247,6 +266,7 @@ namespace libCommon.Streams
         public override void Close()
         {
             cache.Clear();
+            currentCacheSizeBytes = 0;
         }
     }
 

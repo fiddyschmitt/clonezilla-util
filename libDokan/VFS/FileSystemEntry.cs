@@ -48,10 +48,15 @@ namespace libDokan.VFS
         {
             get
             {
-                var ancestors = this
-                                    .Recurse(ancestor => ancestor.Parent)
-                                    .Reverse()
-                                    .ToList();
+                //walk the parent chain (this -> ... -> root), then reverse to root-first.
+                //Equivalent to Recurse(a => a.Parent).Reverse().ToList() but without the
+                //iterator/closure overhead; Ancestors is read on Dokan callback paths.
+                var ancestors = new List<FileSystemEntry>();
+                for (FileSystemEntry? node = this; node != null; node = node.Parent)
+                {
+                    ancestors.Add(node);
+                }
+                ancestors.Reverse();
 
                 return ancestors;
             }
@@ -59,30 +64,38 @@ namespace libDokan.VFS
 
         public bool IsAccessibleToProcess(int requestPID)
         {
-            //check if any of the ancestors are restricted
+            //check if any of the ancestors are restricted. Walk the parent chain directly and
+            //only build a ProcInfo if there's actually a restricted ancestor to test against
+            //(this runs per FindFiles call; the common case has no restricted ancestors at all).
+            ProcInfo? procInfo = null;
+            for (FileSystemEntry? node = this; node != null; node = node.Parent)
+            {
+                if (node is RestrictedFolderByPID restricted)
+                {
+                    procInfo ??= new ProcInfo(requestPID);
+                    if (!restricted.IsProcessPermitted(procInfo))
+                    {
+                        return false;
+                    }
+                }
+            }
 
-            var restrictedAncestors = Ancestors
-                                        .OfType<RestrictedFolderByPID>()
-                                        .ToList();
-
-            var procInfo = new ProcInfo(requestPID);
-
-            bool isRestricted = restrictedAncestors
-                                    .Any(ancestor => !ancestor.IsProcessPermitted(procInfo));
-
-            return !isRestricted;
+            return true;
         }
 
         public string FullPath
         {
             get
             {
-                var folderPath = Ancestors
+                //compute Ancestors once (it allocates a list) instead of walking the chain twice
+                var ancestors = Ancestors;
+
+                var folderPath = ancestors
                                 .Where(a => a is not RootFolder)
                                 .Select(a => a.Name)
                                 .ToString("\\");
 
-                var root = Ancestors
+                var root = ancestors
                             .OfType<RootFolder>()
                             .FirstOrDefault()?.MountPoint ?? "";
 

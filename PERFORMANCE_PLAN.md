@@ -114,24 +114,32 @@ All affect the `list` / tree-build / bzip2-index path, so one 10h run exercises 
 
 ---
 
-## Batch 4 — Stream-stack & traversal micro-opts
+## Batch 4 — Stream-stack & traversal micro-opts  **(done 2026-06-16, builds clean — awaiting 10h test run)**
 
-- [ ] **P4. `CachingStream` lookup + RAM accounting** — `libCommon/Streams/CachingStream.cs:59, 161`.
-  Lookup `cache.FirstOrDefault(entry => …)` allocates a `this`-capturing closure **per read** → rewrite as a
-  `for` loop (LRU front short-circuits). RAM eviction recomputes `cache.Sum(c => c.Length)` inside the
-  `while` loop (O(n)/iteration) → maintain a running `long currentCacheSizeBytes` updated on insert/evict/clear.
-  Optional: `LinkedList<CacheEntry>` for O(1) move-to-front. **Risk: medium** (running total must be updated at
-  every mutation site: both cache-type paths, move-to-front Remove+Insert, and `Close()`).
-- [ ] **P7. `Recurse` (IEnumerable overload) is O(n²)** — `libCommon/Extensions.cs:34`. `queue.RemoveAt(0)` on a
-  `List` shifts every element. Swap to `Queue<T>` (O(1) dequeue; FIFO order is identical to the current
-  List-as-queue). **Risk: low.**
-- [ ] **P8. `Ancestors`/`FullPath`/`IsAccessibleToProcess`** — `libDokan/VFS/FileSystemEntry.cs:47-93`.
-  `Ancestors` rebuilds (`Recurse().Reverse().ToList()`) each access; `FullPath` calls it twice;
-  `IsAccessibleToProcess` (per `FindFiles`) always allocates the list **and** `new ProcInfo` although
-  `RestrictedFolderByPID` is unused in practice. Short-circuit `IsAccessibleToProcess` (skip `ProcInfo` when no
-  restricted ancestors); build the path once with a `Stack`/`StringBuilder`; optionally cache `FullPath`
-  (nodes are immutable post-build). **Risk: low/medium** (only cache `FullPath` if nothing mutates the tree
-  after build — verify).
+- [x] **P4. `CachingStream` lookup + RAM accounting** — `libCommon/Streams/CachingStream.cs`.
+  Replaced the per-read `cache.FirstOrDefault(entry => …)` (allocated a `this`-capturing closure every read)
+  with a `for` loop over the LRU-ordered list (`Position` hoisted to a local; first match wins, identical to
+  `FirstOrDefault`). Added a running `long currentCacheSizeBytes` so the `LimitByRAMUsage` eviction loop no
+  longer recomputes `cache.Sum(c => c.Length)` each iteration (was O(n)/iter → O(n²) eviction). The total is
+  kept in sync at **every** mutation site: initialised from `precapturedCache` at construction; `-=` before
+  each `RemoveAt` in both `LimitBySegmentCount` and `LimitByRAMUsage`; `+=` on `Insert`; net-zero on
+  move-to-front (same entry removed+re-added); reset to 0 in `Close()`. Decision logic is byte-identical
+  because the running total equals `cache.Sum(...)` at the loop. **Skipped** the optional
+  `LinkedList<CacheEntry>` move-to-front (would change the `precapturedCache`/`GetCacheContents` type surface —
+  higher risk for a non-bottleneck). **Risk: medium.**
+- [x] **P7. `Recurse` (IEnumerable overload) was O(n²)** — `libCommon/Extensions.cs`. `List` used as a queue:
+  `RemoveAt(0)` (and the depth-first `InsertRange(0, …)`) shifted every remaining element each step. Swapped to
+  `LinkedList<T>` — O(1) `RemoveFirst`, O(1) `AddLast` (breadth-first) and O(1) front-insert preserving order
+  (depth-first). Chose `LinkedList` over `Queue<T>` because the method supports both modes and this keeps the
+  (currently unused but public) depth-first ordering byte-identical. **Risk: low.**
+- [x] **P8. `Ancestors`/`FullPath`/`IsAccessibleToProcess`** — `libDokan/VFS/FileSystemEntry.cs`.
+  `Ancestors` now walks the parent chain with a plain `for` loop + `Reverse()` (same `[root … this]` result as
+  `Recurse().Reverse().ToList()`, no iterator/closure overhead). `FullPath` computes `Ancestors` once instead
+  of twice. `IsAccessibleToProcess` walks the parent chain directly, allocates **no** ancestors list, builds
+  `ProcInfo` lazily only when a `RestrictedFolderByPID` ancestor actually exists, and short-circuits on the
+  first denial — result is identical (the "any restricted ancestor denies" test is order-independent).
+  **Did not cache `FullPath`** (the immutability-after-build precondition isn't verified — left as a per-call
+  compute, just cheaper). **Risk: low/medium.**
 - [skip] **P9. Drop `Synchronized` wrapper in `IndependentStream`** — `IndependentStream.cs:37`. Tempting
   (the `ReadLock` already serializes Read/Seek), **but** `Length`/`Position` getters are unlocked, so the
   inner `Synchronized` is what makes those atomic against in-flight seeks on the shared base stream. Removing

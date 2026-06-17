@@ -26,22 +26,35 @@ namespace libCommon
 
         public static IEnumerable<T> Recurse<T>(this IEnumerable<T> source, Func<T, IEnumerable<T>> childSelector, bool depthFirst = false)
         {
-            List<T> queue = new(source);
+            //LinkedList gives O(1) dequeue-from-front and O(1) insertion at either end, so the
+            //whole traversal is O(n). A List used as a queue was O(n^2): RemoveAt(0) (and the
+            //depth-first InsertRange(0, ...)) shift every remaining element on each step.
+            var queue = new LinkedList<T>(source);
 
             while (queue.Count > 0)
             {
-                var item = queue[0];
-                queue.RemoveAt(0);
+                var item = queue.First!.Value;
+                queue.RemoveFirst();
 
                 var children = childSelector(item);
 
                 if (depthFirst)
                 {
-                    queue.InsertRange(0, children);
+                    //insert children at the front preserving their order (matches List.InsertRange(0, children))
+                    LinkedListNode<T>? insertAfter = null;
+                    foreach (var child in children)
+                    {
+                        insertAfter = insertAfter == null
+                            ? queue.AddFirst(child)
+                            : queue.AddAfter(insertAfter, child);
+                    }
                 }
                 else
                 {
-                    queue.AddRange(children);
+                    foreach (var child in children)
+                    {
+                        queue.AddLast(child);
+                    }
                 }
 
                 yield return item;
