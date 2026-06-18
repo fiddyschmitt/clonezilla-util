@@ -5,7 +5,6 @@ using libCommon;
 using libCommon.Streams;
 using libCommon.Streams.Seekable;
 using libPartclone;
-using libPartclone.Cache;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -27,8 +26,7 @@ namespace libClonezilla.Partitions
             Stream compressedPartcloneStream, 
             long? uncompressedLength, 
             Compression compressionInUse, 
-            IPartitionCache? partitionCache, 
-            IPartcloneCache? partcloneCache, 
+            IPartitionCache? partitionCache,
             bool willPerformRandomSeeking,
             bool processTrailingNulls) : base(container, partitionName, partitionCache, compressedPartcloneStream)
         {
@@ -48,7 +46,7 @@ namespace libClonezilla.Partitions
             }
 
             Log.Information($"{streamName} Loading partition information");
-            FullPartitionImage = new PartcloneStream(container.ContainerName, partitionName, decompressedStream, partcloneCache);
+            FullPartitionImage = new PartcloneStream(container.ContainerName, partitionName, decompressedStream);
         }
     }
 }

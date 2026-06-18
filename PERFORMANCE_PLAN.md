@@ -196,6 +196,60 @@ Behaviour-preserving for both lookup and enumeration, lookup O(1), `AddChild` am
 
 ---
 
+## Batch 5 — Partclone arithmetic content map  **(done 2026-06-18; 10h run surfaced a bug — fixed; legacy path removed)**
+
+Validated `libPartclone` against the partclone 0.3.47 C source (`IMAGE_FORMATS.md`, `src/fuseimg.c`
+`read_block_data`, `src/partclone.c` `cnv_blocks_to_bytes` / `get_checksum_count`, `src/bitmap.h`). The offset
+math was **correct**; the cost was in *representing* it. The legacy `DeduceContiguousRanges` splits a
+`List<ContiguousRange>` at **every checksum strip**, so the map scales with data volume, not fragmentation
+(V1: `bpc=1` ⇒ one range *per populated block* — millions; V2: one per `bpc` populated blocks). partclone never
+materialises this — it derives the image offset arithmetically. We now do the same.
+
+- [x] **P14. Arithmetic content map (decommission the per-strip list).** New `BitmapContentMap`
+  (`libPartclone/BitmapContentMap.cs`) keeps the bitmap as packed 64-bit words + a sparse cumulative-popcount
+  (rank) index, and computes the image offset of any position with partclone's own formula:
+  `startOfContent + used*blockSize + (used / blocksPerChecksum)*checksumSize`, where `used` = popcount of the
+  bitmap before the block (O(1) via the rank index). Read length is clamped arithmetically to the checksum-strip
+  boundary and to the populated-run end (a bounded forward scan, word-accelerated). Memory drops from
+  O(populatedBlocks/bpc) range objects to ~1 bit/block + a tiny index; **the `*.PartcloneContentMapping.json`
+  cache is no longer needed** for this path (building the index from the resident bitmap is a single popcount
+  sweep). **Risk: medium** (read data-path).
+- [x] **P15. Behaviour-preserving abstraction.** Introduced `IPartcloneContentMap`
+  (`Locate(position,count)` + `RestIsAllNullFrom(position)`); `PartcloneStream.Read` is map-agnostic. A
+  temporary `PartcloneMapStrategy.{Arithmetic,RangeList}` flag let the 10h run diff the two; **both the flag and
+  the `RangeList` path are now removed** (see P18). **Risk: low.**
+- [x] **P16. Correctness fix: `blocksPerChecksum == 0` divide-by-zero.** No-checksum V2 images
+  (`CSM_NONE`) carry `blocks_per_checksum = 0`; this matches partclone's `get_checksum_count` guard. **Risk: none.**
+- [x] **P17. Robustness: V2 bitmap-size `(int)` overflow.** `(int)(TotalBlocks + 7) / 8` cast before the
+  divide (overflow above ~2³¹ blocks); now divides first. **Risk: none.**
+- [x] **P18. Legacy path removed.** Deleted `DeduceContiguousRanges`, `ContiguousRange`,
+  `ContiguousRangeComparer`, `RangeListContentMap`, the `PartcloneMapStrategy` flag, and the
+  `PartcloneContentMapping` JSON cache (`IPartcloneCache` and its `PartitionCache`/threading). `ByteRange` was
+  kept (reused by a test util). `BitmapContentMap` is now the sole content map; no on-disk map cache exists.
+- [x] **P19. Bug fix from the 10h run: device larger than the bitmap.** The 10h suite failed 3 `ImageFileTests`
+  (pb-devops1 sda1, gz/zst). Verified against ground truth by SSH'ing to a Clonezilla box and running stock
+  `partclone.restore` on the same sources: the test's expected MD5s were **correct** — the arithmetic map was
+  wrong. Root cause: the image's `device_size` (575,668,224 = 140,544 blocks) is **one block larger than
+  `totalBlocks` (140,543)** — the NTFS backup-sector area past the FS. Those trailing blocks aren't in the
+  bitmap; the legacy map zero-filled them to device size but `BitmapContentMap.Locate` returned `Length = 0`
+  there (its `CountRun` caps at `totalBlocks`), so the stream hit EOF a block early → different MD5. Fixed:
+  blocks at/beyond `totalBlocks` are treated as implicitly empty and zero-filled to device size. The synthetic
+  tests missed it because they all used `deviceSize == totalBlocks*blockSize`; added `V2_DeviceLargerThanBitmap`
+  (and the partial-trailing-block case) covering it for V1/V2. Re-verified the arithmetic output's MD5 equals
+  the canonical `partclone.restore` (`d9a64d…`) on the real image. **Minor still open:** V2 endianess marker is
+  unchecked (x86 only); bitmap CRC / `BiTmAgIc` not validated; the resident raw `Bitmap` is still kept (could be
+  dropped now that `BitmapContentMap` owns the packed words).
+
+**Verification:** `clonezilla-util_tests/Partclone/PartcloneContentMapTests.cs` synthesises V1, V2
+(checksummed), and V2 (no-checksum) images in memory and asserts the restored bytes equal **ground truth**
+across many chunk sizes and 1500 random seeks per scenario, plus edge patterns (all-empty, all-populated,
+alternating, leading/trailing empty, single block), a partial last block, runs spanning many strips, **device
+larger than the bitmap** (the P19 regression), and the sparse early-stop. All 7 pass. End-to-end: the next full
+suite run should pass the 3 previously-failing `ImageFileTests` (the arithmetic output now matches the canonical
+`partclone.restore` MD5 on the real image; confirmed locally).
+
+---
+
 ## Notes / decisions
 
 - Batches are independent; reorder freely. Value-first order is B1 > B2 > B3 > B4.

@@ -6,10 +6,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using Newtonsoft.Json;
-using libPartclone;
 using libCommon.Streams;
 using System.Collections.ObjectModel;
-using libPartclone.Cache;
 using lib7Zip;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
@@ -17,12 +15,11 @@ using Serilog;
 
 namespace libClonezilla.Cache
 {
-    public class PartitionCache : IPartcloneCache, IPartitionCache
+    public class PartitionCache : IPartitionCache
     {
         public string ClonezillaCacheFolder { get; }
         public string PartitionName { get; }
 
-        private readonly string PartcloneContentMappingFilename;
         private readonly string FileListFilename;
 
         public PartitionCache(string clonezillaCacheFolder, string partitionName)
@@ -30,7 +27,6 @@ namespace libClonezilla.Cache
             ClonezillaCacheFolder = clonezillaCacheFolder;
             PartitionName = partitionName;
 
-            PartcloneContentMappingFilename = Path.Combine(ClonezillaCacheFolder, $"{partitionName}.PartcloneContentMapping.json");
             FileListFilename = Path.Combine(ClonezillaCacheFolder, $"{partitionName}.Files.json");
         }
 
@@ -47,31 +43,6 @@ namespace libClonezilla.Cache
         }
 
 
-        public List<ContiguousRange>? GetPartcloneContentMapping()
-        {
-            List<ContiguousRange>? result = null;
-
-            if (File.Exists(PartcloneContentMappingFilename))
-            {
-                var json = File.ReadAllText(PartcloneContentMappingFilename);
-                result = JsonConvert.DeserializeObject<List<ContiguousRange>>(json);
-            }
-
-            return result;
-        }
-
-        public void SetPartcloneContentMapping(List<ContiguousRange> contiguousRanges)
-        {
-            try
-            {
-                var json = JsonConvert.SerializeObject(contiguousRanges, Formatting.Indented);
-                File.WriteAllText(PartcloneContentMappingFilename, json);
-            }
-            catch (Exception ex)
-            {
-                Log.Warning($"Non-fatal. Error while caching Partclone Content Mapping to {PartcloneContentMappingFilename}: {ex}");
-            }
-        }
 
         public List<ArchiveEntry>? GetFileList()
         {

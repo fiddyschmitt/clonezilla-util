@@ -1,8 +1,5 @@
 ﻿using libCommon;
 using libCommon.Streams;
-using libPartclone.Cache;
-using libPartclone.Lists;
-using libPartclone.Metadata;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -18,18 +15,18 @@ namespace libPartclone
     {
         public PartcloneImageInfo? PartcloneImageInfo { get; }
         long position = 0;
-        readonly ContiguousRange LastRange;
+        readonly IPartcloneContentMap contentMap;
 
         private readonly object streamLock = new();
 
-        public PartcloneStream(string containerName, string partitionName, Stream inputStream, IPartcloneCache? cache)
+        public PartcloneStream(string containerName, string partitionName, Stream inputStream)
         {
             inputStream.Seek(0, SeekOrigin.Begin);
 
-            PartcloneImageInfo = new PartcloneImageInfo(containerName, partitionName, inputStream, cache);
+            PartcloneImageInfo = new PartcloneImageInfo(containerName, partitionName, inputStream);
             PartitionName = partitionName;
 
-            LastRange = PartcloneImageInfo.PartcloneContentMapping.Value.Last();
+            contentMap = PartcloneImageInfo.ContentMap;
         }
 
         public Stream Stream => this;
@@ -69,73 +66,51 @@ namespace libPartclone
 
         }
 
-        readonly ContiguousRangeComparer contiguousRangeComparer = new();
-
         public override int Read(byte[] buffer, int offset, int count)
         {
             lock (streamLock)
             {
-                if (PartcloneImageInfo == null) return 0;
-                if (PartcloneImageInfo.PartcloneContentMapping == null) return 0;
-                if (PartcloneImageInfo.ReadStream == null) return 0;
+                if (PartcloneImageInfo?.ReadStream == null) return 0;
 
-                if (StopReadingWhenRemainderOfFileIsNull && !LastRange.IsPopulated)
+                if (StopReadingWhenRemainderOfFileIsNull && contentMap.RestIsAllNullFrom(position))
                 {
-                    //if the rest of the file has null bytes, the caller isn't interested
+                    //the rest of the file is empty, and the caller isn't interested
 
-                    //check if the entire requested section is contained within the last range
-                    //var readTo = Position + count;
-                    //var enclosingRange = PartcloneImageInfo.PartcloneContentMapping.Value.FirstOrDefault(r => Position >= r.OutputFileRange.StartByte && readTo <= r.OutputFileRange.EndByte);
-                    var enclosingRange = PartcloneImageInfo.PartcloneContentMapping.Value.BinarySearch(Position, contiguousRangeComparer);
+                    //clear the buffer one last time and call it a day
+                    Array.Clear(buffer, offset, count);
 
-                    if (enclosingRange != null && enclosingRange == LastRange)
-                    {
-                        //the rest of the file is empty, and they're not interested
-
-                        //clear the buffer one last time and call it a day
-                        Array.Clear(buffer, offset, count);
-
-                        position = Length;
-                        return 0;
-                    }
+                    position = Length;
+                    return 0;
                 }
-
 
                 LatestReadWasAllNull = true;
 
-                if (Position == Length)
+                if (position >= Length)
                 {
                     return 0;
                 }
 
-                //var range = PartcloneImageInfo.PartcloneContentMapping.Value.FirstOrDefault(r => pos >= r.OutputFileRange.StartByte && pos <= r.OutputFileRange.EndByte);
-                var range = PartcloneImageInfo.PartcloneContentMapping.Value.BinarySearch(Position, contiguousRangeComparer);
+                var location = contentMap.Locate(position, count);
 
-                if (range == null)
+                if (location.Length <= 0)
                 {
                     return 0;
                 }
-
-                var bytesLeftInThisRange = range.OutputFileRange.EndByte - Position + 1;
-
-                var bytesToRead = (int)Math.Min(count, bytesLeftInThisRange);
-
-                var deltaFromBeginningOfRange = Position - range.OutputFileRange.StartByte;
 
                 int bytesRead;
-                if (range.IsPopulated && range.PartcloneContentRange != null)
+                if (location.IsPopulated)
                 {
-                    PartcloneImageInfo.ReadStream.Seek(range.PartcloneContentRange.StartByte + deltaFromBeginningOfRange, SeekOrigin.Begin);
-                    bytesRead = PartcloneImageInfo.ReadStream.Read(buffer, offset, bytesToRead);
+                    PartcloneImageInfo.ReadStream.Seek(location.ContentOffset, SeekOrigin.Begin);
+                    bytesRead = PartcloneImageInfo.ReadStream.Read(buffer, offset, location.Length);
                     LatestReadWasAllNull = false;
                 }
                 else
                 {
-                    Array.Clear(buffer, offset, bytesToRead);
-                    bytesRead = bytesToRead;
+                    Array.Clear(buffer, offset, location.Length);
+                    bytesRead = location.Length;
                 }
 
-                Position += bytesRead;
+                position += bytesRead;
 
                 return bytesRead;
             }
@@ -173,13 +148,6 @@ namespace libPartclone
         {
             throw new NotImplementedException();
         }
-    }
-
-    public class ContiguousRange(ByteRange? partcloneContentRange, ByteRange outputFileRange)
-    {
-        public bool IsPopulated => PartcloneContentRange != null;
-        public ByteRange? PartcloneContentRange { get; init; } = partcloneContentRange;
-        public ByteRange OutputFileRange { get; init; } = outputFileRange;
     }
 
     public class ByteRange

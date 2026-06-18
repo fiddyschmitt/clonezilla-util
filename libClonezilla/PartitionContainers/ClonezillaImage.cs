@@ -2,7 +2,6 @@
 using libClonezilla.Decompressors;
 using libClonezilla.Partitions;
 using libCommon.Streams;
-using libPartclone.Cache;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -69,7 +68,6 @@ namespace libClonezilla.PartitionContainers
 
 
                                 var partitionCache = cacheManager.GetPartitionCache(partitionName);
-                                var partcloneCache = partitionCache as IPartcloneCache;
 
 
                                 Compression compressionInUse = Compression.None;
@@ -120,9 +118,8 @@ namespace libClonezilla.PartitionContainers
                                             this, partitionName, 
                                             compressedPartcloneStream, 
                                             partitionSizeInBytes, 
-                                            compressionInUse, 
-                                            partitionCache, 
-                                            partcloneCache, 
+                                            compressionInUse,
+                                            partitionCache,
                                             willPerformRandomSeeking,
                                             processTrailingNulls);
                                     }

@@ -22,7 +22,7 @@ namespace libClonezilla.PartitionContainers
 
             var partcloneStream = File.OpenRead(filename);
 
-            var partcloneInfo = new PartcloneImageInfo(ContainerName, partitionName, partcloneStream, null);
+            var partcloneInfo = new PartcloneImageInfo(ContainerName, partitionName, partcloneStream);
             var uncompressedLength = partcloneInfo.Length;
 
             Partitions = [];
@@ -36,7 +36,6 @@ namespace libClonezilla.PartitionContainers
                     partcloneStream,
                     uncompressedLength,
                     Compression.None,
-                    null,
                     null,
                     willPerformRandomSeeking,
                     processTrailingNulls);

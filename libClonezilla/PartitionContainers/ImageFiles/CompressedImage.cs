@@ -42,7 +42,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
                 if (isPartcloneStream)
                 {
-                    decompressedStream = new PartcloneStream("", "", streamToInspect, null);
+                    decompressedStream = new PartcloneStream("", "", streamToInspect);
                 }
                 else
                 {
