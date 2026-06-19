@@ -240,6 +240,11 @@ materialises this — it derives the image offset arithmetically. We now do the 
   unchecked (x86 only); bitmap CRC / `BiTmAgIc` not validated; the resident raw `Bitmap` is still kept (could be
   dropped now that `BitmapContentMap` owns the packed words).
 
+- [x] **P20. Demote the "Building partclone content map" log to Debug.** It was `Log.Information` (so it hit the
+  console + rolling log file) to reassure during the old slow per-strip build. The arithmetic map makes it
+  near-instant, so it's now `Log.Debug` (`libPartclone/PartcloneImageInfo.cs`) — off the console/log file, still a
+  breadcrumb in the debugger-output sink. **Risk: none** (logging only).
+
 **Verification:** `clonezilla-util_tests/Partclone/PartcloneContentMapTests.cs` synthesises V1, V2
 (checksummed), and V2 (no-checksum) images in memory and asserts the restored bytes equal **ground truth**
 across many chunk sizes and 1500 random seeks per scenario, plus edge patterns (all-empty, all-populated,

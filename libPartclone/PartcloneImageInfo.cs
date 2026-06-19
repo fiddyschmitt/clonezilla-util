@@ -116,7 +116,9 @@ namespace libPartclone
 
             contentMapLazy = new Lazy<IPartcloneContentMap>(() =>
               {
-                  Log.Information($"[{containerName}] [{partitionName}] Building partclone content map");
+                  //Debug (not Information): since the arithmetic BitmapContentMap (Batch 5) this is near-instant,
+                  //so it no longer warrants a console/log line - kept as a breadcrumb for the debugger output.
+                  Log.Debug($"[{containerName}] [{partitionName}] Building partclone content map");
 
                   if (Bitmap == null) throw new Exception($"[{containerName}] [{partitionName}] BitMap is not populated.");
 

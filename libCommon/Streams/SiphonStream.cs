@@ -44,7 +44,22 @@ namespace libCommon.Streams
                 }
                 catch (Exception ex)
                 {
-                    Log.Error(ex, $"{nameof(SiphonStream)} pump stopped early after {totalBytesRead.BytesToString()}.");
+                    bool stoppedBecauseClosed;
+                    lock (stateLock)
+                    {
+                        stoppedBecauseClosed = closing;
+                    }
+
+                    if (stoppedBecauseClosed || ex is ObjectDisposedException)
+                    {
+                        //expected: the consumer closed the stream before the pump had drained the source,
+                        //so the underlying/temp streams were disposed out from under this read.
+                        Log.Debug(ex, $"{nameof(SiphonStream)} pump stopped after {totalBytesRead.BytesToString()} because the stream was closed.");
+                    }
+                    else
+                    {
+                        Log.Error(ex, $"{nameof(SiphonStream)} pump stopped early after {totalBytesRead.BytesToString()}.");
+                    }
                 }
                 finally
                 {
@@ -71,6 +86,7 @@ namespace libCommon.Streams
 
         readonly object stateLock = new();
         long? totalLength = null;
+        bool closing = false;
         public override long Length
         {
             get
@@ -94,6 +110,12 @@ namespace libCommon.Streams
 
         public override void Close()
         {
+            //signal the pump (before closing the streams) that any read failure from here on is expected
+            lock (stateLock)
+            {
+                closing = true;
+            }
+
             UnderlyingStream.Close();
             TemporaryStorage.Close();
         }
