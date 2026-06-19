@@ -24,6 +24,7 @@ namespace libClonezilla.PartitionContainers
             ClonezillaArchiveFolder = clonezillaArchiveFolder;
 
             var partitionNames = PartitionsInFolder(clonezillaArchiveFolder);
+            AvailablePartitionNames = partitionNames;
 
             Partitions = partitionNames
                             .Where(partitionName => partitionsToLoad.Count == 0 || partitionsToLoad.Contains(partitionName))

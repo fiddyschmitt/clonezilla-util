@@ -19,6 +19,7 @@ namespace libClonezilla.PartitionContainers
             Filename = filename;
 
             var partitionName = Path.GetFileName(filename);
+            AvailablePartitionNames = [partitionName];
 
             var partcloneStream = File.OpenRead(filename);
 

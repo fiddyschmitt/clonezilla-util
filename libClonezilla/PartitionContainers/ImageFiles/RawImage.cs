@@ -61,6 +61,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             }
 
             Partitions = container.Partitions;
+            AvailablePartitionNames = container.AvailablePartitionNames;
         }
 
         public string Filename { get; }

@@ -19,6 +19,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
             var partition = new ImageFilePartition(originFilename, this, partitionName, rawStream, rawStream.Length, Compression.None, null, true, processTrailingNulls);
 
+            AvailablePartitionNames = [partitionName];
             Partitions = [];
 
             if (partitionsToLoad.Count == 0 || partitionsToLoad.Contains(partitionName))

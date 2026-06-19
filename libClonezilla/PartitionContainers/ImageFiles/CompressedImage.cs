@@ -59,6 +59,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             var container = new RawImage(currentFilename, partitionsToLoad, ContainerName, willPerformRandomSeeking, processTrailingNulls);
 
             Partitions = container.Partitions;
+            AvailablePartitionNames = container.AvailablePartitionNames;
         }
 
         public override string ContainerName { get; protected set; }

@@ -42,7 +42,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
             var readLock = new object();
 
-            Partitions = partitionImageFiles
+            var partitionInfos = partitionImageFiles
                             .Where(partitionImageFile => partitionImageFile.Offset != null)
                             .Select(partitionImageFile =>
                             {
@@ -59,6 +59,11 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                                     EndByte = endByte
                                 };
                             })
+                            .ToList();
+
+            AvailablePartitionNames = partitionInfos.Select(partitionInfo => partitionInfo.PartitionName).ToList();
+
+            Partitions = partitionInfos
                             .Where(partitionInfo => partitionsToLoad.Count == 0 || partitionsToLoad.Contains(partitionInfo.PartitionName))
                             .Select(partitionInfo =>
                             {

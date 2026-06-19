@@ -42,7 +42,21 @@ namespace libClonezilla
 
             if (totalPartitions == 0)
             {
-                Log.Error("No partitions to mount. Exiting.");
+                var availablePartitionNames = containers
+                                                .SelectMany(container => container.AvailablePartitionNames)
+                                                .Distinct()
+                                                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                                                .ToList();
+
+                if (availablePartitionNames.Count > 0)
+                {
+                    Log.Error($"No partitions to mount. Valid partitions are: {string.Join(", ", availablePartitionNames)}. Exiting.");
+                }
+                else
+                {
+                    Log.Error("No partitions to mount. Exiting.");
+                }
+
                 Environment.Exit(1);
             }
 
