@@ -1,0 +1,11 @@
+<Project>
+
+  <!-- Applies to every project in the solution (MSBuild auto-imports the nearest Directory.Build.props). -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <!-- Embed debug symbols inside each assembly instead of emitting separate .pdb files. The single-file
+         publish then carries full line-numbered stack-trace info inside the exe with no loose pdbs to ship.
+         Debug builds keep the default portable pdbs for a fast local dev/debug experience. -->
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+</Project>

@@ -25,7 +25,7 @@ namespace clonezilla_util
     public class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "2.6.5";
+        const string PROGRAM_VERSION = "2.7.0";
 
         private enum ReturnCode
         {
@@ -34,7 +34,27 @@ namespace clonezilla_util
             GeneralException = 2,
         }
 
-        static string CacheFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cache");
+        // Anchored to the real executable's folder (not AppContext.BaseDirectory): with
+        // IncludeAllContentForSelfExtract the bundle self-extracts to a temp dir and BaseDirectory
+        // points there, which would otherwise put the cache in %TEMP% instead of beside the exe.
+        // (Tool lookups via Utility.Absolutify intentionally still use BaseDirectory, so they
+        // resolve to the extracted ext\ folder.)
+        static string CacheFolder = Path.Combine(GetExeDirectory(), "cache");
+
+        static string GetExeDirectory()
+        {
+            // Environment.ProcessPath is the real on-disk executable and stays put even when a
+            // single-file bundle self-extracts its content. Fall back to AppContext.BaseDirectory
+            // when launched via the dotnet muxer (e.g. `dotnet clonezilla-util.dll`), where
+            // ProcessPath is dotnet itself.
+            var processPath = Environment.ProcessPath;
+            if (processPath != null &&
+                !string.Equals(Path.GetFileNameWithoutExtension(processPath), "dotnet", StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.GetDirectoryName(processPath) ?? AppContext.BaseDirectory;
+            }
+            return AppContext.BaseDirectory;
+        }
 
         //To get the binary to work when using 'Trim unused code', had to add the TrimMode:
         //  <PublishTrimmed>true</PublishTrimmed>
