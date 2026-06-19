@@ -6,10 +6,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
-using static PInvoke.User32;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.UI.Input.KeyboardAndMouse;
 
 namespace lib7Zip
 {
@@ -55,8 +56,8 @@ namespace lib7Zip
                         if (listviewControl == default) throw new Exception("Can't find main listview in 7-Zip File Manager window");
 
                         //press F5 to extract the select file
-                        PostMessage(listviewControl.Handle, WindowMessage.WM_KEYDOWN, new IntPtr((int)VirtualKey.VK_F5), IntPtr.Zero);
-                        PostMessage(listviewControl.Handle, WindowMessage.WM_KEYUP, new IntPtr((int)VirtualKey.VK_F5), IntPtr.Zero);
+                        PInvoke.PostMessage((HWND)listviewControl.Handle, PInvoke.WM_KEYDOWN, (WPARAM)(nuint)VIRTUAL_KEY.VK_F5, (LPARAM)IntPtr.Zero);
+                        PInvoke.PostMessage((HWND)listviewControl.Handle, PInvoke.WM_KEYUP, (WPARAM)(nuint)VIRTUAL_KEY.VK_F5, (LPARAM)IntPtr.Zero);
 
                         //wait for the "Extract to" prompt to appear
                         IntPtr? hWndExtractWindow = null;
@@ -86,8 +87,8 @@ namespace lib7Zip
                         WindowHandleHelper.SetWindowText(extractToFolderTextbox.Handle, folder);
 
                         //press Enter
-                        PostMessage(extractToFolderTextbox.Handle, WindowMessage.WM_KEYDOWN, new IntPtr((int)VirtualKey.VK_RETURN), IntPtr.Zero);
-                        PostMessage(extractToFolderTextbox.Handle, WindowMessage.WM_KEYUP, new IntPtr((int)VirtualKey.VK_RETURN), IntPtr.Zero);
+                        PInvoke.PostMessage((HWND)extractToFolderTextbox.Handle, PInvoke.WM_KEYDOWN, (WPARAM)(nuint)VIRTUAL_KEY.VK_RETURN, (LPARAM)IntPtr.Zero);
+                        PInvoke.PostMessage((HWND)extractToFolderTextbox.Handle, PInvoke.WM_KEYUP, (WPARAM)(nuint)VIRTUAL_KEY.VK_RETURN, (LPARAM)IntPtr.Zero);
 
                         //Sending a mouse down even is susceptible to not working when the mouse is moved near the dialog. Not a problem when run on another desktop, but let's just go with keystrokes
                         /*
@@ -100,7 +101,7 @@ namespace lib7Zip
                         //wait for the extraction to finish
                         while (true)
                         {
-                            var windowExists = IsWindow(hWndExtractWindow.Value);
+                            bool windowExists = PInvoke.IsWindow((HWND)hWndExtractWindow.Value);
                             if (!windowExists)
                             {
                                 break;
@@ -169,8 +170,8 @@ namespace lib7Zip
                     else
                     {
                         WindowHandleHelper.SetWindowText(filenameTextbox.Handle, folder);
-                        PostMessage(filenameTextbox.Handle, WindowMessage.WM_KEYDOWN, new IntPtr((int)VirtualKey.VK_RETURN), IntPtr.Zero);
-                        PostMessage(filenameTextbox.Handle, WindowMessage.WM_KEYUP, new IntPtr((int)VirtualKey.VK_RETURN), IntPtr.Zero);
+                        PInvoke.PostMessage((HWND)filenameTextbox.Handle, PInvoke.WM_KEYDOWN, (WPARAM)(nuint)VIRTUAL_KEY.VK_RETURN, (LPARAM)IntPtr.Zero);
+                        PInvoke.PostMessage((HWND)filenameTextbox.Handle, PInvoke.WM_KEYUP, (WPARAM)(nuint)VIRTUAL_KEY.VK_RETURN, (LPARAM)IntPtr.Zero);
                     }
 
                     var listviewControl = fmControls.FirstOrDefault(c => c.ClassNN.Equals("SysListView321"));
@@ -232,8 +233,8 @@ namespace lib7Zip
                      if (childHandleWithError.HasValue && childHandleWithError != IntPtr.Zero)
                      {
                          //Dismiss the error
-                         PostMessage(childHandleWithError.Value, WindowMessage.WM_KEYDOWN, new IntPtr((int)VirtualKey.VK_RETURN), IntPtr.Zero);
-                         PostMessage(childHandleWithError.Value, WindowMessage.WM_KEYUP, new IntPtr((int)VirtualKey.VK_RETURN), IntPtr.Zero);
+                         PInvoke.PostMessage((HWND)childHandleWithError.Value, PInvoke.WM_KEYDOWN, (WPARAM)(nuint)VIRTUAL_KEY.VK_RETURN, (LPARAM)IntPtr.Zero);
+                         PInvoke.PostMessage((HWND)childHandleWithError.Value, PInvoke.WM_KEYUP, (WPARAM)(nuint)VIRTUAL_KEY.VK_RETURN, (LPARAM)IntPtr.Zero);
                          errorDismissed = true;
                      }
                  });
@@ -358,15 +359,5 @@ namespace lib7Zip
 
             return (proc.Id, desktopHandle, hWndFM);
         }
-
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string? lpszWindow);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        static extern bool IsWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern int ShowWindow(IntPtr hwnd, int nCmdShow);
     }
 }

@@ -1,9 +1,13 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.System.StationsAndDesktops;
+using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace libCommon
 {
@@ -18,8 +22,8 @@ namespace libCommon
             bestHandle = IntPtr.Zero;
             this.processId = processId;
 
-            EnumThreadWindowsCallback callback = new(EnumWindowsCallback);
-            EnumWindows(callback, IntPtr.Zero);
+            WNDENUMPROC callback = EnumWindowsCallback;
+            PInvoke.EnumWindows(callback, (LPARAM)0);
 
             GC.KeepAlive(callback);
             return bestHandle;
@@ -30,27 +34,17 @@ namespace libCommon
             bestHandle = IntPtr.Zero;
             this.processId = processId;
 
-            EnumDesktopWindows(desktopHandle, (handle, lParam) =>
-            {
-                _ = GetWindowThreadProcessId(new HandleRef(this, handle), out int processId);
-                if (processId == this.processId)
-                {
-                    if (IsMainWindow(handle))
-                    {
-                        bestHandle = handle;
-                        return false;
-                    }
-                }
-                return true;
-            }, IntPtr.Zero);
+            WNDENUMPROC callback = EnumWindowsCallback;
+            PInvoke.EnumDesktopWindows((HDESK)desktopHandle, callback, (LPARAM)0);
 
+            GC.KeepAlive(callback);
             return bestHandle;
         }
 
-        bool IsMainWindow(IntPtr handle)
+        bool IsMainWindow(HWND handle)
         {
 
-            if (GetWindow(new HandleRef(this, handle), GW_OWNER) != IntPtr.Zero || !IsWindowVisible(new HandleRef(this, handle)))
+            if (PInvoke.GetWindow(handle, (GET_WINDOW_CMD)GW_OWNER) != default || !PInvoke.IsWindowVisible(handle))
                 return false;
 
             // Microsoft: should we use no window title to mean not a main window? (task man does)
@@ -67,10 +61,10 @@ namespace libCommon
             return true;
         }
 
-        bool EnumWindowsCallback(IntPtr handle, IntPtr extraParameter)
+        BOOL EnumWindowsCallback(HWND handle, LPARAM extraParameter)
         {
-            _ = GetWindowThreadProcessId(new HandleRef(this, handle), out int processId);
-            if (processId == this.processId)
+            _ = PInvoke.GetWindowThreadProcessId(handle, out uint pid);
+            if (pid == this.processId)
             {
                 if (IsMainWindow(handle))
                 {
@@ -81,26 +75,6 @@ namespace libCommon
             return true;
         }
 
-        //Copied from: C:\Users\fiddy\Desktop\dev\cs\referencesource-master\System\compmod\microsoft\win32\NativeMethods.cs
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        static extern int GetWindowThreadProcessId(HandleRef handle, out int processId);
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        static extern bool EnumWindows(EnumThreadWindowsCallback callback, IntPtr extraData);
-
-        delegate bool EnumThreadWindowsCallback(IntPtr hWnd, IntPtr lParam);
-
-        [DllImport("user32.dll", ExactSpelling = true, CharSet = CharSet.Auto)]
-        static extern IntPtr GetWindow(HandleRef hWnd, int uCmd);
-
         public const int GW_OWNER = 4;
-
-        [DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
-        static extern bool IsWindowVisible(HandleRef hWnd);
-
-        [DllImport("user32.dll", EntryPoint = "EnumDesktopWindows", ExactSpelling = false, CharSet = CharSet.Auto, SetLastError = true)]
-        static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDelegate lpEnumCallbackFunction, IntPtr lParam);
-
-        public delegate bool EnumDelegate(IntPtr hWnd, int lParam);
     }
 }

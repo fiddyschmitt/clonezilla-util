@@ -13,6 +13,8 @@ using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using System.Runtime.Versioning;
 using libCommon.Lists;
+using Windows.Win32;
+using Windows.Win32.Foundation;
 
 namespace libCommon
 {
@@ -328,32 +330,22 @@ namespace libCommon
             yield return (previous, current, afterLast);
         }
 
-        [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-        private static extern bool DeviceIoControl(
-            SafeFileHandle hDevice,
-            int dwIoControlCode,
-            IntPtr InBuffer,
-            int nInBufferSize,
-            IntPtr OutBuffer,
-            int nOutBufferSize,
-            ref int pBytesReturned,
-            [In] ref NativeOverlapped lpOverlapped);
-
         [SupportedOSPlatform("windows")]
-        public static void MarkAsSparse(this SafeFileHandle fileHandle)
+        public static unsafe void MarkAsSparse(this SafeFileHandle fileHandle)
         {
-            int bytesReturned = 0;
+            uint bytesReturned = 0;
             NativeOverlapped lpOverlapped = new();
             bool result =
-                DeviceIoControl(
-                    fileHandle,
+                PInvoke.DeviceIoControl(
+                    (HANDLE)fileHandle.DangerousGetHandle(),
                     590020, //FSCTL_SET_SPARSE,
-                    IntPtr.Zero,
+                    null,
                     0,
-                    IntPtr.Zero,
+                    null,
                     0,
-                    ref bytesReturned,
-                    ref lpOverlapped);
+                    &bytesReturned,
+                    &lpOverlapped);
+            GC.KeepAlive(fileHandle);
             if (result == false)
                 throw new Exception("Could not mark file as sparse.");
         }

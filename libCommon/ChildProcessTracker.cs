@@ -6,6 +6,10 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.System.JobObjects;
 
 namespace libCommon
 {
@@ -24,9 +28,9 @@ namespace libCommon
         /// <param name="process"></param>
         public static void AddProcess(Process process)
         {
-            if (s_jobHandle != IntPtr.Zero)
+            if (s_jobHandle != null && !s_jobHandle.IsInvalid)
             {
-                bool success = AssignProcessToJobObject(s_jobHandle, process.Handle);
+                bool success = PInvoke.AssignProcessToJobObject(s_jobHandle, process.SafeHandle);
                 if (!success && !process.HasExited)
                     throw new Win32Exception();
             }
@@ -46,7 +50,7 @@ namespace libCommon
             //  If it's not null, it has to be unique. Use SysInternals' Handle command-line
             //  utility: handle -a ChildProcessTracker
             string jobName = "ChildProcessTracker" + Environment.ProcessId;
-            s_jobHandle = CreateJobObject(IntPtr.Zero, jobName);
+            s_jobHandle = PInvoke.CreateJobObject(null, jobName);
 
             var info = new JOBOBJECT_BASIC_LIMIT_INFORMATION
             {
@@ -68,8 +72,13 @@ namespace libCommon
             {
                 Marshal.StructureToPtr(extendedInfo, extendedInfoPtr, false);
 
-                if (!SetInformationJobObject(s_jobHandle, JobObjectInfoType.ExtendedLimitInformation,
-                    extendedInfoPtr, (uint)length))
+                bool ok;
+                unsafe
+                {
+                    ok = PInvoke.SetInformationJobObject((HANDLE)s_jobHandle!.DangerousGetHandle(), JOBOBJECTINFOCLASS.JobObjectExtendedLimitInformation,
+                        (void*)extendedInfoPtr, (uint)length);
+                }
+                if (!ok)
                 {
                     throw new Win32Exception();
                 }
@@ -80,19 +89,10 @@ namespace libCommon
             }
         }
 
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
-        static extern IntPtr CreateJobObject(IntPtr lpJobAttributes, string name);
-
-        [DllImport("kernel32.dll")]
-        static extern bool SetInformationJobObject(IntPtr job, JobObjectInfoType infoType, IntPtr lpJobObjectInfo, uint cbJobObjectInfoLength);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
-
         // Windows will automatically close any open job handles when our process terminates.
         //  This can be verified by using SysInternals' Handle utility. When the job handle
         //  is closed, the child processes will be killed.
-        private static readonly IntPtr s_jobHandle;
+        private static readonly SafeFileHandle? s_jobHandle;
     }
 
     public enum JobObjectInfoType

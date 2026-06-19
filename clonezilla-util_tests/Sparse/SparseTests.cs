@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Windows.Win32;
 
 namespace clonezilla_util_tests.Sparse
 {
@@ -41,22 +41,13 @@ namespace clonezilla_util_tests.Sparse
             var info = new FileInfo(file);
             if (info == null) return -1;
             if (info.Directory == null) return -1;
-            var result = GetDiskFreeSpaceW(info.Directory.Root.FullName, out uint sectorsPerCluster, out uint bytesPerSector, out _, out _);
-            if (result == 0) throw new Win32Exception();
+            var result = PInvoke.GetDiskFreeSpace(info.Directory.Root.FullName, out uint sectorsPerCluster, out uint bytesPerSector, out _, out _);
+            if (!result) throw new Win32Exception();
             uint clusterSize = sectorsPerCluster * bytesPerSector;
-            uint losize = GetCompressedFileSizeW(file, out uint hosize);
+            uint losize = PInvoke.GetCompressedFileSize(file, out uint hosize);
             long size;
             size = (long)hosize << 32 | losize;
             return ((size + clusterSize - 1) / clusterSize) * clusterSize;
         }
-
-        [DllImport("kernel32.dll")]
-        static extern uint GetCompressedFileSizeW([In, MarshalAs(UnmanagedType.LPWStr)] string lpFileName,
-           [Out, MarshalAs(UnmanagedType.U4)] out uint lpFileSizeHigh);
-
-        [DllImport("kernel32.dll", SetLastError = true, PreserveSig = true)]
-        static extern int GetDiskFreeSpaceW([In, MarshalAs(UnmanagedType.LPWStr)] string lpRootPathName,
-           out uint lpSectorsPerCluster, out uint lpBytesPerSector, out uint lpNumberOfFreeClusters,
-           out uint lpTotalNumberOfClusters);
     }
 }

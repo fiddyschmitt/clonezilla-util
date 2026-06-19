@@ -7,6 +7,10 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.System.StationsAndDesktops;
+using Windows.Win32.System.Threading;
 
 namespace libCommon
 {
@@ -23,62 +27,66 @@ namespace libCommon
                     {
                         try
                         {
-                            CloseDesktop(deskopHandle);
+                            PInvoke.CloseDesktop((HDESK)deskopHandle);
                         }
                         catch { }
                     });
             }
         }
 
-        public static (int pid, IntPtr DesktopHandle, IntPtr? WindowHandle) RunProcessOnAnotherDesktop(ProcessStartInfo psi, string desktopName, Func<(int pid, IntPtr DesktopHandle), IntPtr>? waitForWindow)
+        public static unsafe (int pid, IntPtr DesktopHandle, IntPtr? WindowHandle) RunProcessOnAnotherDesktop(ProcessStartInfo psi, string desktopName, Func<(int pid, IntPtr DesktopHandle), IntPtr>? waitForWindow)
         {
             //Consider checking if the desktop already exists. Perhaps use EnumDesktop and OpenDesktop
-            var hNewDesktop = CreateDesktop(desktopName, IntPtr.Zero, IntPtr.Zero, 0, (uint)DesktopAccess.GenericAll, IntPtr.Zero);
+            IntPtr hNewDesktop;
+            fixed (char* desktopNamePtr = desktopName)
+            {
+                hNewDesktop = PInvoke.CreateDesktop(desktopNamePtr, default, null, default, (uint)DesktopAccess.GenericAll, null);
+            }
 
             lock (DesktopsCreated)
             {
                 DesktopsCreated.Add(hNewDesktop);
             }
 
-            var si = new STARTUPINFO();
-            si.cb = Marshal.SizeOf(si);
-            si.lpDesktop = desktopName;
-
-            var pi = new PROCESS_INFORMATION();
-
             var command = $"\"{psi.FileName}\" {psi.Arguments}";
 
-            // start the process.
-            CreateProcess(null, command, IntPtr.Zero, IntPtr.Zero, true, NormalPriorityClass, IntPtr.Zero, null, ref si, ref pi);
+            // REVERT NOTE: This was migrated from a hand-written ANSI CreateProcess to CsWin32's
+            // Unicode CreateProcessW (CsWin32 only exposes the W variant). The previous code carried
+            // a comment that CharSet.Unicode "causes 7zFM.exe not to run. Unsure why" - that was most
+            // likely a struct CharSet mismatch in the old attempt, which the correctly-marshalled
+            // STARTUPINFOW below avoids. If launching 7zFM on a separate desktop regresses, revert
+            // this block to the previous ANSI [DllImport] CreateProcess + managed STARTUPINFO.
+            Span<char> commandBuffer = stackalloc char[command.Length + 1];
+            command.AsSpan().CopyTo(commandBuffer);
+            commandBuffer[command.Length] = '\0';
 
-            IntPtr? windowToReturn = waitForWindow?.Invoke((pi.dwProcessId, hNewDesktop));
+            PROCESS_INFORMATION pi;
+            fixed (char* desktopPtr = desktopName)
+            {
+                var si = new STARTUPINFOW
+                {
+                    cb = (uint)sizeof(STARTUPINFOW),
+                    lpDesktop = desktopPtr
+                };
 
-            return (pi.dwProcessId, hNewDesktop, windowToReturn);
+                // start the process.
+                PInvoke.CreateProcess(
+                    null,
+                    ref commandBuffer,
+                    null,
+                    null,
+                    true,
+                    PROCESS_CREATION_FLAGS.NORMAL_PRIORITY_CLASS,
+                    null,
+                    null,
+                    si,
+                    out pi);
+            }
+
+            IntPtr? windowToReturn = waitForWindow?.Invoke(((int)pi.dwProcessId, hNewDesktop));
+
+            return ((int)pi.dwProcessId, hNewDesktop, windowToReturn);
         }
-
-        [DllImport("user32.dll", SetLastError = true)]
-        static extern uint GetWindowThreadProcessId(IntPtr hWnd, ref int lpdwProcessId);
-
-        [DllImport("user32.dll")]
-        static extern bool CloseDesktop(IntPtr handle);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        static extern IntPtr CreateDesktop(string lpszDesktop, IntPtr lpszDevice, IntPtr pDevmode, int dwFlags, uint dwDesiredAccess, IntPtr lpsa);
-
-        //[DllImport("kernel32.dll", CharSet = CharSet.Unicode)]    //This causes 7zFM.exe not to run. Unsure why
-        [DllImport("kernel32.dll")]
-        private static extern bool CreateProcess(
-            string? lpApplicationName,
-            string lpCommandLine,
-            IntPtr lpProcessAttributes,
-            IntPtr lpThreadAttributes,
-            bool bInheritHandles,
-            int dwCreationFlags,
-            IntPtr lpEnvironment,
-            string? lpCurrentDirectory,
-            ref STARTUPINFO lpStartupInfo,
-            ref PROCESS_INFORMATION lpProcessInformation
-            );
 
         private enum DesktopAccess : uint
         {
@@ -98,38 +106,5 @@ namespace libCommon
                           | DesktopJournalrecord | DesktopJournalplayback |
                           DesktopEnumerate | DesktopWriteobjects | DesktopSwitchdesktop),
         }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct PROCESS_INFORMATION
-        {
-            public IntPtr hProcess;
-            public IntPtr hThread;
-            public int dwProcessId;
-            public int dwThreadId;
-        }
-
-        private struct STARTUPINFO
-        {
-            public int cb;
-            public string lpReserved;
-            public string lpDesktop;
-            public string lpTitle;
-            public int dwX;
-            public int dwY;
-            public int dwXSize;
-            public int dwYSize;
-            public int dwXCountChars;
-            public int dwYCountChars;
-            public int dwFillAttribute;
-            public int dwFlags;
-            public short wShowWindow;
-            public short cbReserved2;
-            public IntPtr lpReserved2;
-            public IntPtr hStdInput;
-            public IntPtr hStdOutput;
-            public IntPtr hStdError;
-        }
-
-        private const int NormalPriorityClass = 0x00000020;
     }
 }

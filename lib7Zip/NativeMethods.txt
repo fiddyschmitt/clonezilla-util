@@ -1,0 +1,13 @@
+PostMessage
+SendMessage
+IsWindow
+GetWindowThreadProcessId
+OpenProcess
+VirtualAllocEx
+VirtualFreeEx
+WriteProcessMemory
+ReadProcessMemory
+CloseHandle
+WM_KEYDOWN
+WM_KEYUP
+VIRTUAL_KEY

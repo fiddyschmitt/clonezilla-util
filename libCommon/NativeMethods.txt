@@ -1,0 +1,15 @@
+GetWindowThreadProcessId
+EnumChildWindows
+EnumDesktopWindows
+EnumWindows
+SendMessage
+GetClassName
+GetWindow
+IsWindowVisible
+CreateDesktop
+CloseDesktop
+CreateProcess
+CreateJobObject
+SetInformationJobObject
+AssignProcessToJobObject
+DeviceIoControl

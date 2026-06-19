@@ -1,32 +1,21 @@
-﻿using libCommon;
+using libCommon;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.System.StationsAndDesktops;
+using Windows.Win32.UI.WindowsAndMessaging;
 
 namespace libUIHelpers
 {
     public static class WindowHandleHelper
     {
-        public delegate bool Win32Callback(IntPtr hwnd, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-        [DllImport("user32.Dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        static extern bool EnumChildWindows(IntPtr parentHandle, Win32Callback callback, IntPtr lParam);
-
-        const int WM_GETTEXT = 0x0D;
-        const int WM_SETTEXT = 0x000C;
-
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        static extern int SendMessage(IntPtr hWnd, int msg, int Param, StringBuilder text);
-
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+        const uint WM_GETTEXT = 0x0D;
+        const uint WM_SETTEXT = 0x000C;
 
         public static IntPtr? GetRootWindowByTitle(int pid, IntPtr? desktopHandle, Func<string, bool> condition)
         {
@@ -105,18 +94,19 @@ namespace libUIHelpers
             {
                 rootWindows = [];
 
-                EnumDesktopWindows(desktopHandle.Value, (handle, lParam) =>
+                WNDENUMPROC callback = (HWND handle, LPARAM lParam) =>
                 {
                     rootWindows.Add(handle);
                     return true;
-                },
-                IntPtr.Zero);
+                };
+                PInvoke.EnumDesktopWindows((HDESK)desktopHandle.Value, callback, (LPARAM)0);
+                GC.KeepAlive(callback);
             }
 
             var dsProcRootWindows = new List<IntPtr>();
             foreach (IntPtr hWnd in rootWindows)
             {
-                _ = GetWindowThreadProcessId(hWnd, out uint lpdwProcessId);
+                _ = PInvoke.GetWindowThreadProcessId((HWND)hWnd, out uint lpdwProcessId);
                 if (lpdwProcessId == pid)
                 {
                     dsProcRootWindows.Add(hWnd);
@@ -164,27 +154,32 @@ namespace libUIHelpers
 
         public static string GetClassName(IntPtr handle)
         {
-            var sb = new StringBuilder(256);
-            _ = GetClassName(handle, sb, sb.Capacity);
+            Span<char> buffer = stackalloc char[256];
+            int len = PInvoke.GetClassName((HWND)handle, buffer);
 
-            var result = sb.ToString();
+            var result = new string(buffer[..len]);
             return result;
         }
 
         //SendMessage(textBox1.Handle, WM_SETTEXT, IntPtr.Zero,
-        public static void SetWindowText(IntPtr handle, string text)
+        public static unsafe void SetWindowText(IntPtr handle, string text)
         {
-            var sb = new StringBuilder();
-            sb.Append(text);
-            _ = SendMessage(handle, WM_SETTEXT, 0, sb);
+            fixed (char* p = text)
+            {
+                _ = PInvoke.SendMessage((HWND)handle, WM_SETTEXT, default, (LPARAM)(nint)p);
+            }
         }
 
-        public static string GetWindowText(IntPtr handle)
+        public static unsafe string GetWindowText(IntPtr handle)
         {
-            var sb = new StringBuilder(255);
-            _ = SendMessage(handle, WM_GETTEXT, sb.Capacity, sb);
+            Span<char> buffer = stackalloc char[255];
+            int len;
+            fixed (char* p = buffer)
+            {
+                len = (int)(nint)PInvoke.SendMessage((HWND)handle, WM_GETTEXT, (WPARAM)(nuint)buffer.Length, (LPARAM)(nint)p);
+            }
 
-            var result = sb.ToString();
+            var result = new string(buffer[..len]);
             return result;
         }
 
@@ -206,8 +201,9 @@ namespace libUIHelpers
             GCHandle listHandle = GCHandle.Alloc(result);
             try
             {
-                var childProc = new Win32Callback(EnumWindow);
-                EnumChildWindows(parentHandle, childProc, GCHandle.ToIntPtr(listHandle));
+                WNDENUMPROC childProc = EnumWindow;
+                PInvoke.EnumChildWindows((HWND)parentHandle, childProc, (LPARAM)GCHandle.ToIntPtr(listHandle));
+                GC.KeepAlive(childProc);
             }
             finally
             {
@@ -217,9 +213,9 @@ namespace libUIHelpers
             return result;
         }
 
-        private static bool EnumWindow(IntPtr handle, IntPtr pointer)
+        private static BOOL EnumWindow(HWND handle, LPARAM pointer)
         {
-            GCHandle gch = GCHandle.FromIntPtr(pointer);
+            GCHandle gch = GCHandle.FromIntPtr((nint)pointer);
             if (gch.Target is not List<IntPtr> list)
             {
                 throw new InvalidCastException("GCHandle Target could not be cast as List<IntPtr>");
@@ -228,10 +224,5 @@ namespace libUIHelpers
             //  You can modify this to check to see if you want to cancel the operation, then return a null here
             return true;
         }
-
-        [DllImport("user32.dll", EntryPoint = "EnumDesktopWindows", ExactSpelling = false, CharSet = CharSet.Auto, SetLastError = true)]
-        static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDelegate lpEnumCallbackFunction, IntPtr lParam);
-
-        public delegate bool EnumDelegate(IntPtr hWnd, int lParam);
     }
 }
