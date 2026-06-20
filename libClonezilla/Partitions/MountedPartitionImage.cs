@@ -5,6 +5,7 @@ using libClonezilla.Extractors;
 using libClonezilla.PartitionContainers;
 using libClonezilla.VFS;
 using libCommon;
+using libCommon.Streams;
 using libDokan.VFS;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
@@ -69,7 +70,13 @@ namespace libClonezilla.Partitions
 
             Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
-            IExtractor extractor = DetermineExtractor.FindExtractor(ImageFileEntry.FullPath);
+            // Feed the native engine the partition's in-process decompressed stream directly (NOT the
+            // Dokan path) - reading our own mount in-process risks a Dokan callback-thread deadlock.
+            // Each reader gets an IndependentStream view (own position) over the shared FullPartitionImage.
+            var partitionStream = Partition.FullPartitionImage
+                ?? throw new Exception($"[{container.ContainerName}] [{partitionName}] {nameof(Partition.FullPartitionImage)} is not initialised.");
+            var streamLock = new object();
+            IExtractor extractor = DetermineExtractor.FindExtractor(() => new IndependentStream(partitionStream, streamLock));
 
             List<ArchiveEntry> filesInArchive;
 

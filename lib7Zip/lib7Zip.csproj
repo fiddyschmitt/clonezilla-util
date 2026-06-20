@@ -18,16 +18,17 @@
     <Content Include="ext\7-Zip\win-x64\7z.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="ext\7-Zip\win-x64\7zFM.exe">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <Content Include="ext\7-Zip\win-x86\7z.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="ext\7-Zip\win-x86\7z.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="ext\7-Zip\win-x86\7zFM.exe">
+
+    <!-- Native 7-Zip engine (built separately by lib7zNative/build.ps1). Copied beside the exe so the
+         lib7Zip P/Invoke ("lib7zNative") resolves at runtime, and folded into the single-file bundle. -->
+    <Content Include="..\lib7zNative\build\lib7zNative.dll" Condition="Exists('..\lib7zNative\build\lib7zNative.dll')">
+      <Link>lib7zNative.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

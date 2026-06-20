@@ -7,6 +7,7 @@ using libClonezilla.PartitionContainers;
 using libClonezilla.VFS;
 using libCommon;
 using libCommon.Logging;
+using libCommon.Streams;
 using libPartclone;
 using Serilog;
 using Serilog.Events;
@@ -70,7 +71,6 @@ namespace clonezilla_util
             AppDomain.CurrentDomain.ProcessExit += (sender, args) =>
             {
                 TempUtility.Cleanup();
-                DesktopUtility.Cleanup();
             };
 
             Log.Logger = new LoggerConfiguration()
@@ -203,7 +203,10 @@ namespace clonezilla_util
 
                             Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
-                            var extractor = DetermineExtractor.FindExtractor(mountedPartition.ImageFileEntry.FullPath);
+                            var partitionStream = mountedPartition.Partition.FullPartitionImage
+                                ?? throw new Exception($"[{container.ContainerName}] [{partitionName}] {nameof(mountedPartition.Partition.FullPartitionImage)} is not initialised.");
+                            var streamLock = new object();
+                            var extractor = DetermineExtractor.FindExtractor(() => new IndependentStream(partitionStream, streamLock));
 
                             List<ArchiveEntry> filesInArchive;
 

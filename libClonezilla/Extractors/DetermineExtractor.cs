@@ -9,20 +9,22 @@ namespace libClonezilla.Extractors
 {
     public static class DetermineExtractor
     {
-        public static IExtractor FindExtractor(string path)
+        /// <summary>
+        /// Builds an extractor backed by the in-process native 7-Zip engine (lib7zNative), which loads
+        /// the bundled 7z.dll for handlers and does 7-Zip's own format auto-detection. This supersedes
+        /// the old perf-test that chose between slow-but-reliable 7z.exe and the fragile 7zFM GUI automation.
+        /// </summary>
+        /// <param name="partitionStreamFactory">Creates a fresh seekable stream over the partition's
+        /// decompressed content (e.g. an IndependentStream over Partition.FullPartitionImage).</param>
+        public static IExtractor FindExtractor(Func<Stream> partitionStreamFactory)
         {
-            //List<IExtractor> candidates = [
-            //    new ExtractorUsing7zip(),
-            //    //new XfsExtractor()      //FPS 23/11/2025: This library can list files, but cannot extract files from XFSv5 (which uses CRC=1). And there are reports of XFSv4 not working either.
-            //    ];
+            var sevenZipDll = SevenZipUtility.SevenZipDll();
 
-            //extractor = candidates
-            //            .FirstOrDefault(candidate => candidate.Initialise(path));
-
-            //For now, we only support extracting using 7z, so short-circuit to that.
-            var result = new ExtractorUsing7zip(path);
-
-            return result;
+            // Pool several workers so the VFS can service concurrent OS requests for different files
+            // without one extraction blocking the others (which otherwise triggers Dokan/Explorer
+            // "Insufficient system resources"/timeout errors). Workers open lazily.
+            const int instanceCount = 4;
+            return new NativeExtractorPool(partitionStreamFactory, sevenZipDll, instanceCount);
         }
     }
 }

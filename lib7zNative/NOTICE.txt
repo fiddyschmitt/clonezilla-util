@@ -1,0 +1,23 @@
+lib7zNative
+===========
+
+This component incorporates source code from 7-Zip 26.01 (https://www.7-zip.org/),
+Copyright (C) 1999-2024 Igor Pavlov.
+
+License
+-------
+7-Zip is licensed under the GNU LGPL, with the "unRAR license restriction" applying to
+the RAR decompression code, and the BSD 3-clause license to some code. The full text is
+in vendor/7zip/DOC/License.txt.
+
+lib7zNative compiles a subset of 7-Zip's CPP/7zip/UI/Common orchestration (archive open /
+format auto-detection / extract) and loads the actual format handlers and codecs at runtime
+from the bundled 7z.dll. The RAR handler is not used, so the unRAR restriction does not apply.
+
+Obligations
+-----------
+Because lib7zNative.dll contains compiled 7-Zip LGPL source, the DLL is an LGPL derivative:
+ - Ship 7-Zip's license text (vendor/7zip/DOC/License.txt) alongside any distributed binary.
+ - The source for lib7zNative and the vendored 7-Zip subset is available in this repository
+   (see UPDATING.md for the version and re-snapshot procedure).
+ - 7z.dll is shipped as an unmodified LGPL dynamic dependency.

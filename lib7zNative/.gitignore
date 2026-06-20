@@ -1,0 +1,3 @@
+# Build outputs - lib7zNative.dll is produced by build.ps1 and copied into the app at build time.
+# It is intentionally NOT committed; build it from the vendored source (see UPDATING.md).
+build/

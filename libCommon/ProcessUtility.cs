@@ -1,5 +1,4 @@
-﻿using libUIHelpers;
-using Serilog;
+﻿using Serilog;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -330,18 +329,6 @@ namespace libCommon
 
                 return result;
             }
-        }
-
-        public static IntPtr GetMainWindowHandle(int processId)
-        {
-            var finder = new MainWindowFinder();
-            return finder.FindMainWindow(processId);
-        }
-
-        public static IntPtr GetMainWindowHandle(int processId, IntPtr desktopHandle)
-        {
-            var finder = new MainWindowFinder();
-            return finder.FindMainWindow(processId, desktopHandle);
         }
     }
 }
