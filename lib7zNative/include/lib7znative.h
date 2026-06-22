@@ -41,18 +41,21 @@ typedef struct
 typedef struct
 {
     uint8_t  isDir;
+    uint8_t  hasOffset;          // 1 if 'offset' is set (kpidOffset present, e.g. a partition in a drive image)
     uint64_t size;
+    int64_t  offset;             // byte offset of the item within the stream (e.g. partition start); valid only if hasOffset
     int64_t  modifiedFileTime;   // Windows FILETIME (100ns ticks since 1601-01-01); 0 if absent
     int64_t  createdFileTime;
     int64_t  accessedFileTime;
 } SevenZipItemInfo;
 
-// Open the host stream with automatic format detection and recursive "open inside"
-// (nested archives/filesystems are flattened into the item list with composite paths).
+// Open the host stream with automatic format detection.
 // sevenZipDllPath: full path to the bundled 7z.dll that supplies the handlers/codecs.
+// recursive: 1 = open nested archives/filesystems "inside" (browse a partition's files); 0 = open only
+//   the outer container (e.g. list a drive image's partition table without descending into filesystems).
 LIB7Z_API int32_t SevenZip_Open(
     const SevenZipInStreamCallbacks* in, void* inCtx,
-    const wchar_t* sevenZipDllPath,
+    const wchar_t* sevenZipDllPath, uint8_t recursive,
     SevenZipArchiveHandle* outHandle);
 
 LIB7Z_API int32_t SevenZip_GetItemCount(SevenZipArchiveHandle handle, uint32_t* outCount);

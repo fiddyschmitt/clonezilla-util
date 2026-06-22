@@ -12,16 +12,12 @@
 
 
   <ItemGroup>
+    <!-- 7z.dll supplies the format handlers/codecs loaded by the native engine (lib7zNative).
+         7z.exe is no longer shipped - it's not used at runtime any more. -->
     <Content Include="ext\7-Zip\win-x64\7z.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="ext\7-Zip\win-x64\7z.exe">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <Content Include="ext\7-Zip\win-x86\7z.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="ext\7-Zip\win-x86\7z.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
 

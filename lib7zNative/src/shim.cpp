@@ -102,7 +102,7 @@ extern "C" {
 
 LIB7Z_API int32_t SevenZip_Open(
     const SevenZipInStreamCallbacks* in, void* inCtx,
-    const wchar_t* sevenZipDllPath,
+    const wchar_t* sevenZipDllPath, uint8_t recursive,
     SevenZipArchiveHandle* outHandle)
 {
   if (outHandle) *outHandle = NULL;
@@ -136,7 +136,9 @@ LIB7Z_API int32_t SevenZip_Open(
   options.types = &openTypes;
   options.excludedFormats = &excludedFormats;
   options.props = &openProps;
-  // options.openType.Recursive defaults to true -> recursive "open inside"
+  // recursive: open nested archives/filesystems "inside" (browse a partition's files). When false,
+  // open only the outer container (e.g. enumerate a drive image's partition table).
+  options.openType.Recursive = (recursive != 0);
 
   hr = arc->link.Open(options);
   // "opened" but no handler recognised the data == not an archive/filesystem (e.g. a raw bios_grub
@@ -204,6 +206,13 @@ LIB7Z_API int32_t SevenZip_GetItem(
   { NCOM::CPropVariant prop;
     if (a->GetProperty(index, kpidSize, &prop) == S_OK)
     { UInt64 v = 0; if (ConvertPropVariantToUInt64(prop, v)) outInfo->size = v; } }
+
+  // kpidOffset: byte offset of the item within the stream (set for partitions in a drive image;
+  // VT_EMPTY for ordinary files). Used to locate each partition's start in a raw/compressed drive image.
+  outInfo->hasOffset = 0; outInfo->offset = 0;
+  { NCOM::CPropVariant prop;
+    if (a->GetProperty(index, kpidOffset, &prop) == S_OK)
+    { UInt64 v = 0; if (ConvertPropVariantToUInt64(prop, v)) { outInfo->offset = (int64_t)v; outInfo->hasOffset = 1; } } }
 
   outInfo->modifiedFileTime = outInfo->createdFileTime = outInfo->accessedFileTime = 0;
   { NCOM::CPropVariant prop; if (a->GetProperty(index, kpidMTime, &prop) == S_OK && prop.vt == VT_FILETIME) outInfo->modifiedFileTime = FileTimeToInt64(prop.filetime); }

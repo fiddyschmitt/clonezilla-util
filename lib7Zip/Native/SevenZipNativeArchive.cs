@@ -12,6 +12,7 @@ namespace lib7Zip.Native
         public string Path = "";
         public bool IsDir;
         public long Size;
+        public long? Offset;   //byte offset within the stream (set for partitions in a drive image)
         public DateTime? Modified;
         public DateTime? Created;
         public DateTime? Accessed;
@@ -35,7 +36,9 @@ namespace lib7Zip.Native
         readonly SeekFn seekFn;
         readonly byte[] readScratch = new byte[1 << 20];
 
-        public SevenZipNativeArchive(Stream seekableStream, string sevenZipDllPath, bool ownsStream = true)
+        /// <param name="recursive">true to open nested archives/filesystems "inside" (browse a partition's
+        /// files); false to open only the outer container (e.g. enumerate a drive image's partition table).</param>
+        public SevenZipNativeArchive(Stream seekableStream, string sevenZipDllPath, bool ownsStream = true, bool recursive = true)
         {
             if (!seekableStream.CanSeek) throw new ArgumentException("Stream must be seekable", nameof(seekableStream));
             stream = seekableStream;
@@ -44,7 +47,7 @@ namespace lib7Zip.Native
             seekFn = Seek;
 
             var cb = new InStreamCallbacks { Read = readFn, Seek = seekFn };
-            int hr = SevenZip_Open(in cb, IntPtr.Zero, sevenZipDllPath, out handle);
+            int hr = SevenZip_Open(in cb, IntPtr.Zero, sevenZipDllPath, (byte)(recursive ? 1 : 0), out handle);
             const int S_FALSE = 1;
             if (hr == S_FALSE)
                 throw new NotAnArchiveException(); //the stream has no filesystem/archive 7-Zip recognises (e.g. a raw bios_grub partition)
@@ -102,6 +105,7 @@ namespace lib7Zip.Native
                     Path = new string(pathBuf, 0, (int)pathChars),
                     IsDir = info.IsDir != 0,
                     Size = (long)info.Size,
+                    Offset = info.HasOffset != 0 ? info.Offset : null,
                     Modified = FileTimeOrNull(info.ModifiedFileTime),
                     Created = FileTimeOrNull(info.CreatedFileTime),
                     Accessed = FileTimeOrNull(info.AccessedFileTime),

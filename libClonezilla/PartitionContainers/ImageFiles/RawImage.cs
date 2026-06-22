@@ -1,4 +1,5 @@
 ﻿using lib7Zip;
+using lib7Zip.Native;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -16,13 +17,38 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             PartitionsToLoad = partitionsToLoad;
             ContainerName = containerName;
 
-            var archiveEntries = SevenZipUtility.GetArchiveEntries(
-                                                    filename,
-                                                    false,
-                                                    true);
+            var archiveEntries = EnumerateTopLevel(filename);
 
             var rawImageStream = File.OpenRead(filename);
             SetupFromStream(rawImageStream, archiveEntries, willPerformRandomSeeking, processTrailingNulls);
+        }
+
+        // Lists the top level of the image via the native 7-Zip engine, NON-recursively: for a drive
+        // image this yields the partition table (each partition with its byte Offset); for a single
+        // partition image it yields the filesystem's files. SetupFromStream uses the first entry to
+        // tell the two apart. An unrecognised image yields no entries (treated as a single partition).
+        static List<ArchiveEntry> EnumerateTopLevel(string filename)
+        {
+            try
+            {
+                using var enumStream = File.OpenRead(filename);
+                using var arc = new SevenZipNativeArchive(enumStream, SevenZipUtility.SevenZipDll(), ownsStream: false, recursive: false);
+                return arc.GetEntries()
+                            .Select(e => new ArchiveEntry(e.Path)
+                            {
+                                IsFolder = e.IsDir,
+                                Size = e.Size,
+                                Offset = e.Offset,
+                                Modified = e.Modified ?? default,
+                                Created = e.Created ?? default,
+                                Accessed = e.Accessed ?? default,
+                            })
+                            .ToList();
+            }
+            catch (NotAnArchiveException)
+            {
+                return [];
+            }
         }
 
         public RawImage(

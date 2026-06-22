@@ -1,21 +1,12 @@
-﻿using libCommon;
-using Serilog;
+using libCommon;
 using System.Runtime.InteropServices;
 
 namespace lib7Zip
 {
     public class SevenZipUtility
     {
-        public static string SevenZipExe()
-        {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Environment.Is64BitOperatingSystem) return Utility.Absolutify(@"ext\7-Zip\win-x64\7z.exe");
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !Environment.Is64BitOperatingSystem) return Utility.Absolutify(@"ext\7-Zip\win-x86\7z.exe");
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return Utility.Absolutify(@"ext/7-Zip/linux-x64/7zz");
-
-            throw new Exception("OS not supported yet.");
-        }
-
+        // The native engine (lib7zNative) loads 7z.dll for the format handlers/codecs. 7z.exe is no
+        // longer used - all archive/filesystem opening, listing and extraction goes through the engine.
         public static string SevenZipDll()
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Environment.Is64BitOperatingSystem) return Utility.Absolutify(@"ext\7-Zip\win-x64\7z.dll");
@@ -23,105 +14,5 @@ namespace lib7Zip
 
             throw new Exception("OS not supported yet.");
         }
-
-        public static void ExtractFileToFolder(string inputFilename, string outputFolder, bool verbose, bool throwExceptionIfProcessHadErrors)
-        {
-            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), $"x \"{inputFilename}\" -p\"blah\" -r -y -o\"{outputFolder}\"", verbose, throwExceptionIfProcessHadErrors);
-
-            //iteration will finish when the program has exited
-            _ = sevenZipOutput.ToList();
-        }
-
-        public static void ExtractFileFromArchive(string archiveFilename, string fileInArchive, Stream outputStream)
-        {
-            var args = $"e \"{archiveFilename}\" \"{fileInArchive}\" -so";
-
-            ProcessUtility.ExecuteProcess(SevenZipExe(), args, null, outputStream);
-        }
-
-        public static Stream ExtractFileFromArchive(string archiveFilename, string fileInArchive)
-        {
-            var args = $"e \"{archiveFilename}\" \"{fileInArchive}\" -so";
-
-            var process = ProcessUtility.ExecuteProcess(SevenZipExe(), args, null);
-            //var result = process.StandardOutput.BaseStream;
-            var result = process.StandardOutput.BaseStream;
-            return result;
-        }
-
-        public static IEnumerable<ArchiveEntry> GetArchiveEntries(string archiveFilename, bool verbose, bool throwExceptionIfProcessHadErrors, Func<bool>? shouldStop = null)
-        {
-            Func<string, bool>? shouldStopProcess = null;
-            if (shouldStop != null)
-            {
-                shouldStopProcess = line =>
-                {
-                    var requestStop = shouldStop();
-                    return requestStop;
-                };
-            }
-
-            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), $"l -slt \"{archiveFilename}\"", verbose, throwExceptionIfProcessHadErrors, shouldStopProcess);
-
-            ArchiveEntry? currentEntry = null;
-            foreach (var line in sevenZipOutput)
-            {
-                if (line.StartsWith("Path =", StringComparison.Ordinal))
-                {
-                    string name = line.Replace("Path = ", "");
-
-                    if (name.Equals(archiveFilename)) continue;
-                    currentEntry = new ArchiveEntry(name);
-                }
-
-                if (string.IsNullOrEmpty(line))
-                {
-                    if (currentEntry != null)
-                    {
-                        yield return currentEntry;
-                        currentEntry = null;
-                    }
-
-                    continue;
-                }
-
-                if (currentEntry == null) continue;
-
-                if (line.Equals($"Folder = +")) currentEntry.IsFolder = true;
-
-                if (!currentEntry.IsFolder)
-                {
-                    //TryParse, because folder entries can have an empty Size value
-                    if (line.StartsWith("Size =", StringComparison.Ordinal) && long.TryParse(line.Replace("Size = ", ""), out var size)) currentEntry.Size = size;
-                    if (line.StartsWith("Offset =", StringComparison.Ordinal) && long.TryParse(line.Replace("Offset = ", ""), out var entryOffset)) currentEntry.Offset = entryOffset;
-                }
-
-                if (line.StartsWith("Modified =", StringComparison.Ordinal)) _ = DateTime.TryParse(line.Replace("Modified = ", ""), out currentEntry.Modified);
-                if (line.StartsWith("Created =", StringComparison.Ordinal)) _ = DateTime.TryParse(line.Replace("Created = ", ""), out currentEntry.Created);
-                if (line.StartsWith("Accessed =", StringComparison.Ordinal)) _ = DateTime.TryParse(line.Replace("Accessed = ", ""), out currentEntry.Accessed);
-            }
-        }
-
-        public static IEnumerable<string> GetArchivesInFolder(string inputFolder, bool verbose, bool throwExceptionIfProcessHadErrors)
-        {
-            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), $"l \"{inputFolder.EnsureEndsInPathSeparator()}\"", verbose, throwExceptionIfProcessHadErrors);
-
-            foreach (var line in sevenZipOutput)
-            {
-                if (line.StartsWith("Path =", StringComparison.Ordinal))
-                {
-                    var archiveFilename = line.Replace("Path = ", "");
-                    if (File.Exists(archiveFilename))
-                    {
-                        if (verbose)
-                        {
-                            Log.Information($"Found archive: {archiveFilename}");
-                        }
-                        yield return archiveFilename;
-                    }
-                }
-            }
-        }
-
     }
 }

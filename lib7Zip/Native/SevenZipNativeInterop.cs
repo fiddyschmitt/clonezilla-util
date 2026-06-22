@@ -25,19 +25,21 @@ namespace lib7Zip.Native
             public SeekFn Seek;
         }
 
-        // Mirrors SevenZipItemInfo. Natural alignment matches the C struct (byte + 7 pad + 4x 8-byte fields).
+        // Mirrors SevenZipItemInfo. Natural alignment matches the C struct (2 bytes + 6 pad + 6x 8-byte fields).
         [StructLayout(LayoutKind.Sequential)]
         public struct ItemInfo
         {
             public byte IsDir;
+            public byte HasOffset;
             public ulong Size;
+            public long Offset;
             public long ModifiedFileTime;
             public long CreatedFileTime;
             public long AccessedFileTime;
         }
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
-        public static extern int SevenZip_Open(in InStreamCallbacks callbacks, IntPtr ctx, string sevenZipDllPath, out IntPtr handle);
+        public static extern int SevenZip_Open(in InStreamCallbacks callbacks, IntPtr ctx, string sevenZipDllPath, byte recursive, out IntPtr handle);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int SevenZip_GetItemCount(IntPtr handle, out uint count);
