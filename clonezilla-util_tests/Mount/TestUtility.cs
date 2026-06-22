@@ -28,7 +28,7 @@ namespace clonezilla_util_tests.Mount
 
                 if (process?.HasExited ?? true)
                 {
-                    Debugger.Break();
+                    //Debugger.Break();
                 }
 
                 foreach (var expectedFile in expectedFiles)

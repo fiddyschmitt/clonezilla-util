@@ -51,7 +51,14 @@ namespace libCommon.Streams
             var bytesLeftInVirtualFile = Length - Position;
             //var bytesLeftInBaseStream = BaseStream.Length - BaseStream.Position;
 
-            if (BaseStream.Length != 0 && Position >= BaseStream.Length)
+            // Position is partition-relative, but BaseStream.Length is absolute - so the
+            // "beyond the original data" test must use the absolute base offset (StartByte + Position).
+            // Without StartByte this triggered StartByte bytes too late for a sub-stream that starts at a
+            // non-zero offset (e.g. a partition inside a drive image whose declared end runs past the
+            // drive's stored data), letting BaseStream.Read return 0 in the gap (which CachingStream then
+            // escalates to a "No bytes read" exception) instead of serving the null tail.
+            var absoluteBasePosition = StartByte + Position;
+            if (BaseStream.Length != 0 && absoluteBasePosition >= BaseStream.Length)
             {
                 //we are beyond the original stream. Just return blanks
                 var toClear = (int)Math.Min(bytesLeftInVirtualFile, count);

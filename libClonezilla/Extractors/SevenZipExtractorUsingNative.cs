@@ -1,28 +1,27 @@
-using lib7Zip;
 using lib7Zip.Native;
-using libCommon;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 
 namespace libClonezilla.Extractors
 {
     /// <summary>
-    /// Reads files from a partition using the in-process native 7-Zip engine (lib7zNative), which
-    /// loads the bundled 7z.dll for the format handlers and does 7-Zip's own auto-detection / open.
-    /// Replaces the 7zFM GUI automation.
-    /// Not thread-safe: one open archive over one stream; calls are serialised here (and the caller
-    /// also wraps this in a SynchronisedExtractor).
+    /// A single in-process native 7-Zip worker: one open archive over one view of the partition's
+    /// decompressed stream. Serves a file as a seekable, on-demand stream (no extraction, no temp
+    /// file) via <see cref="SevenZipNativeArchive.OpenItemStream"/>.
+    ///
+    /// Opening the archive parses the filesystem metadata (e.g. the NTFS $MFT) which is slow over a
+    /// compressed backing stream, so workers are opened up front (see <see cref="EnsureOpen"/>) by
+    /// <see cref="NativeExtractorPool"/> - never lazily inside a Dokan callback.
+    ///
+    /// Not thread-safe: one open archive drives one input stream, so only one item stream may be
+    /// alive at a time. The pool enforces this by checking out one worker per open stream.
     /// </summary>
-    public class SevenZipExtractorUsingNative : IExtractor, IFileListProvider, IDisposable
+    public sealed class SevenZipExtractorUsingNative : IDisposable
     {
         readonly Func<Stream> streamFactory;
         readonly string sevenZipDllPath;
-        readonly object sync = new();
-
         SevenZipNativeArchive? archive;
-        Dictionary<string, uint>? pathToIndex;
 
         public SevenZipExtractorUsingNative(Func<Stream> streamFactory, string sevenZipDllPath)
         {
@@ -30,75 +29,23 @@ namespace libClonezilla.Extractors
             this.sevenZipDllPath = sevenZipDllPath;
         }
 
-        // caller must hold 'sync'
-        SevenZipNativeArchive GetArchive() =>
+        /// <summary>Opens the archive (parsing filesystem metadata) if not already open. Call up front.</summary>
+        public SevenZipNativeArchive EnsureOpen() =>
             archive ??= new SevenZipNativeArchive(streamFactory(), sevenZipDllPath, ownsStream: true);
 
-        // caller must hold 'sync'
-        List<ArchiveEntry> Enumerate()
-        {
-            var entries = GetArchive().GetEntries();
-            var map = new Dictionary<string, uint>(entries.Count, StringComparer.Ordinal);
-            var result = new List<ArchiveEntry>(entries.Count);
-            foreach (var e in entries)
-            {
-                map[e.Path] = e.Index;
-                result.Add(new ArchiveEntry(e.Path)
-                {
-                    IsFolder = e.IsDir,
-                    Size = e.Size,
-                    Modified = e.Modified ?? default,
-                    Created = e.Created ?? default,
-                    Accessed = e.Accessed ?? default,
-                });
-            }
-            pathToIndex = map;
-            return result;
-        }
+        public IReadOnlyList<NativeArchiveEntry> GetEntries() => EnsureOpen().GetEntries();
 
-        public IEnumerable<ArchiveEntry> GetFileList()
-        {
-            lock (sync)
-            {
-                return Enumerate();
-            }
-        }
-
-        public Stream Extract(string pathInArchive)
-        {
-            lock (sync)
-            {
-                var arc = GetArchive();
-                if (pathToIndex == null) Enumerate();
-
-                if (!pathToIndex!.TryGetValue(pathInArchive, out var index))
-                    throw new FileNotFoundException($"Entry not found in partition: {pathInArchive}");
-
-                // Extract fully to a delete-on-close temp file, then serve it (matches the old 7zFM
-                // behaviour). Streaming-as-decoded can be layered on later if needed.
-                var tempFilename = TempUtility.GetTempFilename(true);
-                var temp = new FileStream(tempFilename, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
-                try
-                {
-                    arc.ExtractTo(index, temp);
-                    temp.Seek(0, SeekOrigin.Begin);
-                    return temp;
-                }
-                catch
-                {
-                    temp.Dispose();
-                    throw;
-                }
-            }
-        }
+        /// <summary>
+        /// Opens item <paramref name="index"/> as a seekable read-only stream. <paramref name="onClosed"/>
+        /// runs when that stream is disposed (used to return this worker to its pool).
+        /// </summary>
+        public Stream OpenItemStream(uint index, long size, Action onClosed) =>
+            EnsureOpen().OpenItemStream(index, size, onClosed);
 
         public void Dispose()
         {
-            lock (sync)
-            {
-                archive?.Dispose();
-                archive = null;
-            }
+            archive?.Dispose();
+            archive = null;
         }
     }
 }

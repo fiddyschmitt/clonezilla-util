@@ -38,10 +38,6 @@ typedef struct
     SevenZipSeekFn seek;
 } SevenZipInStreamCallbacks;
 
-// --- Output sink (host-provided), bridged to 7-Zip ISequentialOutStream ---
-// write: consume 'size' bytes from 'buf'; set *processed to bytes consumed. return 0 on success.
-typedef int32_t (*SevenZipWriteFn)(void* ctx, const void* buf, uint32_t size, uint32_t* processed);
-
 typedef struct
 {
     uint8_t  isDir;
@@ -69,10 +65,26 @@ LIB7Z_API int32_t SevenZip_GetItem(
     SevenZipItemInfo* outInfo,
     wchar_t* pathBuf, uint32_t pathBufChars, uint32_t* outPathChars);
 
-// Extract a single item, streaming its bytes to the write callback as they are decoded.
-LIB7Z_API int32_t SevenZip_ExtractItem(
+// --- On-demand seekable per-item stream (no extraction, no temp file) ---
+// Opens the item's data as a seekable read-only stream via IInArchiveGetStream. Reads pull data
+// directly from the archive's input stream on demand (e.g. cluster-mapped NTFS data over the
+// partition). Only ONE item stream may be open per archive handle at a time (it drives the same
+// underlying input stream); the host serialises this by checking out one archive handle per stream.
+typedef void* SevenZipItemStreamHandle;
+
+LIB7Z_API int32_t SevenZip_OpenItemStream(
     SevenZipArchiveHandle handle, uint32_t index,
-    SevenZipWriteFn write, void* outCtx);
+    SevenZipItemStreamHandle* outStream);
+
+// Reads up to 'size' bytes at the current position; sets *processed (0 == EOF). Partial reads allowed.
+LIB7Z_API int32_t SevenZip_ItemRead(
+    SevenZipItemStreamHandle stream, void* buf, uint32_t size, uint32_t* processed);
+
+// origin: 0=begin, 1=current, 2=end. Sets *newPosition to the resulting absolute position.
+LIB7Z_API int32_t SevenZip_ItemSeek(
+    SevenZipItemStreamHandle stream, int64_t offset, uint32_t origin, uint64_t* newPosition);
+
+LIB7Z_API void SevenZip_ItemClose(SevenZipItemStreamHandle stream);
 
 LIB7Z_API void SevenZip_Close(SevenZipArchiveHandle handle);
 

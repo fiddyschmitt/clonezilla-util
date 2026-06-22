@@ -18,9 +18,6 @@ namespace lib7Zip.Native
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate int SeekFn(IntPtr ctx, long offset, uint origin, out ulong newPosition);
 
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        public delegate int WriteFn(IntPtr ctx, IntPtr buf, uint size, out uint processed);
-
         [StructLayout(LayoutKind.Sequential)]
         public struct InStreamCallbacks
         {
@@ -49,8 +46,18 @@ namespace lib7Zip.Native
         public static extern int SevenZip_GetItem(IntPtr handle, uint index, out ItemInfo info,
             [Out] char[] pathBuf, uint pathBufChars, out uint pathChars);
 
+        // On-demand seekable per-item stream (no extraction / no temp file)
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int SevenZip_ExtractItem(IntPtr handle, uint index, WriteFn write, IntPtr ctx);
+        public static extern int SevenZip_OpenItemStream(IntPtr handle, uint index, out IntPtr itemStream);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int SevenZip_ItemRead(IntPtr itemStream, IntPtr buf, uint size, out uint processed);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int SevenZip_ItemSeek(IntPtr itemStream, long offset, uint origin, out ulong newPosition);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void SevenZip_ItemClose(IntPtr itemStream);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void SevenZip_Close(IntPtr handle);

@@ -1,5 +1,6 @@
 ﻿using clonezilla_util.VFS;
 using lib7Zip;
+using lib7Zip.Native;
 using libClonezilla.Cache;
 using libClonezilla.Extractors;
 using libClonezilla.PartitionContainers;
@@ -76,12 +77,16 @@ namespace libClonezilla.Partitions
             var partitionStream = Partition.FullPartitionImage
                 ?? throw new Exception($"[{container.ContainerName}] [{partitionName}] {nameof(Partition.FullPartitionImage)} is not initialised.");
             var streamLock = new object();
-            IExtractor extractor = DetermineExtractor.FindExtractor(() => new IndependentStream(partitionStream, streamLock));
 
+            IExtractor extractor;
             List<ArchiveEntry> filesInArchive;
 
             try
             {
+                // Building the extractor opens (and pre-warms) the partition - one unreadable partition
+                // must not bring down the whole mount, so this is inside the try.
+                extractor = DetermineExtractor.FindExtractor(() => new IndependentStream(partitionStream, streamLock));
+
                 if (extractor is IFileListProvider fileListProvider)
                 {
                     filesInArchive = GetFilesInPartition(fileListProvider).ToList();
@@ -97,6 +102,12 @@ namespace libClonezilla.Partitions
                     Log.Error($"[{container.ContainerName}] [{partitionName}] Could not find a suitable extractor for this partition. Returning empty file list.");
                     filesInArchive = [];
                 }
+            }
+            catch (NotAnArchiveException)
+            {
+                //expected: this partition has no filesystem 7-Zip can browse (e.g. a raw bios_grub partition). Serve it as empty.
+                Log.Information($"[{container.ContainerName}] [{partitionName}] No browsable filesystem found in this partition. Serving it with no files.");
+                return [];
             }
             catch (Exception ex)
             {

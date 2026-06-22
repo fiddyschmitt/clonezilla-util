@@ -45,6 +45,9 @@ namespace lib7Zip.Native
 
             var cb = new InStreamCallbacks { Read = readFn, Seek = seekFn };
             int hr = SevenZip_Open(in cb, IntPtr.Zero, sevenZipDllPath, out handle);
+            const int S_FALSE = 1;
+            if (hr == S_FALSE)
+                throw new NotAnArchiveException(); //the stream has no filesystem/archive 7-Zip recognises (e.g. a raw bios_grub partition)
             if (hr != 0 || handle == IntPtr.Zero)
                 throw new IOException($"lib7zNative SevenZip_Open failed: 0x{hr:X8}");
         }
@@ -61,7 +64,7 @@ namespace lib7Zip.Native
                 processed = (uint)n;
                 return 0;
             }
-            catch { return unchecked((int)0x80004005); } // E_FAIL
+            catch (Exception ex) { Serilog.Log.Error(ex, $"lib7zNative Read callback threw (size={size})"); return unchecked((int)0x80004005); } // E_FAIL
         }
 
         int Seek(IntPtr ctx, long offset, uint origin, out ulong newPosition)
@@ -73,7 +76,7 @@ namespace lib7Zip.Native
                 newPosition = (ulong)stream.Seek(offset, so);
                 return 0;
             }
-            catch { return unchecked((int)0x80004005); }
+            catch (Exception ex) { Serilog.Log.Error(ex, $"lib7zNative Seek callback threw (offset={offset}, origin={origin})"); return unchecked((int)0x80004005); }
         }
 
         public IReadOnlyList<NativeArchiveEntry> GetEntries()
@@ -107,32 +110,19 @@ namespace lib7Zip.Native
             return result;
         }
 
-        public void ExtractTo(uint index, Stream output)
+        /// <summary>
+        /// Opens a single item as a seekable, read-only stream (no extraction, no temp file). Reads
+        /// pull data on demand via 7-Zip's IInArchiveGetStream. Only ONE item stream may be open per
+        /// archive at a time (it drives this archive's single input stream); the caller serialises
+        /// this by checking out one archive per open stream. <paramref name="onDispose"/> runs when
+        /// the returned stream is disposed (e.g. to return the worker to its pool).
+        /// </summary>
+        public NativeItemStream OpenItemStream(uint index, long length, Action? onDispose = null)
         {
-            var scratch = new byte[1 << 20];
-            WriteFn write = (IntPtr ctx, IntPtr buf, uint size, out uint processed) =>
-            {
-                processed = 0;
-                try
-                {
-                    uint remaining = size;
-                    long src = buf.ToInt64();
-                    while (remaining > 0)
-                    {
-                        int chunk = (int)Math.Min(remaining, (uint)scratch.Length);
-                        Marshal.Copy(new IntPtr(src), scratch, 0, chunk);
-                        output.Write(scratch, 0, chunk);
-                        src += chunk;
-                        remaining -= (uint)chunk;
-                    }
-                    processed = size;
-                    return 0;
-                }
-                catch { return unchecked((int)0x80004005); }
-            };
-            int hr = SevenZip_ExtractItem(handle, index, write, IntPtr.Zero);
-            GC.KeepAlive(write);
-            if (hr != 0) throw new IOException($"lib7zNative ExtractItem({index}) failed: 0x{hr:X8}");
+            int hr = SevenZip_OpenItemStream(handle, index, out IntPtr itemHandle);
+            if (hr != 0 || itemHandle == IntPtr.Zero)
+                throw new IOException($"lib7zNative SevenZip_OpenItemStream({index}) failed: 0x{hr:X8}");
+            return new NativeItemStream(itemHandle, length, onDispose);
         }
 
         static DateTime? FileTimeOrNull(long ft)

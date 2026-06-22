@@ -8,6 +8,9 @@
 #define LIB7ZNATIVE_EXPORTS
 #include "../include/lib7znative.h"
 
+#include <cstdio>
+#define DIAG(...) do { fprintf(stderr, "[lib7zNative] " __VA_ARGS__); fputc('\n', stderr); fflush(stderr); } while (0)
+
 #include "Common/MyWindows.h"
 #include "Common/MyInitGuid.h"      // defines the IID_* GUIDs - include exactly once per module
 #include "Common/MyCom.h"
@@ -66,65 +69,6 @@ Z7_COM7F_IMF(CCallbackInStream::Seek(Int64 offset, UInt32 seekOrigin, UInt64 *ne
 }
 
 // ----------------------------------------------------------------------------
-// Output stream: bridges 7-Zip ISequentialOutStream -> host write callback
-// ----------------------------------------------------------------------------
-class CCallbackOutStream Z7_final :
-  public ISequentialOutStream,
-  public CMyUnknownImp
-{
-  Z7_IFACES_IMP_UNK_1(ISequentialOutStream)
-public:
-  SevenZipWriteFn WriteFn;
-  void *Ctx;
-};
-
-Z7_COM7F_IMF(CCallbackOutStream::Write(const void *data, UInt32 size, UInt32 *processedSize))
-{
-  UInt32 processed = 0;
-  const HRESULT hr = (HRESULT)WriteFn(Ctx, data, size, &processed);
-  if (processedSize)
-    *processedSize = processed;
-  return hr;
-}
-
-// ----------------------------------------------------------------------------
-// Extract callback: routes exactly one item's data to our output stream
-// ----------------------------------------------------------------------------
-class CExtractToCallback Z7_final :
-  public IArchiveExtractCallback,
-  public CMyUnknownImp
-{
-  Z7_IFACES_IMP_UNK_1(IArchiveExtractCallback)
-  Z7_IFACE_COM7_IMP(IProgress)
-public:
-  UInt32 TargetIndex;
-  CMyComPtr<ISequentialOutStream> Out;
-  HRESULT Result;
-  CExtractToCallback(): TargetIndex(0), Result(S_OK) {}
-};
-
-Z7_COM7F_IMF(CExtractToCallback::SetTotal(UInt64 /* total */)) { return S_OK; }
-Z7_COM7F_IMF(CExtractToCallback::SetCompleted(const UInt64 * /* value */)) { return S_OK; }
-
-Z7_COM7F_IMF(CExtractToCallback::GetStream(UInt32 index, ISequentialOutStream **outStream, Int32 askExtractMode))
-{
-  *outStream = NULL;
-  if (index != TargetIndex || askExtractMode != NArchive::NExtract::NAskMode::kExtract)
-    return S_OK;
-  CMyComPtr<ISequentialOutStream> s = Out;
-  *outStream = s.Detach();
-  return S_OK;
-}
-
-Z7_COM7F_IMF(CExtractToCallback::PrepareOperation(Int32 /* askExtractMode */)) { return S_OK; }
-
-Z7_COM7F_IMF(CExtractToCallback::SetOperationResult(Int32 opRes))
-{
-  Result = (opRes == NArchive::NExtract::NOperationResult::kOK) ? S_OK : E_FAIL;
-  return S_OK;
-}
-
-// ----------------------------------------------------------------------------
 // Opaque handle
 // ----------------------------------------------------------------------------
 struct ShimArchive
@@ -171,8 +115,8 @@ LIB7Z_API int32_t SevenZip_Open(
   { ICompressCodecsInfo *unk = arc->codecs; unk->AddRef(); }
 
   HRESULT hr = arc->codecs->LoadDll(WCharToFString(sevenZipDllPath), true);
-  if (hr != S_OK) { delete arc; return hr; }
-  if (arc->codecs->Formats.Size() == 0) { delete arc; return E_FAIL; }
+  if (hr != S_OK) { DIAG("LoadDll failed hr=0x%08X", (unsigned)hr); delete arc; return hr; }
+  if (arc->codecs->Formats.Size() == 0) { DIAG("no formats loaded from 7z.dll"); delete arc; return E_FAIL; }
 
   CCallbackInStream *inSpec = new CCallbackInStream;
   arc->inStream = inSpec;
@@ -195,8 +139,26 @@ LIB7Z_API int32_t SevenZip_Open(
   // options.openType.Recursive defaults to true -> recursive "open inside"
 
   hr = arc->link.Open(options);
-  if (hr != S_OK) { delete arc; return (hr == S_FALSE) ? E_FAIL : hr; }
-  if (arc->link.Arcs.Size() == 0) { delete arc; return E_FAIL; }
+  // "opened" but no handler recognised the data == not an archive/filesystem (e.g. a raw bios_grub
+  // partition). Normalise that to S_FALSE so the host can tell it apart from a genuine error.
+  if (hr == S_OK && arc->link.Arcs.Size() == 0)
+    hr = S_FALSE;
+  if (hr != S_OK)
+  {
+    // S_FALSE ("not a recognised archive/filesystem", e.g. a raw bios_grub partition) is expected
+    // and handled by the host - don't treat it as noise. Only diagnose genuine failures.
+    if (hr != S_FALSE)
+    {
+      const CArcErrorInfo &e = arc->link.NonOpen_ErrorInfo;
+      DIAG("link.Open hr=0x%08X arcs=%u nonOpenFmtIdx=%d errFlags=0x%08X warnFlags=0x%08X",
+           (unsigned)hr, (unsigned)arc->link.Arcs.Size(), e.ErrorFormatIndex,
+           (unsigned)e.GetErrorFlags(), (unsigned)e.GetWarningFlags());
+    }
+    delete arc;
+    // Return the real HRESULT. S_FALSE (0x00000001) distinctly means "not a recognised
+    // archive/filesystem"; genuine failures return their own error codes.
+    return hr;
+  }
 
   *outHandle = arc;
   return S_OK;
@@ -251,27 +213,67 @@ LIB7Z_API int32_t SevenZip_GetItem(
   return S_OK;
 }
 
-LIB7Z_API int32_t SevenZip_ExtractItem(
-    SevenZipArchiveHandle handle, uint32_t index,
-    SevenZipWriteFn write, void* outCtx)
+// ----------------------------------------------------------------------------
+// On-demand seekable per-item stream (IInArchiveGetStream)
+// ----------------------------------------------------------------------------
+struct ShimItemStream
 {
-  if (!handle || !write) return E_INVALIDARG;
+  CMyComPtr<IInStream> stream;
+};
+
+LIB7Z_API int32_t SevenZip_OpenItemStream(
+    SevenZipArchiveHandle handle, uint32_t index,
+    SevenZipItemStreamHandle* outStream)
+{
+  if (outStream) *outStream = NULL;
+  if (!handle || !outStream) return E_INVALIDARG;
   ShimArchive *arc = (ShimArchive*)handle;
 
-  CCallbackOutStream *outSpec = new CCallbackOutStream;
-  CMyComPtr<ISequentialOutStream> outRef = outSpec;
-  outSpec->WriteFn = write;
-  outSpec->Ctx = outCtx;
+  CMyComPtr<IInArchiveGetStream> getStream;
+  HRESULT hr = arc->link.GetArchive()->QueryInterface(IID_IInArchiveGetStream, (void**)&getStream);
+  if (hr != S_OK || !getStream) { DIAG("handler has no IInArchiveGetStream hr=0x%08X", (unsigned)hr); return (hr == S_OK) ? E_NOINTERFACE : hr; }
 
-  CExtractToCallback *cbSpec = new CExtractToCallback;
-  CMyComPtr<IArchiveExtractCallback> cb = cbSpec;
-  cbSpec->TargetIndex = index;
-  cbSpec->Out = outRef;
+  CMyComPtr<ISequentialInStream> seqStream;
+  hr = getStream->GetStream(index, &seqStream);
+  if (hr != S_OK) { DIAG("GetStream(%u) hr=0x%08X", index, (unsigned)hr); return hr; }
+  if (!seqStream) { DIAG("GetStream(%u) returned null (item has no seekable stream)", index); return E_FAIL; }
 
-  const UInt32 idx = index;
-  const HRESULT hr = arc->link.GetArchive()->Extract(&idx, 1, 0 /* testMode */, cb);
-  if (hr != S_OK) return hr;
-  return cbSpec->Result;
+  CMyComPtr<IInStream> inStream;
+  hr = seqStream->QueryInterface(IID_IInStream, (void**)&inStream);
+  if (hr != S_OK || !inStream) { DIAG("item stream is not seekable (no IInStream) hr=0x%08X", (unsigned)hr); return (hr == S_OK) ? E_NOINTERFACE : hr; }
+
+  ShimItemStream *item = new ShimItemStream();
+  item->stream = inStream;
+  *outStream = item;
+  return S_OK;
+}
+
+LIB7Z_API int32_t SevenZip_ItemRead(
+    SevenZipItemStreamHandle stream, void* buf, uint32_t size, uint32_t* processed)
+{
+  if (processed) *processed = 0;
+  if (!stream) return E_INVALIDARG;
+  ShimItemStream *item = (ShimItemStream*)stream;
+  UInt32 got = 0;
+  const HRESULT hr = item->stream->Read(buf, size, &got);
+  if (processed) *processed = got;
+  return hr;
+}
+
+LIB7Z_API int32_t SevenZip_ItemSeek(
+    SevenZipItemStreamHandle stream, int64_t offset, uint32_t origin, uint64_t* newPosition)
+{
+  if (!stream) return E_INVALIDARG;
+  ShimItemStream *item = (ShimItemStream*)stream;
+  UInt64 newPos = 0;
+  const HRESULT hr = item->stream->Seek(offset, origin, &newPos);
+  if (newPosition) *newPosition = newPos;
+  return hr;
+}
+
+LIB7Z_API void SevenZip_ItemClose(SevenZipItemStreamHandle stream)
+{
+  if (stream) delete (ShimItemStream*)stream;
 }
 
 LIB7Z_API void SevenZip_Close(SevenZipArchiveHandle handle)

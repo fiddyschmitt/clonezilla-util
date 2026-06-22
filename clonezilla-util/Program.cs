@@ -1,6 +1,7 @@
 ﻿using clonezilla_util.CL.Verbs;
 using CommandLine;
 using lib7Zip;
+using lib7Zip.Native;
 using libClonezilla.Cache;
 using libClonezilla.Extractors;
 using libClonezilla.PartitionContainers;
@@ -206,32 +207,48 @@ namespace clonezilla_util
                             var partitionStream = mountedPartition.Partition.FullPartitionImage
                                 ?? throw new Exception($"[{container.ContainerName}] [{partitionName}] {nameof(mountedPartition.Partition.FullPartitionImage)} is not initialised.");
                             var streamLock = new object();
-                            var extractor = DetermineExtractor.FindExtractor(() => new IndependentStream(partitionStream, streamLock));
 
-                            List<ArchiveEntry> filesInArchive;
-
-                            if (extractor is IFileListProvider fileListProvider)
+                            // Listing only enumerates - one worker is enough (mounting uses several for
+                            // concurrent reads). Dispose it once we've listed; it's not needed after.
+                            IExtractor? extractor = null;
+                            try
                             {
-                                filesInArchive = mountedPartition.GetFilesInPartition(fileListProvider).ToList();
+                                extractor = DetermineExtractor.FindExtractor(
+                                    () => new IndependentStream(partitionStream, streamLock),
+                                    DetermineExtractor.ListingWorkerCount);
 
-                                foreach (var archiveEntry in filesInArchive)
+                                if (extractor is IFileListProvider fileListProvider)
                                 {
-                                    var filenameIncludingPartition = Path.Combine(container.ContainerName, partitionName, archiveEntry.Path);
+                                    var filesInArchive = mountedPartition.GetFilesInPartition(fileListProvider).ToList();
 
-                                    Console.Write(filenameIncludingPartition);
-                                    if (listContentsOptions.UseNullSeparator)
+                                    foreach (var archiveEntry in filesInArchive)
                                     {
-                                        Console.Write(char.MinValue);
-                                    }
-                                    else
-                                    {
-                                        Console.Write(listContentsOptions.OutputSeparator);
+                                        var filenameIncludingPartition = Path.Combine(container.ContainerName, partitionName, archiveEntry.Path);
+
+                                        Console.Write(filenameIncludingPartition);
+                                        if (listContentsOptions.UseNullSeparator)
+                                        {
+                                            Console.Write(char.MinValue);
+                                        }
+                                        else
+                                        {
+                                            Console.Write(listContentsOptions.OutputSeparator);
+                                        }
                                     }
                                 }
+                                else
+                                {
+                                    Log.Error($"[{container.ContainerName}] [{partitionName}] Could not find a suitable extractor for this partition. Returning empty file list.");
+                                }
                             }
-                            else
+                            catch (NotAnArchiveException)
                             {
-                                Log.Error($"[{container.ContainerName}] [{partitionName}] Could not find a suitable extractor for this partition. Returning empty file list.");
+                                //expected: this partition has no filesystem 7-Zip can browse (e.g. a raw bios_grub partition).
+                                Log.Information($"[{container.ContainerName}] [{partitionName}] No browsable filesystem found in this partition. Listing no files.");
+                            }
+                            finally
+                            {
+                                (extractor as IDisposable)?.Dispose();
                             }
                         });
                 });

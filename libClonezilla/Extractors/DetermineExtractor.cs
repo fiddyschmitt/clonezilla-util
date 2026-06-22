@@ -9,6 +9,11 @@ namespace libClonezilla.Extractors
 {
     public static class DetermineExtractor
     {
+        // Mount serves concurrent OS file requests, so it pre-warms several workers (each its own open
+        // archive) up front to avoid read-time stalls. Listing only enumerates once, so it needs just one.
+        public const int MountWorkerCount = 4;
+        public const int ListingWorkerCount = 1;
+
         /// <summary>
         /// Builds an extractor backed by the in-process native 7-Zip engine (lib7zNative), which loads
         /// the bundled 7z.dll for handlers and does 7-Zip's own format auto-detection. This supersedes
@@ -16,14 +21,11 @@ namespace libClonezilla.Extractors
         /// </summary>
         /// <param name="partitionStreamFactory">Creates a fresh seekable stream over the partition's
         /// decompressed content (e.g. an IndependentStream over Partition.FullPartitionImage).</param>
-        public static IExtractor FindExtractor(Func<Stream> partitionStreamFactory)
+        /// <param name="instanceCount">How many workers to pre-warm. Use <see cref="MountWorkerCount"/>
+        /// for mounting (concurrent reads) and <see cref="ListingWorkerCount"/> for listing only.</param>
+        public static IExtractor FindExtractor(Func<Stream> partitionStreamFactory, int instanceCount = MountWorkerCount)
         {
             var sevenZipDll = SevenZipUtility.SevenZipDll();
-
-            // Pool several workers so the VFS can service concurrent OS requests for different files
-            // without one extraction blocking the others (which otherwise triggers Dokan/Explorer
-            // "Insufficient system resources"/timeout errors). Workers open lazily.
-            const int instanceCount = 4;
             return new NativeExtractorPool(partitionStreamFactory, sevenZipDll, instanceCount);
         }
     }
