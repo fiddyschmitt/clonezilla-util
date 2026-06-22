@@ -15,17 +15,6 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class RawDriveImage : PartitionContainer
     {
-        public RawDriveImage(string containerName, string filename, List<string> partitionsToLoad, bool processTrailingNulls)
-        {
-            ContainerName = containerName;
-
-            var partitionImageFiles = SevenZipUtility.GetArchiveEntries(filename, false, true).ToList();
-
-            var rawDriveStream = File.OpenRead(filename);
-
-            SetupFromStream(rawDriveStream, partitionImageFiles, partitionsToLoad, processTrailingNulls);
-        }
-
         public RawDriveImage(string containerName, List<string> partitionsToLoad, Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles, bool processTrailingNulls)
         {
             ContainerName = containerName;
