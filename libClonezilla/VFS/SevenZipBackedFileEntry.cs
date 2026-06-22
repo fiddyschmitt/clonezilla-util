@@ -5,7 +5,6 @@ using libDokan.VFS;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
 using Serilog;
-using SevenZip;
 using System;
 using System.Collections.Generic;
 using System.IO;

@@ -123,19 +123,5 @@ namespace lib7Zip
             }
         }
 
-        public static bool IsArchive(string filename, bool displayProcessErrors, CancellationToken? cancellationToken = null)
-        {
-            var sevenZipOutput = ProcessUtility.RunCommand(SevenZipExe(), $"l \"{filename}\"", false, displayProcessErrors, null, cancellationToken);
-
-            foreach (var line in sevenZipOutput)
-            {
-                if (line.StartsWith("Path =", StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
     }
 }
