@@ -5,9 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PlatformTarget>AnyCPU</PlatformTarget>
+    <!-- NativeItemStream pins buffers with 'fixed' for the lib7zNative read calls. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- CsWin32-generated P/Invokes are marked [SupportedOSPlatform("windows5.0")]. This library is Windows-only (it automates the 7-Zip File Manager), so silence the platform-compatibility warnings. -->
-    <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
 
 
@@ -33,15 +32,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\libCommon\libCommon.csproj" />
-  </ItemGroup>
-
-
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.298">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
   </ItemGroup>
 
 </Project>
