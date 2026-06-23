@@ -37,9 +37,9 @@ namespace libClonezilla.Extractors
 
         /// <summary>
         /// Opens item <paramref name="index"/> as a seekable read-only stream. <paramref name="onClosed"/>
-        /// runs when that stream is disposed (used to return this worker to its pool).
+        /// (optional) runs when that stream is disposed.
         /// </summary>
-        public Stream OpenItemStream(uint index, long size, Action onClosed) =>
+        public Stream OpenItemStream(uint index, long size, Action? onClosed = null) =>
             EnsureOpen().OpenItemStream(index, size, onClosed);
 
         public void Dispose()

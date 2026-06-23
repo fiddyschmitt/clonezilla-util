@@ -15,10 +15,12 @@ namespace libClonezilla.Extractors
     /// never inside a Dokan callback (whose ~20s timeout would otherwise surface as
     /// "Insufficient system resources").
     ///
-    /// <see cref="Extract"/> returns a seekable, on-demand stream (no extraction, no temp file) and
-    /// checks out a worker for that stream's whole lifetime, returning it only when the stream is
-    /// disposed. So at most <c>instanceCount</c> files can be open concurrently (further opens block
-    /// until a worker frees up) - the same model as the previous 4-instance 7zFM approach.
+    /// <see cref="Extract"/> returns a seekable, on-demand stream (no extraction, no temp file) that holds
+    /// NO worker - it borrows one (<see cref="TakeWorker"/>/<see cref="ReturnWorker"/>) only for the
+    /// duration of each Read. So opening a file is instant and never blocks (any number of files can be
+    /// open at once); the pool size caps concurrent *reads*, not open handles. This avoids a slow/blocked
+    /// Dokan CreateFile (which would surface as 0x800705AA once more than <c>instanceCount</c> files were
+    /// open under the old per-handle-checkout model).
     /// </summary>
     public class NativeExtractorPool : IExtractor, IFileListProvider, IDisposable
     {
@@ -82,17 +84,23 @@ namespace libClonezilla.Extractors
             if (!pathToItem.TryGetValue(pathInArchive, out var item))
                 throw new FileNotFoundException($"Entry not found in partition: {pathInArchive}");
 
-            var worker = available.Take(); //blocks until a worker is free
+            //The returned stream holds no worker, so opening a file is instant and never blocks - any
+            //number of files can be open concurrently. A worker is borrowed only per Read.
+            return new PooledNativeItemStream(this, item.Index, item.Size);
+        }
+
+        //Borrow a worker for a single read. Blocks only while every worker is mid-read (brief), never
+        //while files are merely open. Used by PooledNativeItemStream.
+        internal SevenZipExtractorUsingNative TakeWorker() => available.Take();
+
+        internal void ReturnWorker(SevenZipExtractorUsingNative worker)
+        {
             try
             {
-                //the worker stays checked out until the returned stream is disposed
-                return worker.OpenItemStream(item.Index, item.Size, onClosed: () => available.Add(worker));
+                available.Add(worker);
             }
-            catch
-            {
-                available.Add(worker); //opening the stream failed - return the worker immediately
-                throw;
-            }
+            catch (ObjectDisposedException) { } //pool torn down (unmount) while a read was in flight
+            catch (InvalidOperationException) { } //adding has been marked complete
         }
 
         public void Dispose()
