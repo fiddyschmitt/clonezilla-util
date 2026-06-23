@@ -263,30 +263,9 @@ namespace libDokan
                 var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId);
                 if (fileSystemEntry is FileEntry file)
                 {
-                    if (file.CreatesNewStreamPerCall)
-                    {
-                        //fresh stream for just this read - not shared with anyone, so no lock needed
-                        var stream = file.GetStream();
-                        try
-                        {
-                            stream.Position = offset;
-                            bytesRead = stream.Read(buffer, 0, buffer.Length);
-                        }
-                        finally
-                        {
-                            stream.Dispose();
-                        }
-                    }
-                    else
-                    {
-                        //one shared stream for the file - serialize seek+read across all callers
-                        lock (file.ReadLock)
-                        {
-                            var stream = file.GetStream();
-                            stream.Position = offset;
-                            bytesRead = stream.Read(buffer, 0, buffer.Length);
-                        }
-                    }
+                    //paging reads have no handle context; FileEntry keeps one reusable stream for them
+                    //instead of opening (and disposing) one per page fault
+                    bytesRead = file.ReadForMemoryMap(buffer, offset, buffer.Length);
                 }
                 else
                 {

@@ -22,6 +22,40 @@ namespace libDokan.VFS.Files
 
         public abstract Stream GetStream();
 
+        //one reusable stream for the memory-mapped (paging) read path, which the OS issues with no file
+        //handle context - so we can't stash a per-handle stream as we do for normal reads
+        Stream? memoryMappedStream;
+        readonly object memoryMappedStreamLock = new();
+
+        /// <summary>
+        /// Serves a memory-mapped (paging) read at an absolute offset. These arrive with no handle context,
+        /// so rather than opening (and disposing) a stream per page fault we keep one reusable stream per
+        /// file. Concurrent paging reads of the same file are serialised; different files are independent.
+        /// </summary>
+        public int ReadForMemoryMap(byte[] buffer, long offset, int count)
+        {
+            if (CreatesNewStreamPerCall)
+            {
+                //a stream of our own (independent of any open handle); reuse it across page faults instead
+                //of re-creating one each time. Such streams hold no scarce resource (e.g. the native
+                //extractor's PooledNativeItemStream borrows a worker only per read), so keeping one is cheap.
+                lock (memoryMappedStreamLock)
+                {
+                    memoryMappedStream ??= GetStream();
+                    memoryMappedStream.Position = offset;
+                    return memoryMappedStream.Read(buffer, 0, count);
+                }
+            }
+
+            //one shared stream backs this file (same object normal reads use), so serialise on ReadLock
+            lock (ReadLock)
+            {
+                var stream = GetStream();
+                stream.Position = offset;
+                return stream.Read(buffer, 0, count);
+            }
+        }
+
         public FileEntry(string name, Folder? parent) : base(name, parent)
         {
         }
