@@ -263,8 +263,9 @@ namespace libDokan
                 var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId);
                 if (fileSystemEntry is FileEntry file)
                 {
-                    lock (file.ReadLock)
+                    if (file.CreatesNewStreamPerCall)
                     {
+                        //fresh stream for just this read - not shared with anyone, so no lock needed
                         var stream = file.GetStream();
                         try
                         {
@@ -273,11 +274,17 @@ namespace libDokan
                         }
                         finally
                         {
-                            //shared streams must stay alive for subsequent reads
-                            if (file.CreatesNewStreamPerCall)
-                            {
-                                stream.Dispose();
-                            }
+                            stream.Dispose();
+                        }
+                    }
+                    else
+                    {
+                        //one shared stream for the file - serialize seek+read across all callers
+                        lock (file.ReadLock)
+                        {
+                            var stream = file.GetStream();
+                            stream.Position = offset;
+                            bytesRead = stream.Read(buffer, 0, buffer.Length);
                         }
                     }
                 }
@@ -290,33 +297,8 @@ namespace libDokan
             {
                 if (info.Context is not FileEntryStream stream) return Trace(nameof(ReadFile), fileName, info, DokanResult.Unsuccessful);
 
-                //lock on the FileEntry (not the per-handle wrapper), because GetStream() can return one
-                //shared stream for every open handle of this file
-                lock (stream.FileEntry.ReadLock)
+                int DoRead()
                 {
-                    //experimental
-                    //if (distanceFromCurrentPosition > Buffers.ARBITRARY_HUGE_SIZE_BUFFER * 2 && offset + buffer.Length == stream.Length)
-                    //{
-                    //    Log.Debug($"External process has asked to read the last {buffer.Length.BytesToString()} of the {stream.Length.BytesToString()} file. Ignoring.");
-
-                    //    bytesRead = 0;
-                    //    return DokanResult.Unsuccessful;
-                    //}
-
-                    /*
-                    //7-Zip doesn't like it when we do this
-                    var maxSeek = 5_000_000;
-                    var toSeek = offset - stream.Position;
-                    if (toSeek > maxSeek)
-                    {
-                        Console.WriteLine($"External process has asked to seek from {stream.Position:N0} to {offset:N0}. Ignoring.");
-
-                        bytesRead = 0;
-                        //return NtStatus.IllegalInstruction;
-                        return DokanResult.Unsuccessful;
-                    }
-                    */
-
                     var toRead = Math.Min(stream.FileEntry.Length - offset, buffer.Length);
                     if (!Environment.Is64BitOperatingSystem)
                     {
@@ -326,9 +308,16 @@ namespace libDokan
                     toRead = Math.Max(toRead, 0);   //reads beyond EOF would otherwise produce a negative count
 
                     stream.Stream.Position = offset;
+                    return stream.Stream.ReadAtLeast(buffer, (int)toRead, false);
+                }
 
-                    //bytesRead = stream.Read(buffer, 0, (int)toRead);
-                    bytesRead = stream.Stream.ReadAtLeast(buffer, (int)toRead, false);
+                //A per-handle stream only needs to guard concurrent reads on the SAME handle, so lock the
+                //per-handle wrapper - different handles to the same file then run in parallel. A shared
+                //stream (one per file across every handle) must serialize on the FileEntry instead.
+                var readLock = stream.FileEntry.CreatesNewStreamPerCall ? stream.ReadLock : stream.FileEntry.ReadLock;
+                lock (readLock)
+                {
+                    bytesRead = DoRead();
                 }
             }
             return Trace(nameof(ReadFile), fileName, info, DokanResult.Success, "out " + bytesRead.ToString(),
@@ -667,5 +656,9 @@ namespace libDokan
     {
         public required FileEntry FileEntry;
         public required Stream Stream;
+
+        //per-handle lock: serializes concurrent reads on THIS handle's stream, without blocking other
+        //handles to the same file (used when the entry hands out a fresh stream per open handle)
+        public readonly object ReadLock = new();
     }
 }
