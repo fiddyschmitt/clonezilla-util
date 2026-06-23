@@ -30,7 +30,7 @@ namespace libClonezilla.Decompressors
         public override Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
-            var result = new BZip2Stream(CompressedStream, SharpCompress.Compressors.CompressionMode.Decompress, false);
+            var result = BZip2Stream.Create(CompressedStream, SharpCompress.Compressors.CompressionMode.Decompress, false);
 
             return result;
         }

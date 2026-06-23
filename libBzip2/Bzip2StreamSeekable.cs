@@ -95,11 +95,10 @@ namespace libBzip2
             var fileHeaderContent = new MemoryStream(FileHeader);
             var fullBlockContent = new Multistream([fileHeaderContent, compressedContent]);
 
-
             //determine where we should start reading in the substream
             var positionInBlock = Position - block.UncompressedStartByte;
 
-            var decompressor = new BZip2Stream(fullBlockContent, SharpCompress.Compressors.CompressionMode.Decompress, false);
+            var decompressor = BZip2Stream.Create(fullBlockContent, SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
 
             //read and discard anything before it
             if (positionInBlock > 0)
@@ -151,16 +150,10 @@ namespace libBzip2
                                 independentStream.CopyTo(compressedContent, block.End - block.Start, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
                                 compressedContent.Seek(0, SeekOrigin.Begin);
 
-
                                 var fileHeaderContent = new MemoryStream(FileHeader);
                                 var fullBlockContent = new Multistream([fileHeaderContent, compressedContent]);
 
-                                //var blockMD5 = Utility.CalculateMD5(fullBlockContent);
-                                //Debug.WriteLine($"Block at {block.Start:N0} - {block.End:N0}: {blockMD5}");
-                                //fullBlockContent.Seek(0, SeekOrigin.Begin);
-
-
-                                using var bzip2Decompressor = new BZip2Stream(fullBlockContent, SharpCompress.Compressors.CompressionMode.Decompress, false);
+                                using var bzip2Decompressor = BZip2Stream.Create(fullBlockContent, SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
 
                                 var blockUncompressedLength = 0L;
                                 if (!ProcessTrailingNulls && block.IsLast)

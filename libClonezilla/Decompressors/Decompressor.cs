@@ -31,7 +31,7 @@ namespace libClonezilla.Decompressors
 
             var decompressors = new (Compression Compression, Func<Stream> Stream)[]
             {
-                (Compression.bzip2, () => new BZip2Stream(compressedStream, SharpCompress.Compressors.CompressionMode.Decompress, false)),
+                (Compression.bzip2, () => BZip2Stream.Create(compressedStream, SharpCompress.Compressors.CompressionMode.Decompress, false)),
                 (Compression.Gzip, () => new GZipStream(compressedStream, CompressionMode.Decompress)),
                 (Compression.xz, () => new XZStream(compressedStream)),
                 (Compression.Zstandard, () => new DecompressionStream(compressedStream)),

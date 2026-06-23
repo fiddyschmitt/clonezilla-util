@@ -23,7 +23,7 @@ namespace libClonezilla.Decompressors
         public override Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
-            var result = new LZipStream(CompressedStream, SharpCompress.Compressors.CompressionMode.Decompress);
+            var result = LZipStream.Create(CompressedStream, SharpCompress.Compressors.CompressionMode.Decompress);
             return result;
         }
     }

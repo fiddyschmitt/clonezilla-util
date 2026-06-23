@@ -8,7 +8,10 @@
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-    <PackageReference Include="SharpCompress" Version="0.37.0" />
+    <!-- TEMP: locally-built patched SharpCompress (adds BZip2 tolerateTruncatedStream for seekable
+         bzip2), served from the local feed in ..\nuget.config. Switch back to the official NuGet
+         version once the upstream PR is merged + released. -->
+    <PackageReference Include="SharpCompress" Version="0.49.1-localbzip2patch" />
   </ItemGroup>
 
   <ItemGroup>
