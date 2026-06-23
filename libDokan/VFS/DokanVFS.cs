@@ -193,20 +193,13 @@ namespace libDokan
                     return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
                         DokanResult.PathNotFound);
                 }
-                /*
                 catch (Exception ex)
                 {
-                    var hr = (uint)Marshal.GetHRForException(ex);
-                    switch (hr)
-                    {
-                        case 0x80070020: //Sharing violation
-                            return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
-                                DokanResult.SharingViolation);
-                        default:
-                            throw;
-                    }
+                    //never let an exception escape a Dokan callback - it surfaces to the app as 0x800705AA
+                    Log.Error(ex, $"CreateFile failed opening a stream for '{fileName}'.");
+                    return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
+                        DokanResult.Error);
                 }
-                */
             }
             return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
                 result);
@@ -259,6 +252,12 @@ namespace libDokan
         {
             //Console.WriteLine($"ReadFile {buffer.Length:N0} bytes: {fileName}");
 
+            bytesRead = 0;
+
+            // A Dokan callback must never throw: an unhandled exception becomes a generic driver failure
+            // that surfaces to the calling app as 0x800705AA (ERROR_NO_SYSTEM_RESOURCES). Return a status.
+            try
+            {
             if (info.Context == null) // memory mapped read
             {
                 var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId);
@@ -284,12 +283,12 @@ namespace libDokan
                 }
                 else
                 {
-                    throw new Exception($"Could not create stream for: {fileName}");
+                    return Trace(nameof(ReadFile), fileName, info, DokanResult.FileNotFound);
                 }
             }
             else // normal read
             {
-                if (info.Context is not FileEntryStream stream) throw new Exception("info.Context stream was null");
+                if (info.Context is not FileEntryStream stream) return Trace(nameof(ReadFile), fileName, info, DokanResult.Unsuccessful);
 
                 //lock on the FileEntry (not the per-handle wrapper), because GetStream() can return one
                 //shared stream for every open handle of this file
@@ -334,6 +333,14 @@ namespace libDokan
             }
             return Trace(nameof(ReadFile), fileName, info, DokanResult.Success, "out " + bytesRead.ToString(),
                 offset.ToString(CultureInfo.InvariantCulture));
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, $"ReadFile failed for '{fileName}' at offset {offset}.");
+                bytesRead = 0;
+                return Trace(nameof(ReadFile), fileName, info, DokanResult.Error,
+                    offset.ToString(CultureInfo.InvariantCulture));
+            }
         }
 
         public NtStatus WriteFile(string fileName, byte[] buffer, out int bytesWritten, long offset, IDokanFileInfo info)
@@ -366,7 +373,14 @@ namespace libDokan
 
             // may be called with info.Context == null, but usually it isn't
 
-            var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId) ?? throw new Exception($"Could not traverse to: {fileName}");
+            fileInfo = default;
+
+            var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId);
+            if (fileSystemEntry == null)
+            {
+                return Trace(nameof(GetFileInformation), fileName, info, DokanResult.FileNotFound);
+            }
+
             fileInfo = fileSystemEntry.ToFileInformation();
 
             return Trace(nameof(GetFileInformation), fileName, info, DokanResult.Success);
@@ -376,9 +390,17 @@ namespace libDokan
         {
             // This function is not called because FindFilesWithPattern is implemented
             // Return DokanResult.NotImplemented in FindFilesWithPattern to make FindFiles called
-            files = FindFilesHelper(fileName, "*", info.ProcessId);
-
-            return Trace(nameof(FindFiles), fileName, info, DokanResult.Success);
+            try
+            {
+                files = FindFilesHelper(fileName, "*", info.ProcessId);
+                return Trace(nameof(FindFiles), fileName, info, DokanResult.Success);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, $"FindFiles failed for '{fileName}'.");
+                files = Array.Empty<FileInformation>();
+                return Trace(nameof(FindFiles), fileName, info, DokanResult.Error);
+            }
         }
 
         public NtStatus SetFileAttributes(string fileName, FileAttributes attributes, IDokanFileInfo info)
@@ -589,9 +611,17 @@ namespace libDokan
         public NtStatus FindFilesWithPattern(string fileName, string searchPattern, out IList<FileInformation> files,
             IDokanFileInfo info)
         {
-            files = FindFilesHelper(fileName, searchPattern, info.ProcessId);
-
-            return Trace(nameof(FindFilesWithPattern), fileName, info, DokanResult.Success);
+            try
+            {
+                files = FindFilesHelper(fileName, searchPattern, info.ProcessId);
+                return Trace(nameof(FindFilesWithPattern), fileName, info, DokanResult.Success);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, $"FindFilesWithPattern failed for '{fileName}' (pattern '{searchPattern}').");
+                files = Array.Empty<FileInformation>();
+                return Trace(nameof(FindFilesWithPattern), fileName, info, DokanResult.Error);
+            }
         }
 
         public static void Test()
