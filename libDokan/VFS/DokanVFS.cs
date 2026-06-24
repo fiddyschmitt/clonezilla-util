@@ -12,6 +12,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
+using System.Threading;
 using static DokanNet.FormatProviders;
 using static libDokan.VFS.Folders.Folder;
 using FileAccess = DokanNet.FileAccess;
@@ -248,11 +249,34 @@ namespace libDokan
             Trace(nameof(CloseFile), fileName, info, DokanResult.Success);
         }
 
+        //Dokan abandons an operation that outlives options.TimeOut (surfacing to the app as 0x800705AA,
+        //and at the threshold it can unmount the volume). A few reads are genuinely slow - a heavily
+        //fragmented file (e.g. a log) scatters its clusters across the partition, so reading it seeks all
+        //over the compressed stream and can take tens of seconds. For those, keep the operation alive by
+        //extending its deadline while it runs, capped so a true hang still eventually fails.
+        static readonly TimeSpan TimeoutWatchdogInterval = TimeSpan.FromSeconds(10);   //tick well inside the 20s timeout
+        const int TimeoutWatchdogExtensionMs = 20_000;                                 //push the deadline out by this each tick
+        static readonly long TimeoutWatchdogMaxMs = (long)TimeSpan.FromMinutes(10).TotalMilliseconds;
+
+        static IDisposable StartTimeoutWatchdog(IDokanFileInfo info)
+        {
+            var startedTick = Environment.TickCount64;
+            return new Timer(_ =>
+            {
+                if (Environment.TickCount64 - startedTick > TimeoutWatchdogMaxMs) return; //stop extending a runaway op
+                try { info.TryResetTimeout(TimeoutWatchdogExtensionMs); } catch { }
+            }, null, TimeoutWatchdogInterval, TimeoutWatchdogInterval);
+        }
+
         public NtStatus ReadFile(string fileName, byte[] buffer, out int bytesRead, long offset, IDokanFileInfo info)
         {
             //Console.WriteLine($"ReadFile {buffer.Length:N0} bytes: {fileName}");
 
             bytesRead = 0;
+
+            //extend the Dokan deadline if this read runs long (some fragmented files are genuinely slow).
+            //A fast read disposes the watchdog before its first tick, so the common path pays nothing.
+            using var watchdog = StartTimeoutWatchdog(info);
 
             // A Dokan callback must never throw: an unhandled exception becomes a generic driver failure
             // that surfaces to the calling app as 0x800705AA (ERROR_NO_SYSTEM_RESOURCES). Return a status.
