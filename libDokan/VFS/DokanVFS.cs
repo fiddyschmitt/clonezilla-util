@@ -254,18 +254,43 @@ namespace libDokan
         //fragmented file (e.g. a log) scatters its clusters across the partition, so reading it seeks all
         //over the compressed stream and can take tens of seconds. For those, keep the operation alive by
         //extending its deadline while it runs, capped so a true hang still eventually fails.
-        static readonly TimeSpan TimeoutWatchdogInterval = TimeSpan.FromSeconds(10);   //tick well inside the 20s timeout
+        //
+        //A drive-image tree-walk issues millions of tiny fast reads, so we must NOT allocate a Timer per
+        //read (alloc + schedule + dispose, each taking the global timer-queue lock - measured as the single
+        //biggest cost of these reads). Instead ONE free-running timer watches a registry of in-flight reads:
+        //a fast read enters and leaves the registry between ticks and is never touched, paying only a
+        //dictionary insert/remove. The timer only ever extends reads still running at a tick = the slow ones.
         const int TimeoutWatchdogExtensionMs = 20_000;                                 //push the deadline out by this each tick
+        static readonly TimeSpan TimeoutWatchdogInterval = TimeSpan.FromSeconds(5);    //tick well inside the 20s timeout
         static readonly long TimeoutWatchdogMaxMs = (long)TimeSpan.FromMinutes(10).TotalMilliseconds;
 
-        static IDisposable StartTimeoutWatchdog(IDokanFileInfo info)
+        static readonly ConcurrentDictionary<long, (IDokanFileInfo Info, long StartedTick)> InFlightReads = new();
+        static long inFlightReadIdSeq;
+
+        static readonly Timer TimeoutWatchdog = new(_ =>
         {
-            var startedTick = Environment.TickCount64;
-            return new Timer(_ =>
+            if (InFlightReads.IsEmpty) return;
+            var now = Environment.TickCount64;
+            foreach (var read in InFlightReads.Values)
             {
-                if (Environment.TickCount64 - startedTick > TimeoutWatchdogMaxMs) return; //stop extending a runaway op
-                try { info.TryResetTimeout(TimeoutWatchdogExtensionMs); } catch { }
-            }, null, TimeoutWatchdogInterval, TimeoutWatchdogInterval);
+                var elapsed = now - read.StartedTick;
+                if (elapsed > TimeoutWatchdogMaxMs) continue;   //runaway op - stop extending so it finally fails
+                try { read.Info.TryResetTimeout(TimeoutWatchdogExtensionMs); } catch { }
+            }
+        }, null, TimeoutWatchdogInterval, TimeoutWatchdogInterval);
+
+        //Registers the current read with the shared watchdog for its duration; Dispose() unregisters it.
+        //The handle is a struct, so `using var` disposes it with no allocation.
+        static WatchdogRegistration StartTimeoutWatchdog(IDokanFileInfo info)
+        {
+            var id = Interlocked.Increment(ref inFlightReadIdSeq);
+            InFlightReads[id] = (info, Environment.TickCount64);
+            return new WatchdogRegistration(id);
+        }
+
+        readonly struct WatchdogRegistration(long id) : IDisposable
+        {
+            public void Dispose() => InFlightReads.TryRemove(id, out _);
         }
 
         public NtStatus ReadFile(string fileName, byte[] buffer, out int bytesRead, long offset, IDokanFileInfo info)
@@ -275,7 +300,8 @@ namespace libDokan
             bytesRead = 0;
 
             //extend the Dokan deadline if this read runs long (some fragmented files are genuinely slow).
-            //A fast read disposes the watchdog before its first tick, so the common path pays nothing.
+            //Just registers with the shared watchdog (a dictionary insert/remove); a fast read is gone
+            //before the next tick, so the common path pays no Timer alloc.
             using var watchdog = StartTimeoutWatchdog(info);
 
             // A Dokan callback must never throw: an unhandled exception becomes a generic driver failure
