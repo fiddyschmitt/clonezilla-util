@@ -547,7 +547,41 @@ forever):
 
 - **Restore everything to HEAD:** `git checkout HEAD -- libClonezilla/Extractors/ libDokan/VFS/DokanVFS.cs`
 
-## Investigation I0 — gz seekable decode spawns gztool per read  (flagged 2026-06-25, DO BEFORE Batch 6)
+## Investigation I0 — gz seekable decode spawns gztool per read  (flagged 2026-06-25, **DONE 2026-07-10** — awaiting 10h suite)
+
+**Implemented option 1: in-process zran reads using gztool's existing index.** gztool remains the
+index *builder* (unchanged, reliable); the per-read `gztool.exe` subprocess is gone. Design:
+
+- `libGZip/GztoolIndex.cs` — parses gztool's binary `.gzi` (v0/v1, big-endian; format from gztool
+  v1.8.2's `serialize_index_to_file()`). Windows (≤32 KB each, zlib-compressed in the file) are
+  loaded **lazily by file offset** — a TB-scale image has 100k+ points; materialising every window
+  would cost GBs. Also replaces the `gztool -ll` text-scrape (`GetIndexContent`) as the mapping
+  source (that path remains as fallback).
+- `libGZip/Vendored/SharpZipLib/` — vendored SharpZipLib v1.4.2 inflater (MIT, provenance in its
+  README.md) with two small additions: `StreamManipulator.PrimeBits()` (zlib `inflatePrime`
+  equivalent) and `Inflater.PrimeForResume()` (raw-mode `inflateSetDictionary` + prime). Needed
+  because **no BCL/NuGet inflater can resume mid-stream**: DeflateStream exposes neither primitive
+  (and a bit-shifted input stream is NOT a valid substitute — stored blocks re-align to the original
+  byte grid, discovered the hard way), and ZLibDotNet 0.1.1 (right API) **mis-decodes real DEFLATE
+  streams** (`invalid code -- missing end-of-block` mid-stream; worth reporting upstream).
+- `libGZip/ZranInflate.cs` — the zran pump: position at `in` (or `in-1` + prime the split bits),
+  preload the window, inflate directly into the caller's buffer (discard-skip for mid-chunk starts).
+- `GZipStreamSeekable` — mappings built from the parsed points; `ReadFromChunk` serves in-process
+  first and **falls back to the old gztool-subprocess path automatically** (unparseable index at
+  ctor → whole stream falls back; per-read decode failure/zero bytes, e.g. a multi-member gzip whose
+  member ends inside a span → that read falls back). The brittle `bytesRead != bytesToRead` hard-fail
+  (jboss xsd copy failure; ext4_lvm test hang) is out of the read path entirely.
+
+**Verification (scratchpad `zranproto` harness):** synthetic 64 MB gz (text/random/zeros/pattern
+regions — random regions force stored blocks) indexed by the repo's gztool: parsed points match
+`gztool -ll` 7/7 exactly; per-point, block-span, point-edge and 300 random reads through the real
+`GZipStreamSeekable` all **byte-perfect vs reference**, including 10.7 MB decodes crossing stored
+blocks from bits≠0 points. **Production data:** the real `sda2.ntfs-ptcl-img.gz` index (4,317
+points, 45.4 GB uncompressed, bits 0-7 all ~430×): 12 random cross-point checks
+(direct-resume vs decode-through-from-previous-point) byte-identical; ~54 MB/s decompressed per
+cold ~10 MB span in-process. Full 74-test suite still pending (the gate).
+
+Original notes:
 
 The gz seekable path is **not in-process**: `SeekableDecompressingStream.ReadFromChunk` (for gz, via
 `GZipStreamSeekable`) shells out to an **external `gztool` process per cache-miss read**
