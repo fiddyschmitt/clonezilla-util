@@ -42,6 +42,12 @@ namespace libClonezilla.Cache
             return result;
         }
 
+        public string GetZstdIndexFilename()
+        {
+            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.zstd_index.zsi");
+            return result;
+        }
+
 
 
         public List<ArchiveEntry>? GetFileList()

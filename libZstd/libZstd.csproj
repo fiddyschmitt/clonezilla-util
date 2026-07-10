@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <!-- ZstdSharp's low-level (transpiled zstd) API is pointer-based -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DebugType>full</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Managed port of zstd. Used (instead of the app's ZstdNet native wrapper) because random-access
+         resume needs the advanced decompression API: ZSTD_DCtx_refPrefix + block-granular streaming,
+         which ZstdNet does not expose. ZstdNet remains the sequential/train decoder elsewhere. -->
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
+    <PackageReference Include="Serilog" Version="4.3.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\libCommon\libCommon.csproj" />
+    <ProjectReference Include="..\libDecompression\libDecompression.csproj" />
+  </ItemGroup>
+
+</Project>

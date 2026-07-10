@@ -29,6 +29,7 @@
     <ProjectReference Include="..\libGZip\libGZip.csproj" />
     <ProjectReference Include="..\libPartclone\libPartclone.csproj" />
     <ProjectReference Include="..\libTrainCompress\libTrainCompress.csproj" />
+    <ProjectReference Include="..\libZstd\libZstd.csproj" />
   </ItemGroup>
 
 </Project>

@@ -725,7 +725,44 @@ formats.
   and its discard is bounded by block size (already less pathological than gz on scattered reads). (C)/(E)
   help gz and bzip2.
 
-## Batch 7 — In-memory seekable zstd (ZstdSharp prefix-resume)  (flagged 2026-06-24, NOT yet done)
+## Batch 7 — In-memory seekable zstd (ZstdSharp prefix-resume)  (flagged 2026-06-24, **DONE 2026-07-10** — awaiting suite)
+
+**Implemented.** New `libZstd` project gives standard (non-seekable-format) zstd streams the same
+in-memory random-access treatment as gz/bzip2, so large zstd partitions no longer extract to the
+on-disk `cache.train`:
+
+- **The zstd-specific hard part:** a zstd block can depend on decoder state beyond the 2 MB window —
+  repeat offsets and entropy tables carried from earlier blocks — so unlike gzip, an arbitrary block
+  boundary is NOT a safe resume point. Measured on real Clonezilla output: ~88% of boundaries resume
+  correctly via [synthetic frame header + `ZSTD_DCtx_refPrefix(window)`]; the rest diverge, sometimes
+  SILENTLY and **deep** (a long RLE/zero run neither uses nor updates repeat-offset state, so stale
+  state can surface only megabytes later — observed on real data).
+- **Correctness is therefore empirical, and the index bakes it in:** `ZstdSeekableIndex` builds by one
+  sequential block-fed decode (ZstdSharp), arming a candidate point every ~64 MB and trial-decoding
+  4 MB inline through a shadow decoder; accepted candidates are then **verified across their whole
+  span** (parallel pass, piecewise MD5 vs the true decode at every candidate boundary). A point whose
+  span diverges anywhere is **dropped and its predecessor re-verified over the merged span** — healing
+  terminates because a frame-start resume IS the true decode (sound at any depth). If verification
+  cannot converge, no index is produced and `DecompressorSelector` falls back to extraction as before.
+- **Serving:** `ZstdStreamSeekable` (layer 3, like `GZipStreamSeekable`); reads are **clamped to their
+  verified span** (state past a span's end is unproven — only output within it). Windows live
+  zstd-compressed in the `.zsi` index file, loaded lazily (2 MB each; sparse windows shrink to ~KBs).
+  `GetRecommendation` returns 32 MB-aligned sub-spans so the CachingStream above stays within
+  Batch 6 (E)'s pooled-buffer sizes.
+- **Wiring:** `ZstdDecompressor.GetSeekableStream()` via `IPartitionCache.GetZstdIndexFilename()`
+  (`<partition>.zstd_index.zsi`). ZstdNet remains the sequential/train decoder; ZstdSharp (managed
+  port) is used only where the advanced API is required.
+- **Validated (scratchpad `zstproto`):** feasibility bench (88.5% boundary yield, divergences caught);
+  end-to-end vs in-RAM ground truth on real images sdb1 (345 MB uncompressed: block starts, edges,
+  cross-chunk reads, 200 random reads, reload-from-disk, sequential full-read MD5 — ALL PASS) and
+  sda1 (417 MB, nearly incompressible: ALL PASS; index 12.5 MB); 19.9 GB sda2 build-only at scale
+  (internal piecewise verification is itself byte-exact vs the true decode).
+- **Deferred as before:** xz / lz4 / lzip (see below); the 2 TB zst **drive image** will also index
+  (data-region windows dominate index size; null-tail windows compress to ~nothing).
+- **Known v1 limitation:** during index BUILD the compressed windows are held in RAM until saved —
+  for the 2 TB drive image that could transiently reach ~8 GB (one-time, build only; serving loads
+  windows lazily from disk). If the suite shows pressure, the queued fix is spilling windows to the
+  `.wip` index file as pass 1 goes.
 
 > **Refer to this as "Batch 7".** Complements Batch 6; honours the same HARD CONSTRAINT (no disk
 > materialisation of decompressed data). **Scope is zstd only** — xz / lz4 / lzip are deferred (see the end).

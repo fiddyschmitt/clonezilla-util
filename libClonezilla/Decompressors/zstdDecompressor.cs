@@ -1,5 +1,7 @@
-﻿using libCommon;
+﻿using libClonezilla.Cache;
+using libCommon;
 using libCommon.Streams.Seekable;
+using libZstd;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -13,13 +15,25 @@ namespace libClonezilla.Decompressors
 {
     public class ZstdDecompressor : Decompressor
     {
-        public ZstdDecompressor(Stream compressedStream) : base(compressedStream)
-        {
+        public IPartitionCache? PartitionCache { get; }
 
+        public ZstdDecompressor(Stream compressedStream, IPartitionCache? partitionCache) : base(compressedStream)
+        {
+            PartitionCache = partitionCache;
         }
 
         public override Stream? GetSeekableStream()
         {
+            if (PartitionCache != null)
+            {
+                //in-memory random access via an index of verified resume points (window snapshots),
+                //instead of extracting the whole stream to an on-disk cache. Returns null (falling
+                //through to the extraction path) if this particular stream can't be reliably indexed.
+                var indexFilename = PartitionCache.GetZstdIndexFilename();
+                var seekable = ZstdStreamSeekable.TryCreate(CompressedStream, indexFilename);
+                if (seekable != null) return seekable;
+            }
+
             return null;
             //For now, let's extract it to a file so that we can have fast seeking
             /*
