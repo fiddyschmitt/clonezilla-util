@@ -763,6 +763,17 @@ on-disk `cache.train`:
   for the 2 TB drive image that could transiently reach ~8 GB (one-time, build only; serving loads
   windows lazily from disk). If the suite shows pressure, the queued fix is spilling windows to the
   `.wip` index file as pass 1 goes.
+- **Follow-up (2026-07-10): drive images wired into the index paths too.** The bare drive-image flow
+  (`CompressedImage`, e.g. `sda.img.gz`/`.img.zst`) passed no partition cache, so gz/zstd couldn't
+  reach their index machinery there and ALWAYS train-extracted (gz drive listing was a 2 TB
+  extraction all along). `DecompressorSelector` now synthesizes a `PartitionCache` rooted in the same
+  whole-file hash folder the extraction cache uses (identical key → existing folders stay valid)
+  whenever none was provided and the format is gz/zstd. Found+fixed in the same change: the hash
+  helper left the compressed stream mid-position, which fed gztool a headless stream and produced a
+  corrupt index (also revealed stdin-built gztool indexes are format v1 — parser handles both).
+  Smoke-tested end-to-end on `sda1.img.gz`: index built (137 points), parsed in-process, listing
+  correct, index reused on second run. Expect `ListContents.LargeDriveImages` Gz and Zst to change
+  behaviour: index build replaces train extraction.
 
 > **Refer to this as "Batch 7".** Complements Batch 6; honours the same HARD CONSTRAINT (no disk
 > materialisation of decompressed data). **Scope is zstd only** — xz / lz4 / lzip are deferred (see the end).

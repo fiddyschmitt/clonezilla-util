@@ -118,6 +118,22 @@ namespace libClonezilla.Decompressors
             {
                 Log.Information($"{StreamName} Using a seekable decompressor for this data.");
 
+                //gz and zstd have in-memory random-access support, but need somewhere to keep their
+                //index file. Flows that serve whole (drive) images provide no partition cache, so
+                //synthesize one rooted in the same whole-file cache folder the extraction fallback
+                //uses - this is what lets drive images use the gztool/zstd indexes instead of
+                //extracting the entire decompressed image to disk.
+                if (PartitionCache == null && CompressionInUse is Compression.Gzip or Compression.Zstandard)
+                {
+                    var synthesizedCache = new PartitionCache(GetWholeFileCacheFolder(), StreamName);
+                    Decompressor = CompressionInUse switch
+                    {
+                        Compression.Gzip => new GzDecompressor(CompressedStream, synthesizedCache),
+                        Compression.Zstandard => new ZstdDecompressor(CompressedStream, synthesizedCache),
+                        _ => Decompressor,
+                    };
+                }
+
                 var seekableStream = Decompressor.GetSeekableStream();
 
                 if (seekableStream == null)
@@ -125,16 +141,7 @@ namespace libClonezilla.Decompressors
                     uncompressedStream = Stream.Null;
                     Log.Information($"{StreamName} uses {CompressionInUse} compression, which is not seekable. Extracting first.");
 
-                    //we have to come up with a unique string to represent this stream, without reading the whole stream.
-                    var streamForHashing = Decompressor.GetSequentialStream();
-                    var beginningOfFile = new byte[50 * 1024 * 1024];
-                    //a single Read() can return fewer bytes than requested (and how many is not deterministic), which would make the cache key vary from run to run
-                    streamForHashing.ReadAtLeast(beginningOfFile, beginningOfFile.Length, throwOnEndOfStream: false);
-                    var md5 = libCommon.Utility.CalculateMD5(beginningOfFile);
-                    md5 = libCommon.Utility.CalculateMD5(Encoding.UTF8.GetBytes($"{md5} {StreamName} {CompressedStream.Length}"));
-                    var cacheFolder = Path.Combine(WholeFileCacheManager.RootCacheFolder, md5);
-                    Directory.CreateDirectory(cacheFolder);
-
+                    var cacheFolder = GetWholeFileCacheFolder();
                     var cachedFilename = Path.Combine(cacheFolder, "cache.train");
 
                     var compressors = new List<libTrainCompress.Compressors.Compressor>()
@@ -239,7 +246,7 @@ namespace libClonezilla.Decompressors
                                 }
                             }).ToString();
 
-                            var metadataFilename = Path.Combine(WholeFileCacheManager.RootCacheFolder, md5, "metadata.json");
+                            var metadataFilename = Path.Combine(cacheFolder, "metadata.json");
                             File.WriteAllText(metadataFilename, metadataJson);
                         }
                         else
@@ -283,6 +290,30 @@ namespace libClonezilla.Decompressors
             }
 
             return uncompressedStream;
+        }
+
+        /// <summary>
+        /// Identity folder for a whole (unnamed) stream without reading all of it: MD5 of the first
+        /// 50 MB of DECOMPRESSED content, salted with the stream name and compressed length. This is
+        /// the exact key the extraction cache has always used, so existing cache folders stay valid;
+        /// the gz/zstd index files synthesized for cache-less flows land in the same folder.
+        /// </summary>
+        string GetWholeFileCacheFolder()
+        {
+            var streamForHashing = Decompressor.GetSequentialStream();
+            var beginningOfFile = new byte[50 * 1024 * 1024];
+            //a single Read() can return fewer bytes than requested (and how many is not deterministic), which would make the cache key vary from run to run
+            streamForHashing.ReadAtLeast(beginningOfFile, beginningOfFile.Length, throwOnEndOfStream: false);
+            var md5 = libCommon.Utility.CalculateMD5(beginningOfFile);
+            md5 = libCommon.Utility.CalculateMD5(Encoding.UTF8.GetBytes($"{md5} {StreamName} {CompressedStream.Length}"));
+            var cacheFolder = Path.Combine(WholeFileCacheManager.RootCacheFolder, md5);
+            Directory.CreateDirectory(cacheFolder);
+
+            //hashing consumed part of the compressed stream; downstream consumers (e.g. the gzip
+            //index build, which pipes the stream to gztool from its CURRENT position) must start at 0
+            CompressedStream.Seek(0, SeekOrigin.Begin);
+
+            return cacheFolder;
         }
 
         public override Stream GetSequentialStream()
