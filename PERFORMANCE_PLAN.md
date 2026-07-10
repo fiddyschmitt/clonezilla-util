@@ -683,7 +683,11 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
   (pool over-allocation); all access is Start/End-bounded. The short-read `Array.Resize` copy is gone
   too. I0's `ZranInflate` was born pooled. (gz/bzip2 per-read wrapper allocations = P10, still
   deliberately left.)
-- **Free win (not a stream change):** skip `pagefile.sys` / `hiberfil.sys` / `swapfile.sys` (huge, useless).
+- [ ] **Free win (not a stream change):** skip `pagefile.sys` / `hiberfil.sys` / `swapfile.sys` (huge,
+  useless). **Deliberately NOT implemented as a silent default (2026-07-10):** hiding real files from
+  the mounted view trades data fidelity for copy speed — wrong call for a tool people may use
+  forensically. If wanted, do it as an opt-in CLI flag (e.g. `--exclude-system-files`); needs a
+  product decision.
 
 ### Grouping / sequencing
 - **Memory-safety (stops the errors), near-term:** **(A)** — bounded, low-risk. Plus the pagefile exclusion.
