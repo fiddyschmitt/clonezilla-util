@@ -35,6 +35,19 @@ namespace libCommon.Streams
         //LimitByRAMUsage eviction loop doesn't recompute cache.Sum(...) on each iteration
         long currentCacheSizeBytes = precapturedCache?.Sum(c => c.Length) ?? 0;
 
+        //CacheLimitValue used to be a PER-INSTANCE budget, so mounting N partitions (each wrapped in
+        //a ¼-RAM cache) could commit N×¼ of system RAM and exhaust the machine (measured: free RAM
+        //fell to ~400 MB on a 3-partition mount). LimitByRAMUsage instances now split their declared
+        //budget evenly: each keeps at most CacheLimitValue ÷ (live instances). All current callers
+        //pass the same ¼-RAM value, so the TOTAL stays ≤ ¼ RAM regardless of partition count, with
+        //no cross-instance locking (each instance still evicts only from its own LRU list). An
+        //instance that is never Close()d keeps its slot reserved - that errs towards using LESS
+        //memory, never more.
+        static int liveRamLimitedCaches;
+        readonly bool countedAsRamLimited = cacheType == EnumCacheType.LimitByRAMUsage
+            && System.Threading.Interlocked.Increment(ref liveRamLimitedCaches) > 0;
+        bool closed;
+
         public IList<CacheEntry> GetCacheContents()
         {
             var result = cache.AsReadOnly();
@@ -167,19 +180,22 @@ namespace libCommon.Streams
 
                     case EnumCacheType.LimitByRAMUsage:
 
+                        //this instance's share of the declared budget (see liveRamLimitedCaches above)
+                        var effectiveLimitInMegabytes = CacheLimitValue / Math.Max(1, liveRamLimitedCaches);
+
                         var newEntrySizeInMegabytes = (int)(cacheEntry.Length / (double)(1024 * 1024));
 
                         while (true)
                         {
                             var currentCacheSizeInMegabytes = (int)(currentCacheSizeBytes / (double)(1024 * 1024));
 
-                            if (newEntrySizeInMegabytes > CacheLimitValue)
+                            if (newEntrySizeInMegabytes > effectiveLimitInMegabytes)
                             {
                                 addToCache = false;
                                 break;
                             }
 
-                            if (currentCacheSizeInMegabytes + newEntrySizeInMegabytes <= CacheLimitValue)
+                            if (currentCacheSizeInMegabytes + newEntrySizeInMegabytes <= effectiveLimitInMegabytes)
                             {
                                 addToCache = true;
                                 break;
@@ -265,8 +281,17 @@ namespace libCommon.Streams
 
         public override void Close()
         {
-            cache.Clear();
-            currentCacheSizeBytes = 0;
+            lock (cacheLock)
+            {
+                cache.Clear();
+                currentCacheSizeBytes = 0;
+
+                if (countedAsRamLimited && !closed)
+                {
+                    closed = true;
+                    System.Threading.Interlocked.Decrement(ref liveRamLimitedCaches);
+                }
+            }
         }
     }
 

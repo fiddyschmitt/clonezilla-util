@@ -657,10 +657,12 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
 [ 1] FileStream × N (sda2.…ptcl-img.gz.aa/.ab/…)
 ```
 
-- **(A) Global cache budget** — layer 4 + sizing in `DecompressorSelector.cs:280`. Share one ¼-RAM budget
-  across all partitions (simplest: ¼ RAM ÷ partition-count, since all caches are created at mount; better: a
-  cross-partition LRU that evicts a finished partition's blocks to feed the active one). **Fixes root #1**
-  (the exhaustion / `0x800705AA`). Near-term safety fix. Tension: shrinks each cache → more misses → leans on (B)/(E).
+- [x] **(A) Global cache budget** — **DONE 2026-07-10 (awaiting suite).** `CachingStream` now tracks a
+  process-wide count of live `LimitByRAMUsage` instances; each caps itself at
+  `CacheLimitValue ÷ liveCount` (all callers pass ¼ RAM, so the TOTAL stays ≤ ¼ RAM regardless of
+  partition count — was N×¼). No cross-instance locking (each instance evicts only its own LRU);
+  never-Close()d instances err toward LESS memory. Fixes root #1 (exhaustion → paging → 0x800705AA /
+  machine unusability). Tension stands: shrinks each cache → more misses → leans on (B)/(E).
 - **(B) Denser gztool checkpoints** — layer 3 (index build in `GZipStreamSeekable`). More access points →
   less decompress-per-cold-seek → faster scattered reads **and** far less discard garbage. Highest-leverage
   for root #2. Tension: bigger index (disk + the index windows held in memory — still in-memory, just more).
