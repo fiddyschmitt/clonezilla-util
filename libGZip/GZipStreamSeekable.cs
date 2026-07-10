@@ -15,6 +15,13 @@ namespace libGZip
 
         public static string GZTOOL_EXE => Utility.Absolutify("ext/gztool/win-x86_64/gztool-Windows.x86_64.exe");
 
+        //Span (uncompressed MiB) between index access points; gztool's default is 10. A cold read costs
+        //on average half a span of decode-and-discard from the nearest point, so denser points directly
+        //multiply scattered-read throughput (the fragmented-file pathology) at the cost of a bigger
+        //on-disk index (~2.5x: e.g. 68 MB -> ~180 MB for a 45 GB partition; point windows are loaded
+        //lazily, so resident memory is unaffected). Existing cached indexes keep their original density.
+        const int IndexSpanMiB = 4;
+
         public GZipStreamSeekable(Stream compressedStream, string tempIndexFilename, string indexFilename)
         {
             CompressedStream = compressedStream;
@@ -33,7 +40,7 @@ namespace libGZip
 
                 Log.Information($"Resuming gzip index creation.");
 
-                ProcessUtility.ExecuteProcess(GZTOOL_EXE, $"-n {lastIndexedCompressedStartByte - 1} -I \"{tempIndexFilename}\"", compressedStream, null, 0,
+                ProcessUtility.ExecuteProcess(GZTOOL_EXE, $"-s {IndexSpanMiB} -n {lastIndexedCompressedStartByte - 1} -I \"{tempIndexFilename}\"", compressedStream, null, 0,
                     progress =>
                     {
                         var percentThroughCompressedSource = (double)compressedStream.Position / compressedStream.Length * 100;
@@ -52,7 +59,7 @@ namespace libGZip
                     //var startTime = DateTime.Now;
 
                     Log.Information($"Generating gzip index.");
-                    ProcessUtility.ExecuteProcess(GZTOOL_EXE, $"-I \"{tempIndexFilename}\"", compressedStream, null, 0,
+                    ProcessUtility.ExecuteProcess(GZTOOL_EXE, $"-s {IndexSpanMiB} -I \"{tempIndexFilename}\"", compressedStream, null, 0,
                          progress =>
                          {
                              var percentThroughCompressedSource = (double)compressedStream.Position / compressedStream.Length * 100;
