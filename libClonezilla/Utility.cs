@@ -82,14 +82,20 @@ namespace libClonezilla
             return result;
         }
 
-        public static void WaitForFolderToExist(string folderPath)
+        public static bool WaitForFolderToExist(string folderPath, TimeSpan? timeout = null)
         {
             Log.Information($"Waiting for {folderPath} to be available.");
+            var deadline = timeout == null ? (DateTime?)null : DateTime.UtcNow + timeout;
             while (true)
             {
                 if (Directory.Exists(folderPath))
                 {
-                    break;
+                    return true;
+                }
+                if (deadline != null && DateTime.UtcNow > deadline)
+                {
+                    //without a timeout a failed mount left this spinning forever
+                    return false;
                 }
                 Thread.Sleep(100);
             }

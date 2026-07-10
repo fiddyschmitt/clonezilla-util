@@ -170,7 +170,7 @@ namespace clonezilla_util
             var vfs = new Lazy<IVFS>(() =>
             {
                 var mountPoint = libDokan.Utility.GetAvailableDriveLetter();
-                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint);
+                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint, allowMountPointFallback: true);
                 return result;
             });
 
@@ -257,12 +257,15 @@ namespace clonezilla_util
         private static void MountAsImageFiles(MountAsImageFiles mountAsImageOptions)
         {
             if (mountAsImageOptions.InputPaths == null) throw new Exception($"{nameof(mountAsImageOptions.InputPaths)} not specified.");
+
+            //only an auto-chosen drive letter may silently fall back to another; a user-chosen one must not
+            var mountPointWasAutoSelected = mountAsImageOptions.MountPoint == null;
             mountAsImageOptions.MountPoint ??= libDokan.Utility.GetAvailableDriveLetter();
 
             var mountPoint = mountAsImageOptions.MountPoint;
             var vfs = new Lazy<IVFS>(() =>
             {
-                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint);
+                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint, mountPointWasAutoSelected);
                 return result;
             });
 
@@ -276,8 +279,10 @@ namespace clonezilla_util
 
             libClonezilla.Utility.PopulateVFS(vfs, vfs.Value.RootFolder.Value, containers, DesiredContent.ImageFiles);
 
-            Log.Information($"Mounting complete. Mounted to: {mountPoint}");
-            Process.Start("explorer.exe", mountPoint);
+            //the fallback can land the mount on a different letter than requested
+            var mountedAt = vfs.Value.RootFolder.Value.MountPoint;
+            Log.Information($"Mounting complete. Mounted to: {mountedAt}");
+            Process.Start("explorer.exe", mountedAt);
 
             Console.WriteLine("Running. Press Enter to exit.");
             Console.ReadLine();
@@ -286,12 +291,15 @@ namespace clonezilla_util
         private static void MountAsFiles(MountAsFiles mountAsFilesOptions)
         {
             if (mountAsFilesOptions.InputPaths == null) throw new Exception($"{nameof(mountAsFilesOptions.InputPaths)} not specified.");
+
+            //only an auto-chosen drive letter may silently fall back to another; a user-chosen one must not
+            var mountPointWasAutoSelected = mountAsFilesOptions.MountPoint == null;
             mountAsFilesOptions.MountPoint ??= libDokan.Utility.GetAvailableDriveLetter();
 
             var mountPoint = mountAsFilesOptions.MountPoint;
             var vfs = new Lazy<IVFS>(() =>
             {
-                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint);
+                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint, mountPointWasAutoSelected);
                 return result;
             });
 
@@ -305,8 +313,10 @@ namespace clonezilla_util
 
             libClonezilla.Utility.PopulateVFS(vfs, vfs.Value.RootFolder.Value, containers, DesiredContent.Files);
 
-            Log.Information($"Mounting complete. Mounted to: {mountPoint}");
-            Process.Start("explorer.exe", mountPoint);
+            //the fallback can land the mount on a different letter than requested
+            var mountedAt = vfs.Value.RootFolder.Value.MountPoint;
+            Log.Information($"Mounting complete. Mounted to: {mountedAt}");
+            Process.Start("explorer.exe", mountedAt);
 
             Console.WriteLine("Running. Press Enter to exit.");
             Console.ReadLine();
@@ -326,7 +336,7 @@ namespace clonezilla_util
             var vfs = new Lazy<IVFS>(() =>
             {
                 var mountPoint = libDokan.Utility.GetAvailableDriveLetter();
-                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint);
+                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint, allowMountPointFallback: true);
                 return result;
             });
 
