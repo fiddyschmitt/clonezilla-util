@@ -1,3 +1,4 @@
+using libCommon;
 using Serilog;
 using System;
 using System.Buffers.Binary;
@@ -46,6 +47,7 @@ namespace libZstd
         public const long TargetSpanBytes = 64L * 1024 * 1024;
         const int TrialLookaheadBytes = 4 * 1024 * 1024;    //inline candidate validation depth (the verify pass then covers full spans)
         const int WindowCompressionLevel = 3;
+        const long ProgressIntervalBytes = 1L * 1024 * 1024 * 1024;    //log build progress every 1 GB of output
         static readonly byte[] Magic = "ZSTZRAN1"u8.ToArray();
 
         public string Filename { get; private set; } = "";
@@ -147,6 +149,7 @@ namespace libZstd
 
                 long uncompressedPos = 0;
                 long nextCandidateAt = TargetSpanBytes;
+                long nextProgressAt = ProgressIntervalBytes;
                 var spanMd5 = MD5.Create();
 
                 //rolling ring of true output (window snapshots), indexed by absolute position % windowSize
@@ -319,6 +322,13 @@ namespace libZstd
                         }
 
                         uncompressedPos += produced;
+
+                        if (uncompressedPos >= nextProgressAt)
+                        {
+                            var percentThroughCompressedSource = (double)reader.Position / compressedStream.Length * 100;
+                            Log.Information($"Indexed {uncompressedPos.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
+                            nextProgressAt += ProgressIntervalBytes;
+                        }
                     }
 
                     reader.EndFrame(hasChecksum);
@@ -433,6 +443,7 @@ namespace libZstd
                 //on spinning disks - the verify pass is I/O-bound, not CPU-bound)
                 var workerCount = Math.Min(4, Environment.ProcessorCount);
                 var ordered = toVerify.OrderBy(x => x).ToList();
+                var spansVerified = 0;
                 Parallel.For(0, workerCount, w =>
                 {
                     var from = w * ordered.Count / workerCount;
@@ -446,6 +457,12 @@ namespace libZstd
                         if (VerifySpan(a, b) >= 0)
                         {
                             lock (dropped) dropped.Add(a);
+                        }
+
+                        var done = System.Threading.Interlocked.Increment(ref spansVerified);
+                        if (done % 50 == 0 || done == ordered.Count)
+                        {
+                            Log.Information($"Verified {done:N0} of {ordered.Count:N0} resume points.");
                         }
                     }
                 });
