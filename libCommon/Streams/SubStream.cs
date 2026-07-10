@@ -7,7 +7,10 @@ namespace libCommon.Streams
 {
     public class SubStream : Stream
     {
-        public SubStream(IndependentStream baseStream, long startByte, long endByte)
+        /// <param name="baseStream">must be an independent cursor over its source (e.g.
+        /// <see cref="SharedStream.CreateView"/>) - this wrapper repositions it freely and assumes
+        /// nobody else moves it.</param>
+        public SubStream(Stream baseStream, long startByte, long endByte)
         {
             BaseStream = baseStream;
             StartByte = startByte;

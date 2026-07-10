@@ -73,10 +73,10 @@ namespace libClonezilla.Partitions
 
             // Feed the native engine the partition's in-process decompressed stream directly (NOT the
             // Dokan path) - reading our own mount in-process risks a Dokan callback-thread deadlock.
-            // Each reader gets an IndependentStream view (own position) over the shared FullPartitionImage.
+            // Each reader gets its own view (independent position) over the shared FullPartitionImage.
             var partitionStream = Partition.FullPartitionImage
                 ?? throw new Exception($"[{container.ContainerName}] [{partitionName}] {nameof(Partition.FullPartitionImage)} is not initialised.");
-            var streamLock = new object();
+            var sharedPartitionStream = new SharedStream(partitionStream);
 
             IExtractor extractor;
             List<ArchiveEntry> filesInArchive;
@@ -85,7 +85,7 @@ namespace libClonezilla.Partitions
             {
                 // Building the extractor opens (and pre-warms) the partition - one unreadable partition
                 // must not bring down the whole mount, so this is inside the try.
-                extractor = DetermineExtractor.FindExtractor(() => new IndependentStream(partitionStream, streamLock));
+                extractor = DetermineExtractor.FindExtractor(sharedPartitionStream.CreateView);
 
                 if (extractor is IFileListProvider fileListProvider)
                 {

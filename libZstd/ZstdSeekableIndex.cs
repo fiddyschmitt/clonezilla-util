@@ -362,7 +362,7 @@ namespace libZstd
         /// </summary>
         void VerifyAndHeal(Stream compressedStream, List<byte[]> compressedWindows)
         {
-            var streamLock = new object();
+            var sharedCompressed = new libCommon.Streams.SharedStream(compressedStream);
             var markers = points;                       //every candidate stays a hash boundary
             var alive = points.Select(_ => true).ToArray();
 
@@ -381,7 +381,7 @@ namespace libZstd
                     window = windowDecompressor.Unwrap(compressedWindows[a]).ToArray();
                 }
 
-                var source = new libCommon.Streams.IndependentStream(compressedStream, streamLock);
+                var source = sharedCompressed.CreateView();
                 using var resume = new ZstdResumeStream(source, point.CompressedOffset, endCompressed, point.IsFrameStart, point.WindowDescriptor, window);
 
                 var buffer = new byte[1 << 20];

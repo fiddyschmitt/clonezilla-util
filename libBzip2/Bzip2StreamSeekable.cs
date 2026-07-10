@@ -23,6 +23,7 @@ namespace libBzip2
         public Bzip2StreamSeekable(Stream compressedInputStream, string? indexFilename, bool processTrailingNulls)
         {
             CompressedInputStream = compressedInputStream;
+            sharedSource = new SharedStream(compressedInputStream);
             ProcessTrailingNulls = processTrailingNulls;
 
             compressedInputStream.Seek(0, SeekOrigin.Begin);
@@ -80,17 +81,17 @@ namespace libBzip2
             }
         }
 
-        readonly object sourceStreamLock = new();
+        readonly SharedStream sharedSource;
         public override int ReadFromChunk(Mapping block, byte[] buffer, int offset, int count)
         {
-            var independentStream = new IndependentStream(CompressedInputStream, sourceStreamLock);
+            var sourceView = sharedSource.CreateView();
 
             //index files created before CompressedEndByte existed deserialize it as 0; fall back to the old
             //(generous) bound of UncompressedEndByte, which works as long as the block compressed at all
             var compressedEndByte = block.CompressedEndByte > block.CompressedStartByte
                                         ? block.CompressedEndByte
                                         : block.UncompressedEndByte;
-            var compressedContent = new SubStream(independentStream, block.CompressedStartByte, compressedEndByte);
+            var compressedContent = new SubStream(sourceView, block.CompressedStartByte, compressedEndByte);
 
             var fileHeaderContent = new MemoryStream(FileHeader);
             var fullBlockContent = new Multistream([fileHeaderContent, compressedContent]);
@@ -129,7 +130,7 @@ namespace libBzip2
 
             Log.Information($"Creating bzip2 index.");
 
-            var independentInputStream = new IndependentStream(inputStream, sourceStreamLock);
+            var progressView = sharedSource.CreateView();
 
             long uncompressedStartPos = 0L;
 
@@ -140,14 +141,14 @@ namespace libBzip2
             var blocks = new List<Mapping>();
 
             var result = BZip2BlockFinder
-                            .FindBlocks(independentInputStream)
+                            .FindBlocks(progressView)
                             .SelectParallelPreserveOrder(block =>
                             {
-                                var independentStream = new IndependentStream(inputStream, sourceStreamLock);
+                                var blockView = sharedSource.CreateView();
 
                                 var compressedContent = new MemoryStream();
-                                independentStream.Seek(block.Start, SeekOrigin.Begin);
-                                independentStream.CopyTo(compressedContent, block.End - block.Start, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
+                                blockView.Seek(block.Start, SeekOrigin.Begin);
+                                blockView.CopyTo(compressedContent, block.End - block.Start, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
                                 compressedContent.Seek(0, SeekOrigin.Begin);
 
                                 var fileHeaderContent = new MemoryStream(FileHeader);
@@ -198,13 +199,13 @@ namespace libBzip2
                                         {
                                             lock (largestCompressedPositionProcessedLock)
                                             {
-                                                if (independentInputStream.Position > largestCompressedPositionProcessed)
+                                                if (progressView.Position > largestCompressedPositionProcessed)
                                                 {
-                                                    largestCompressedPositionProcessed = independentInputStream.Position;
+                                                    largestCompressedPositionProcessed = progressView.Position;
                                                 }
                                             }
 
-                                            var percentThroughCompressedSource = (double)largestCompressedPositionProcessed / independentInputStream.Length * 100;
+                                            var percentThroughCompressedSource = (double)largestCompressedPositionProcessed / progressView.Length * 100;
 
                                             Log.Information($"Indexed {progress.TotalRead.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
                                         });

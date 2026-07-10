@@ -14,11 +14,12 @@ namespace libTrainCompress
 {
     public class TrainDecompressor : Stream, IReadSuggestor
     {
-        readonly object readLock = new();
+        readonly SharedStream sharedCompressed;
 
         public TrainDecompressor(Stream compressedStream, IList<Compressor> decompressors)
         {
             CompressedStream = compressedStream;
+            sharedCompressed = new SharedStream(compressedStream);
 
             var binaryReader = new BinaryReader(compressedStream);
 
@@ -46,8 +47,7 @@ namespace libTrainCompress
                         var uncompressedEndByte = binaryReader.ReadInt64();
                         var compressedLength = binaryReader.ReadInt64();
 
-                        var independentStream = new IndependentStream(CompressedStream, readLock);
-                        var carriageCompressedStream = new SubStream(independentStream, CompressedStream.Position, CompressedStream.Position + compressedLength);
+                        var carriageCompressedStream = new SubStream(sharedCompressed.CreateView(), CompressedStream.Position, CompressedStream.Position + compressedLength);
 
                         var carriage = new Carriage(
                             carriageId: i++,

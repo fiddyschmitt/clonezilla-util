@@ -140,11 +140,16 @@ All affect the `list` / tree-build / bzip2-index path, so one 10h run exercises 
   first denial — result is identical (the "any restricted ancestor denies" test is order-independent).
   **Did not cache `FullPath`** (the immutability-after-build precondition isn't verified — left as a per-call
   compute, just cheaper). **Risk: low/medium.**
-- [skip] **P9. Drop `Synchronized` wrapper in `IndependentStream`** — `IndependentStream.cs:37`. Tempting
-  (the `ReadLock` already serializes Read/Seek), **but** `Length`/`Position` getters are unlocked, so the
-  inner `Synchronized` is what makes those atomic against in-flight seeks on the shared base stream. Removing
-  it risks subtle races for a micro-gain. **Decision: leave as-is** unless a profile proves it matters, in
-  which case lock `Length`/`Position` explicitly first.
+- [x] **P9. Drop `Synchronized` wrapper in `IndependentStream`** — **RESOLVED 2026-07-10** exactly as
+  this entry prescribed, as part of the `SharedStream`/`CreateView` refactor (pattern back-ported from
+  the standalone ZstdSeekable package): `IndependentStream` is gone; its replacement (a private view
+  minted by `SharedStream.CreateView()`) locks **every** touch of the base stream on one gate —
+  including `Length` — and `Position` is a view-local field, so the redundant `Stream.Synchronized`
+  layer is dropped with the atomicity concern properly addressed. Call sites no longer see the lock
+  object or the wrapper class. Remaining `Stream.Synchronized` uses reviewed and deliberately KEPT:
+  `SynchronisedExtractor` (serialises one shared extracted stream across Dokan handles — a different
+  job than independent cursors) and `CompressedImage`/`ImageFile` (guard mixed direct-sequential +
+  shared access phases on drive-image streams; cheap insurance).
 - [skip] **P10. bzip2 `ReadFromChunk` per-read allocations** — `Bzip2StreamSeekable.cs:86-102` news up
   IndependentStream+SubStream+MemoryStream+Multistream+BZip2Stream per read. Inherent to seek-anywhere decode;
   the `CachingStream` above absorbs repeats. **Decision: leave** (note only) unless profiling shows small

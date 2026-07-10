@@ -20,7 +20,7 @@ namespace libClonezilla.Extractors
         /// the old perf-test that chose between slow-but-reliable 7z.exe and the fragile 7zFM GUI automation.
         /// </summary>
         /// <param name="partitionStreamFactory">Creates a fresh seekable stream over the partition's
-        /// decompressed content (e.g. an IndependentStream over Partition.FullPartitionImage).</param>
+        /// decompressed content (e.g. a SharedStream.CreateView over Partition.FullPartitionImage).</param>
         /// <param name="instanceCount">How many workers to pre-warm. Use <see cref="MountWorkerCount"/>
         /// for mounting (concurrent reads) and <see cref="ListingWorkerCount"/> for listing only.</param>
         public static IExtractor FindExtractor(Func<Stream> partitionStreamFactory, int instanceCount = MountWorkerCount)

@@ -25,6 +25,7 @@ namespace libGZip
         public GZipStreamSeekable(Stream compressedStream, string tempIndexFilename, string indexFilename)
         {
             CompressedStream = compressedStream;
+            sharedSource = new SharedStream(compressedStream);
             IndexFilename = indexFilename;
 
             var indexCreationComplete = false;
@@ -100,7 +101,7 @@ namespace libGZip
         }
 
         GztoolIndex? zranIndex;
-        readonly object sourceStreamLock = new();
+        readonly SharedStream sharedSource;
 
         //Mapping enriched with the gztool access point it was built from (window location, bit offset)
         sealed class GzMapping : Mapping
@@ -169,7 +170,7 @@ namespace libGZip
             var positionInChunk = Position - chunk.UncompressedStartByte;
 
             //own view of the shared compressed stream (position-independent, access serialised)
-            var source = new IndependentStream(CompressedStream, sourceStreamLock);
+            var source = sharedSource.CreateView();
             try
             {
                 return ZranInflate.DecodeAt(zranIndex!, chunk.Point, source, positionInChunk, buffer, offset, count);

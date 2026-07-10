@@ -206,7 +206,7 @@ namespace clonezilla_util
 
                             var partitionStream = mountedPartition.Partition.FullPartitionImage
                                 ?? throw new Exception($"[{container.ContainerName}] [{partitionName}] {nameof(mountedPartition.Partition.FullPartitionImage)} is not initialised.");
-                            var streamLock = new object();
+                            var sharedPartitionStream = new SharedStream(partitionStream);
 
                             // Listing only enumerates - one worker is enough (mounting uses several for
                             // concurrent reads). Dispose it once we've listed; it's not needed after.
@@ -214,7 +214,7 @@ namespace clonezilla_util
                             try
                             {
                                 extractor = DetermineExtractor.FindExtractor(
-                                    () => new IndependentStream(partitionStream, streamLock),
+                                    sharedPartitionStream.CreateView,
                                     DetermineExtractor.ListingWorkerCount);
 
                                 if (extractor is IFileListProvider fileListProvider)

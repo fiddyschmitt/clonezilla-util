@@ -29,7 +29,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 return;
             }
 
-            var readLock = new object();
+            var sharedDriveStream = new SharedStream(rawDriveStream);
 
             var partitionInfos = partitionImageFiles
                             .Where(partitionImageFile => partitionImageFile.Offset != null)
@@ -61,10 +61,9 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                                 //This is enough for 7-Zip to conclude it isn't an archive.
                                 //To address this, we ask SubStream to serve (null) bytes beyond the original bytes.
 
-                                //have to give a clean stream to the SubStream, otherwise multiple readers can interfere with each other. (Not possible to address using Stream.Synchronised because any position tracking is thwarted by the fact that Seek and Read can be called by another thread )
+                                //have to give a clean stream (own cursor) to the SubStream, otherwise multiple readers can interfere with each other. (Not possible to address using Stream.Synchronized because any position tracking is thwarted by the fact that Seek and Read can be called by another thread )
 
-                                var independentStream = new IndependentStream(rawDriveStream, readLock);
-                                var partitionStream = new SubStream(independentStream, partitionInfo.StartByte, partitionInfo.EndByte);
+                                var partitionStream = new SubStream(sharedDriveStream.CreateView(), partitionInfo.StartByte, partitionInfo.EndByte);
 
                                 //Stream stream = new SeekableStreamUsingRestarts(() =>
                                 //{

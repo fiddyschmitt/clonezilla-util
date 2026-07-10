@@ -25,7 +25,7 @@ namespace libZstd
 
         readonly ZstdSeekableIndex index;
         readonly List<Mapping> mappings;
-        readonly object sourceStreamLock = new();
+        readonly SharedStream sharedSource;
 
         public Stream CompressedStream { get; }
 
@@ -37,6 +37,7 @@ namespace libZstd
         ZstdStreamSeekable(Stream compressedStream, ZstdSeekableIndex index)
         {
             CompressedStream = compressedStream;
+            sharedSource = new SharedStream(compressedStream);
             this.index = index;
 
             mappings = new List<Mapping>(index.Points.Count);
@@ -54,6 +55,19 @@ namespace libZstd
                 });
             }
         }
+
+        ZstdStreamSeekable(ZstdStreamSeekable parent)
+        {
+            CompressedStream = parent.CompressedStream;
+            sharedSource = parent.sharedSource;
+            index = parent.index;
+            mappings = parent.mappings;
+        }
+
+        /// <summary>An independent cursor over the same source and index: its own position, sharing
+        /// the (internally locked) base stream. Views may be read concurrently with this instance
+        /// and each other.</summary>
+        public ZstdStreamSeekable CreateView() => new(this);
 
         /// <summary>Loads or builds the index; returns null (no seekable stream) if the stream cannot
         /// be reliably indexed - the caller then falls back to extraction.</summary>
@@ -83,7 +97,7 @@ namespace libZstd
             var positionInChunk = Position - chunk.UncompressedStartByte;
 
             var window = index.LoadWindow(zstdChunk.Point);
-            var source = new IndependentStream(CompressedStream, sourceStreamLock);
+            var source = sharedSource.CreateView();
             using var resume = new ZstdResumeStream(source, chunk.CompressedStartByte, chunk.CompressedEndByte,
                                                     zstdChunk.Point.IsFrameStart, zstdChunk.Point.WindowDescriptor, window);
 
