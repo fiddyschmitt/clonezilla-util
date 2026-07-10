@@ -5,6 +5,10 @@
     <Nullable>enable</Nullable>
     <!-- ZstdSharp's low-level (transpiled zstd) API is pointer-based -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- NOT "libZstd": the single-file publish flattens ZstdNet's native libzstd.dll into the same
+         directory, and Windows paths are case-insensitive - "libZstd.dll" would collide with it
+         (publish fails with NETSDK1152). Project folder and namespaces remain libZstd. -->
+    <AssemblyName>libZstdSeekable</AssemblyName>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
