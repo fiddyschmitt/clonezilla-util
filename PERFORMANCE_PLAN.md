@@ -663,9 +663,11 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
   partition count — was N×¼). No cross-instance locking (each instance evicts only its own LRU);
   never-Close()d instances err toward LESS memory. Fixes root #1 (exhaustion → paging → 0x800705AA /
   machine unusability). Tension stands: shrinks each cache → more misses → leans on (B)/(E).
-- **(B) Denser gztool checkpoints** — layer 3 (index build in `GZipStreamSeekable`). More access points →
-  less decompress-per-cold-seek → faster scattered reads **and** far less discard garbage. Highest-leverage
-  for root #2. Tension: bigger index (disk + the index windows held in memory — still in-memory, just more).
+- [x] **(B) Denser gztool checkpoints** — **DONE 2026-07-10 (awaiting suite).** Index span 10 → 4 MiB
+  (`gztool -s 4` in `GZipStreamSeekable`): average cold-seek discard ~5 MB → ~2 MB (~2.5× less decode
+  per scattered read), compounding with I0's in-process reads. Cost: ~2.5× bigger on-disk index
+  (68 MB → ~180 MB for the 45 GB sda2); windows load lazily so resident memory unaffected. Existing
+  cached indexes keep their density and stay valid. Verified via the zranproto harness at -s 4.
 - **(C) In-memory readahead** — layer 4 (or a thin layer between 3 and 4). On a miss, decompress a larger
   forward span and cache it. Helps **sequential** access; limited for scattered/fragmented. **No disk
   materialisation** — the rejected "decompress-once-to-scratch" variant is explicitly out (see HARD CONSTRAINT).
@@ -674,9 +676,13 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
   yields under contention (keeps D3's unbounded opens). **Fixes the ~1-4 MB/s baseline for normal files**
   (per-read native + cluster-run-resolution overhead). Tension: a held item stream pulls back toward
   "handle holds a worker" (what D3 removed) — the affinity-with-yield hybrid is the way.
-- **(E) Pooled decompress buffers** — layer 3 (and 4). Reuse the large `byte[]` decompression-output buffers
-  (`ArrayPool`) instead of allocating per read. Targets the **LOH fragmentation / `gcFrag` spikes**.
-  Complements (B): (B) cuts how much is discarded, (E) cuts the alloc cost of whatever is.
+- [x] **(E) Pooled decompress buffers** — **DONE 2026-07-10 (awaiting suite).** `CachingStream` cache
+  segments (a fresh multi-MB `byte[]` per cache miss, dropped to GC on eviction — the main LOH-churn
+  source behind the ~2 GB `gcFrag` spikes) now rent from `Buffers.BufferPool` and return on
+  eviction/Close (also on the serve-without-caching path). `CacheEntry.Content` may exceed `Length`
+  (pool over-allocation); all access is Start/End-bounded. The short-read `Array.Resize` copy is gone
+  too. I0's `ZranInflate` was born pooled. (gz/bzip2 per-read wrapper allocations = P10, still
+  deliberately left.)
 - **Free win (not a stream change):** skip `pagefile.sys` / `hiberfil.sys` / `swapfile.sys` (huge, useless).
 
 ### Grouping / sequencing

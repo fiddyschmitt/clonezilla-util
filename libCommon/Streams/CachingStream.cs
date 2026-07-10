@@ -72,6 +72,8 @@ namespace libCommon.Streams
 
         int ReadInternal(byte[] buffer, int offset, int count)
         {
+            CacheEntry? servedEntryToReturn = null;
+
             //linear scan rather than FirstOrDefault, to avoid allocating a this-capturing
             //closure on every read. The cache is LRU-ordered (newest first), so a hot entry
             //is found near the front.
@@ -140,22 +142,22 @@ namespace libCommon.Streams
                     return 0;
                 }
 
-                var buff = new byte[toRead];
+                //Pooled: a fresh multi-MB array per cache miss was the main source of LOH churn
+                //(measured gcFrag spikes of ~2 GB during full-copy runs). Rented arrays can be larger
+                //than requested; every consumer is bounded by the entry's Start/End, never by
+                //Content.Length. Short reads just make the entry span smaller - no Array.Resize copy.
+                var buff = Buffers.BufferPool.Rent(toRead);
 
                 BaseStream.Seek(recommendedRead.Start, SeekOrigin.Begin);
                 var bytesRead = BaseStream.Read(buff, 0, toRead);
 
                 if (bytesRead == 0)
                 {
+                    Buffers.BufferPool.Return(buff);
                     throw new Exception($"No bytes read despite recommendation of {recommendedRead.Start:N0} - {recommendedRead.End:N0}");
                 }
 
-                if (bytesRead < toRead)
-                {
-                    Array.Resize(ref buff, bytesRead);
-                }
-
-                cacheEntry = new CacheEntry(recommendedRead.Start, recommendedRead.Start + bytesRead, buff);
+                cacheEntry = new CacheEntry(recommendedRead.Start, recommendedRead.Start + bytesRead, buff, pooled: true);
 
                 //clear the cache until there's enough room
                 bool addToCache;
@@ -169,6 +171,7 @@ namespace libCommon.Streams
                         while (cache.Count >= CacheLimitValue)
                         {
                             currentCacheSizeBytes -= cache[cache.Count - 1].Length;
+                            ReturnToPoolIfPooled(cache[cache.Count - 1]);
                             cache.RemoveAt(cache.Count - 1);
                         }
                         addToCache = true;
@@ -203,6 +206,7 @@ namespace libCommon.Streams
                             else
                             {
                                 currentCacheSizeBytes -= cache[cache.Count - 1].Length;
+                                ReturnToPoolIfPooled(cache[cache.Count - 1]);
                                 cache.RemoveAt(cache.Count - 1);
                             }
                         }
@@ -217,6 +221,11 @@ namespace libCommon.Streams
                 {
                     cache.Insert(0, cacheEntry);
                     currentCacheSizeBytes += cacheEntry.Length;
+                }
+                else
+                {
+                    //fresh rented buffer that never entered the cache: serve from it, then return it
+                    servedEntryToReturn = cacheEntry;
                 }
             }
             else
@@ -246,7 +255,20 @@ namespace libCommon.Streams
 
             Position += bytesToRead;
 
+            if (servedEntryToReturn != null)
+            {
+                ReturnToPoolIfPooled(servedEntryToReturn);
+            }
+
             return bytesToRead;
+        }
+
+        static void ReturnToPoolIfPooled(CacheEntry entry)
+        {
+            if (entry.Pooled)
+            {
+                Buffers.BufferPool.Return(entry.Content);
+            }
         }
 
         public override long Seek(long offset, SeekOrigin origin)
@@ -283,6 +305,10 @@ namespace libCommon.Streams
         {
             lock (cacheLock)
             {
+                foreach (var entry in cache)
+                {
+                    ReturnToPoolIfPooled(entry);
+                }
                 cache.Clear();
                 currentCacheSizeBytes = 0;
 
@@ -296,12 +322,17 @@ namespace libCommon.Streams
     }
 
     [Serializable]
-    public class CacheEntry(long start, long end, byte[] content)
+    public class CacheEntry(long start, long end, byte[] content, bool pooled = false)
     {
         public long Start = start;
         public long End = end;
         public long Length => End - Start;
+
+        //may be LARGER than Length (rented from a pool) - always bound access by Start/End
         public byte[] Content = content;
+
+        //true when Content was rented from Buffers.BufferPool and must be returned on eviction
+        public readonly bool Pooled = pooled;
 
         public override string ToString()
         {
