@@ -766,10 +766,22 @@ on-disk `cache.train`:
   ~1.1 GB peak build RAM.
 - **Deferred as before:** xz / lz4 / lzip (see below); the 2 TB zst **drive image** will also index
   (data-region windows dominate index size; null-tail windows compress to ~nothing).
-- **Known v1 limitation:** during index BUILD the compressed windows are held in RAM until saved —
-  for the 2 TB drive image that could transiently reach ~8 GB (one-time, build only; serving loads
-  windows lazily from disk). If the suite shows pressure, the queued fix is spilling windows to the
-  `.wip` index file as pass 1 goes.
+- **Build v2 (2026-07-10): single pass, verify-as-you-go, resumable.** The two-pass build (decode +
+  4 MB trials, then a full re-read/re-decode verification pass with drop-and-merge healing) was
+  replaced: two shadow decoders now run alongside the true decode — one insurance shadow covering
+  the last confirmed point's open span, one for the current candidate — so every point's whole span
+  is byte-verified against output already in hand, and the second 20 GB read disappears. A diverging
+  candidate re-arms cheaply (~12% of boundaries, incl. long zero-stretches which the insurance
+  shadow now covers end-to-end); a diverging CONFIRMED shadow (deeper than a whole span, never
+  observed on real data) aborts indexing → extraction fallback. Sealed points are appended+flushed
+  to the `.wip` incrementally (format v2 `ZSTZRAN2`, inline windows, gztool-style zeroed counts
+  until finalisation), so: build RAM is ~10 MB flat (the v1 ~8 GB drive-image transient is gone by
+  design) and an **interrupted build resumes** — fast-forwarding from the last sealed frame-start
+  point to keep the truth chain rooted (a zstd point cannot checkpoint full decoder state the way a
+  gzip point can, hence not gztool-cheap on single-frame sources). Measured on the 19.9 GB sda2:
+  **21.4 min single-pass vs 32.3 two-pass**, identical 677 points / 605.9 MB index; sdb1+sda1
+  byte-exact incl. crafted-interruption resume tests. Future squeeze if wanted: shadows currently
+  share the main thread (build is CPU-bound at ~3× decode); offloading them is the next lever.
 - **Follow-up (2026-07-10): drive images wired into the index paths too.** The bare drive-image flow
   (`CompressedImage`, e.g. `sda.img.gz`/`.img.zst`) passed no partition cache, so gz/zstd couldn't
   reach their index machinery there and ALWAYS train-extracted (gz drive listing was a 2 TB

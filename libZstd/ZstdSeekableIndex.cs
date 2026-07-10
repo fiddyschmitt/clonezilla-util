@@ -5,8 +5,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 using ZstdSharp.Unsafe;
 
 namespace libZstd
@@ -16,10 +15,10 @@ namespace libZstd
     /// beyond the content window (repeat offsets and entropy tables carried from earlier blocks), so a
     /// block boundary is only usable as a resume point if a resumed decode is bit-identical to the
     /// true decode - an empirical property of the encoder's output (~88% of boundaries on real
-    /// Clonezilla data). Points in this index are therefore VERIFIED: trial-decoded during the build
-    /// and byte-checked across their whole span. Readers must never serve bytes beyond a point's span
-    /// from that point's resume (only output *within* the verified span is guaranteed, not decoder
-    /// state at its end).
+    /// Clonezilla data). Points in this index are therefore VERIFIED: a shadow decoder resumed at the
+    /// point runs alongside the true decode for the point's whole span before the point is written.
+    /// Readers must never serve bytes beyond a point's span from that point's resume (only output
+    /// *within* the verified span is guaranteed, not decoder state at its end).
     /// </summary>
     public sealed class ZstdIndexPoint
     {
@@ -27,7 +26,6 @@ namespace libZstd
         public long CompressedOffset;
         public bool IsFrameStart;           //resume = decode the real frame header at CompressedOffset; no prefix needed
         public byte WindowDescriptor;       //window-descriptor byte for the synthetic frame header (mid-frame points)
-        public byte[] SpanMd5 = [];         //MD5 of the uncompressed span [this point, next point)
         public long WindowPositionInFile;   //where this point's zstd-compressed window sits in the index file
         public int WindowCompressedLength;  //0 = no window (frame starts)
     }
@@ -35,20 +33,33 @@ namespace libZstd
     /// <summary>
     /// Random-access index over a standard (non-seekable-format) zstd stream: verified resume points
     /// every ~<see cref="TargetSpanBytes"/> of output, each carrying the preceding ≤windowSize of
-    /// content (zstd-compressed in the index file, loaded lazily). Built by one sequential decode with
-    /// inline trial-validation of every candidate point, then a parallel whole-span verification pass;
-    /// a stream whose spans cannot all be verified yields no index (callers fall back to extraction).
-    /// All integers little-endian.
+    /// content (zstd-compressed in the index file, loaded lazily).
+    ///
+    /// Built in a SINGLE sequential pass: at any moment two shadow decoders run alongside the true
+    /// decode - one for the last confirmed point (insurance covering its still-open span) and one for
+    /// the current candidate. A candidate that survives a full span byte-identical is confirmed,
+    /// which seals its predecessor (span fully verified by the insurance shadow) and appends it to
+    /// the index file immediately. A diverging candidate is simply re-armed at a later boundary (the
+    /// insurance shadow keeps the open span covered). A diverging CONFIRMED shadow - divergence
+    /// deeper than a whole span, never yet observed on real data - aborts indexing and the caller
+    /// falls back to extraction: never wrong data, at worst no index.
+    ///
+    /// The file grows incrementally (gztool-style: header counts zeroed until finalisation), so an
+    /// interrupted build RESUMES: sealed points are kept, and the build fast-forwards from the last
+    /// sealed frame-start point (a frame-start resume IS the true decode, so the truth chain stays
+    /// rooted; zstd points carry window-only state, unlike gzip's complete checkpoint state, which is
+    /// why resume cannot simply continue from the last sealed point). All integers little-endian.
     /// </summary>
     public sealed class ZstdSeekableIndex
     {
         //~64 MB spans balance cold-seek decode cost against index size (one ≤2 MB window snapshot per
         //point, zstd-compressed; windows over sparse regions shrink to almost nothing)
         public const long TargetSpanBytes = 64L * 1024 * 1024;
-        const int TrialLookaheadBytes = 4 * 1024 * 1024;    //inline candidate validation depth (the verify pass then covers full spans)
         const int WindowCompressionLevel = 3;
         const long ProgressIntervalBytes = 1L * 1024 * 1024 * 1024;    //log build progress every 1 GB of output
-        static readonly byte[] Magic = "ZSTZRAN1"u8.ToArray();
+        static readonly byte[] Magic = "ZSTZRAN2"u8.ToArray();
+        const int HeaderSize = 8 + 8 + 4;   //magic, totalUncompressed, pointCount
+        const int PointFixedSize = 8 + 8 + 1 + 1 + 4;
 
         public string Filename { get; private set; } = "";
         public IReadOnlyList<ZstdIndexPoint> Points => points;
@@ -84,29 +95,10 @@ namespace libZstd
         public static ZstdSeekableIndex Load(string indexFilename)
         {
             using var fs = File.OpenRead(indexFilename);
-            using var br = new BinaryReader(fs);
+            var (loadedPoints, totalLength, complete) = ReadFile(fs, tolerateTruncatedTail: false);
+            if (!complete) throw new InvalidDataException("zstd index was not finalised.");
 
-            if (!br.ReadBytes(8).SequenceEqual(Magic)) throw new InvalidDataException("Not a zstd zran index.");
-            var totalLength = br.ReadInt64();
-            var count = br.ReadInt32();
-            if (count <= 0) throw new InvalidDataException("zstd index has no points.");
-
-            var loaded = new List<ZstdIndexPoint>(count);
-            for (var i = 0; i < count; i++)
-            {
-                loaded.Add(new ZstdIndexPoint
-                {
-                    UncompressedOffset = br.ReadInt64(),
-                    CompressedOffset = br.ReadInt64(),
-                    IsFrameStart = br.ReadBoolean(),
-                    WindowDescriptor = br.ReadByte(),
-                    SpanMd5 = br.ReadBytes(16),
-                    WindowPositionInFile = br.ReadInt64(),
-                    WindowCompressedLength = br.ReadInt32(),
-                });
-            }
-
-            return new ZstdSeekableIndex { Filename = indexFilename, points = loaded, UncompressedTotalLength = totalLength };
+            return new ZstdSeekableIndex { Filename = indexFilename, points = loadedPoints, UncompressedTotalLength = totalLength };
         }
 
         /// <summary>Loads and decompresses one point's window. Thread-safe (opens the file per call).</summary>
@@ -125,83 +117,99 @@ namespace libZstd
             return decompressor.Unwrap(stored).ToArray();
         }
 
-        //================================================================= build
+        //================================================================= build (single pass, incremental)
 
         public static unsafe ZstdSeekableIndex Build(Stream compressedStream, string indexFilename)
         {
-            Log.Information($"Creating zstd random-access index: {Path.GetFileName(indexFilename)}");
+            var wipFilename = indexFilename + ".wip";
 
-            var newPoints = new List<ZstdIndexPoint>();
-            var windows = new List<byte[]>();       //compressed window per point (parallel to newPoints)
+            //an interrupted earlier build leaves a .wip whose sealed points are all fully verified -
+            //keep them and continue from where it stopped
+            List<ZstdIndexPoint> sealedPoints = [];
+            if (File.Exists(wipFilename))
+            {
+                try
+                {
+                    using var existing = File.OpenRead(wipFilename);
+                    (sealedPoints, _, _) = ReadFile(existing, tolerateTruncatedTail: true);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning($"Could not read partial zstd index ({ex.Message}). Starting fresh.");
+                    sealedPoints = [];
+                }
+            }
 
-            compressedStream.Seek(0, SeekOrigin.Begin);
+            var resuming = sealedPoints.Count > 0;
+            Log.Information(resuming
+                ? $"Resuming zstd random-access index ({sealedPoints.Count:N0} verified points already on disk): {Path.GetFileName(indexFilename)}"
+                : $"Creating zstd random-access index: {Path.GetFileName(indexFilename)}");
+
+            using var wip = new FileStream(wipFilename, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+            if (resuming)
+            {
+                //keep complete records only; truncate any partial tail from the interruption
+                var lastComplete = sealedPoints[^1].WindowPositionInFile + sealedPoints[^1].WindowCompressedLength;
+                wip.SetLength(lastComplete);
+                wip.Position = lastComplete;
+            }
+            else
+            {
+                wip.SetLength(0);
+                Span<byte> header = stackalloc byte[HeaderSize];
+                Magic.CopyTo(header);
+                BinaryPrimitives.WriteInt64LittleEndian(header[8..], 0);    //totalUncompressed: unknown while growing
+                BinaryPrimitives.WriteInt32LittleEndian(header[16..], 0);   //pointCount: 0 marks the index incomplete
+                wip.Write(header);
+                wip.Flush();
+            }
+
             var reader = new BlockReader(compressedStream);
             using var windowCompressor = new ZstdSharp.Compressor(WindowCompressionLevel);
 
             var main = Methods.ZSTD_createDCtx();
             Methods.ZSTD_DCtx_setParameter(main, ZSTD_dParameter.ZSTD_d_windowLogMax, 31);
-            ZSTD_DCtx_s* trial = null;
+
+            //the two in-flight points and their shadows
+            ZstdIndexPoint? confirmed = null;       //last confirmed point; its span is still open
+            byte[] confirmedWindowRaw = [];
+            ShadowDecoder? confirmedShadow = null;  //null for frame-start points (exact by construction)
+            var confirmedAlreadyWritten = false;    //true for a re-adopted point after a resume
+            ZstdIndexPoint? candidate = null;
+            byte[] candidateWindowRaw = [];
+            ShadowDecoder? candidateShadow = null;
 
             try
             {
                 var outBuf = new byte[1 << 20];     //one block regenerates ≤128 KB
-                var trialBuf = new byte[1 << 20];
 
                 long uncompressedPos = 0;
-                long nextCandidateAt = TargetSpanBytes;
                 long nextProgressAt = ProgressIntervalBytes;
-                var spanMd5 = MD5.Create();
 
-                //rolling ring of true output (window snapshots), indexed by absolute position % windowSize
+                //rolling ring of true output, indexed by absolute position % windowSize
                 var ring = Array.Empty<byte>();
                 long frameWindowSize = 0;
                 byte frameWindowDescriptor = 0;
 
-                //at most one candidate under trial at a time. While a trial is active, output hashing
-                //is DEFERRED into `pending`: those bytes belong to the candidate's span if it is
-                //accepted (its offset precedes them), or to the current span if it is rejected.
-                ZstdIndexPoint? candidate = null;
-                byte[]? candidateWindowRaw = null;
-                var pending = new byte[TrialLookaheadBytes + (1 << 20)];
-                var pendingLength = 0;
-                long trialCompared = 0;
-
-                void FinishSpanHash()
+                //---- resume: fast-forward the true decode from the last sealed frame-start point,
+                //then re-adopt the last sealed point as the open confirmed point ----
+                long fastForwardUntil = 0;
+                var adoptPending = false;
+                ZstdIndexPoint? adoptPoint = null;
+                if (resuming)
                 {
-                    spanMd5.TransformFinalBlock([], 0, 0);
-                    if (newPoints.Count > 0) newPoints[^1].SpanMd5 = spanMd5.Hash!;
-                    spanMd5.Dispose();
-                    spanMd5 = MD5.Create();
+                    var frameStart = sealedPoints.FindLast(p => p.IsFrameStart)!;   //points[0] is always a frame start
+                    adoptPoint = sealedPoints[^1];
+                    adoptPending = true;
+                    fastForwardUntil = adoptPoint.UncompressedOffset;
+                    uncompressedPos = frameStart.UncompressedOffset;
+                    nextProgressAt = (uncompressedPos / ProgressIntervalBytes + 1) * ProgressIntervalBytes;
+                    compressedStream.Seek(frameStart.CompressedOffset, SeekOrigin.Begin);
+                    Log.Information($"Fast-forwarding {(fastForwardUntil - uncompressedPos).BytesToString()} to the last verified point (a zstd point cannot checkpoint full decoder state the way gzip's can).");
                 }
-
-                void DropTrial(bool flushPendingIntoCurrentSpan)
+                else
                 {
-                    if (trial != null) { Methods.ZSTD_freeDCtx(trial); trial = null; }
-                    candidate = null;
-                    candidateWindowRaw = null;
-                    if (flushPendingIntoCurrentSpan && pendingLength > 0)
-                    {
-                        spanMd5.TransformBlock(pending, 0, pendingLength, null, 0);
-                    }
-                    pendingLength = 0;
-                }
-
-                void AcceptCandidate()
-                {
-                    //everything hashed so far (excluding `pending`) is the PREVIOUS span - exactly up
-                    //to the candidate's offset
-                    FinishSpanHash();
-                    newPoints.Add(candidate!);
-                    windows.Add(candidateWindowRaw!.Length == 0 ? [] : windowCompressor.Wrap(candidateWindowRaw).ToArray());
-                    nextCandidateAt = candidate!.UncompressedOffset + TargetSpanBytes;
-
-                    //the deferred bytes are the start of the NEW span
-                    spanMd5.TransformBlock(pending, 0, pendingLength, null, 0);
-                    pendingLength = 0;
-
-                    if (trial != null) { Methods.ZSTD_freeDCtx(trial); trial = null; }
-                    candidate = null;
-                    candidateWindowRaw = null;
+                    compressedStream.Seek(0, SeekOrigin.Begin);
                 }
 
                 byte[] SnapshotWindow()
@@ -224,6 +232,42 @@ namespace libZstd
                     return snapshot;
                 }
 
+                void SealConfirmed()
+                {
+                    if (confirmed == null) return;
+                    if (!confirmedAlreadyWritten)
+                    {
+                        var windowCompressed = confirmedWindowRaw.Length == 0 ? [] : windowCompressor.Wrap(confirmedWindowRaw).ToArray();
+                        AppendPoint(wip, confirmed, windowCompressed);
+                        sealedPoints.Add(confirmed);
+                    }
+                    confirmedAlreadyWritten = false;
+                    confirmedShadow?.Dispose();
+                    confirmedShadow = null;
+                    confirmed = null;
+                    confirmedWindowRaw = [];
+                }
+
+                void DropCandidate()
+                {
+                    candidateShadow?.Dispose();
+                    candidateShadow = null;
+                    candidate = null;
+                    candidateWindowRaw = [];
+                }
+
+                //candidate survived its whole span: it becomes the confirmed point (sealing its predecessor)
+                void PromoteCandidate()
+                {
+                    SealConfirmed();
+                    confirmed = candidate;
+                    confirmedWindowRaw = candidateWindowRaw;
+                    confirmedShadow = candidateShadow;
+                    candidate = null;
+                    candidateWindowRaw = [];
+                    candidateShadow = null;
+                }
+
                 while (true)
                 {
                     var frameStartOffset = reader.Position;
@@ -234,17 +278,38 @@ namespace libZstd
                     if (frameWindowSize > 1L << 30) throw new InvalidDataException($"zstd window {frameWindowSize:N0} too large to index.");
                     if (ring.Length < frameWindowSize) ring = new byte[frameWindowSize];
 
-                    //a frame start is a perfect (stateless) resume point
-                    FinishSpanHash();
-                    newPoints.Add(new ZstdIndexPoint
+                    var fastForwarding = uncompressedPos < fastForwardUntil;
+
+                    //a frame start is a perfect (stateless) resume point: confirm it immediately
+                    if (!fastForwarding)
                     {
-                        UncompressedOffset = uncompressedPos,
-                        CompressedOffset = frameStartOffset,
-                        IsFrameStart = true,
-                        WindowDescriptor = frameWindowDescriptor,
-                    });
-                    windows.Add([]);
-                    nextCandidateAt = uncompressedPos + TargetSpanBytes;
+                        if (adoptPending)
+                        {
+                            //the adoption point can only coincide with a frame start here (a mid-frame
+                            //adoption happens at a block boundary inside the loop below)
+                            if (uncompressedPos != adoptPoint!.UncompressedOffset || frameStartOffset != adoptPoint.CompressedOffset)
+                                throw new InvalidDataException("Compressed stream does not match the partial index (resume position not found).");
+
+                            confirmed = adoptPoint;
+                            confirmedAlreadyWritten = true;
+                            confirmedWindowRaw = [];
+                            confirmedShadow = null;     //frame start: exact by construction
+                            adoptPending = false;
+                        }
+                        else
+                        {
+                            SealConfirmed();
+                            confirmed = new ZstdIndexPoint
+                            {
+                                UncompressedOffset = uncompressedPos,
+                                CompressedOffset = frameStartOffset,
+                                IsFrameStart = true,
+                                WindowDescriptor = frameWindowDescriptor,
+                            };
+                            confirmedWindowRaw = [];
+                            confirmedShadow = null;     //exact by construction
+                        }
+                    }
 
                     if (!Feed(main, headerBytes, outBuf, out _)) throw new InvalidDataException("zstd frame header rejected.");
 
@@ -252,38 +317,51 @@ namespace libZstd
                     while (!lastBlock)
                     {
                         var boundaryCompressedOffset = reader.Position;
+                        fastForwarding = uncompressedPos < fastForwardUntil;
 
-                        if (candidate == null && uncompressedPos >= nextCandidateAt)
+                        if (!fastForwarding)
                         {
-                            //arm a trial at this block boundary
-                            candidateWindowRaw = SnapshotWindow();
-                            candidate = new ZstdIndexPoint
+                            if (adoptPending)
                             {
-                                UncompressedOffset = uncompressedPos,
-                                CompressedOffset = boundaryCompressedOffset,
-                                IsFrameStart = false,
-                                WindowDescriptor = frameWindowDescriptor,
-                            };
-                            trialCompared = 0;
+                                //fast-forward complete: re-adopt the last sealed point as the open
+                                //confirmed point, with a fresh insurance shadow from the rebuilt ring
+                                if (uncompressedPos != adoptPoint!.UncompressedOffset || boundaryCompressedOffset != adoptPoint.CompressedOffset)
+                                    throw new InvalidDataException("Compressed stream does not match the partial index (resume position not found).");
 
-                            trial = Methods.ZSTD_createDCtx();
-                            Methods.ZSTD_DCtx_setParameter(trial, ZSTD_dParameter.ZSTD_d_windowLogMax, 31);
-                            var initOk = true;
-                            if (candidateWindowRaw.Length > 0)
-                            {
-                                fixed (byte* windowPtr = candidateWindowRaw)
-                                {
-                                    var r = Methods.ZSTD_DCtx_refPrefix(trial, windowPtr, (nuint)candidateWindowRaw.Length);
-                                    initOk = !Methods.ZSTD_isError(r);
-                                }
+                                confirmed = adoptPoint;
+                                confirmedAlreadyWritten = true;
+                                confirmedWindowRaw = SnapshotWindow();
+                                confirmedShadow = new ShadowDecoder(confirmedWindowRaw, adoptPoint.WindowDescriptor);
+                                if (!confirmedShadow.Healthy) throw new InvalidDataException("Could not re-establish the resume point's shadow decoder.");
+                                adoptPending = false;
                             }
-                            if (initOk) initOk = Feed(trial, SyntheticFrameHeader(frameWindowDescriptor), trialBuf, out _);
-                            if (!initOk) DropTrial(flushPendingIntoCurrentSpan: true);
+
+                            //confirm the candidate once it has survived one whole span byte-identical
+                            if (candidate != null && uncompressedPos >= candidate.UncompressedOffset + TargetSpanBytes)
+                            {
+                                PromoteCandidate();
+                            }
+
+                            //arm a new candidate a span past the confirmed point
+                            if (candidate == null && confirmed != null && uncompressedPos >= confirmed.UncompressedOffset + TargetSpanBytes)
+                            {
+                                candidateWindowRaw = SnapshotWindow();
+                                candidate = new ZstdIndexPoint
+                                {
+                                    UncompressedOffset = uncompressedPos,
+                                    CompressedOffset = boundaryCompressedOffset,
+                                    IsFrameStart = false,
+                                    WindowDescriptor = frameWindowDescriptor,
+                                };
+                                candidateShadow = new ShadowDecoder(candidateWindowRaw, frameWindowDescriptor);
+                                if (!candidateShadow.Healthy) DropCandidate();
+                            }
                         }
 
                         var block = reader.ReadBlock(out lastBlock);
 
                         if (!Feed(main, block, outBuf, out var produced)) throw new InvalidDataException("zstd decode error during index build.");
+                        var truth = outBuf.AsSpan(0, produced);
 
                         //rolling window ring
                         for (var copied = 0; copied < produced;)
@@ -294,31 +372,21 @@ namespace libZstd
                             copied += n;
                         }
 
-                        if (candidate != null && trial != null)
+                        if (!fastForwarding)
                         {
-                            //defer hashing while the trial is undecided; compare the trial decoder's
-                            //output for this same block against the truth
-                            Array.Copy(outBuf, 0, pending, pendingLength, produced);
-                            pendingLength += produced;
+                            //insurance shadow: covers the confirmed point's still-open span. A mismatch
+                            //here means a divergence DEEPER than a whole span (never observed on real
+                            //data) - abort; the caller falls back to extraction. Never wrong data.
+                            if (confirmedShadow != null && !confirmedShadow.FeedAndCompare(block, truth))
+                            {
+                                throw new InvalidDataException($"zstd resume state diverged deeper than a span at {uncompressedPos:N0}.");
+                            }
 
-                            if (!Feed(trial, block, trialBuf, out var trialProduced)
-                                || trialProduced != produced
-                                || !outBuf.AsSpan(0, produced).SequenceEqual(trialBuf.AsSpan(0, trialProduced)))
+                            //candidate shadow: divergence is normal (~12% of boundaries) - re-arm later
+                            if (candidateShadow != null && !candidateShadow.FeedAndCompare(block, truth))
                             {
-                                DropTrial(flushPendingIntoCurrentSpan: true);   //not a valid resume point; try a later boundary
+                                DropCandidate();
                             }
-                            else
-                            {
-                                trialCompared += produced;
-                                if (trialCompared >= TrialLookaheadBytes)
-                                {
-                                    AcceptCandidate();
-                                }
-                            }
-                        }
-                        else
-                        {
-                            spanMd5.TransformBlock(outBuf, 0, produced, null, 0);
                         }
 
                         uncompressedPos += produced;
@@ -327,213 +395,121 @@ namespace libZstd
                         {
                             var percentThroughCompressedSource = (double)reader.Position / compressedStream.Length * 100;
                             Log.Information($"Indexed {uncompressedPos.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
-                            nextProgressAt += ProgressIntervalBytes;
+                            nextProgressAt = (uncompressedPos / ProgressIntervalBytes + 1) * ProgressIntervalBytes;
                         }
                     }
 
                     reader.EndFrame(hasChecksum);
-                    DropTrial(flushPendingIntoCurrentSpan: true);   //an unresolved trial cannot span frames
+
+                    //frame end: a live candidate has verified [candidate -> frame end] = its whole
+                    //actual span (the next point will be at or after the next frame's start)
+                    if (candidate != null)
+                    {
+                        PromoteCandidate();
+                    }
                 }
 
-                FinishSpanHash();
-                spanMd5.Dispose();
+                if (adoptPending) throw new InvalidDataException("Compressed stream ended before the previously indexed position.");
+                SealConfirmed();
 
-                if (newPoints.Count == 0) throw new InvalidDataException("No zstd frames found.");
+                if (sealedPoints.Count == 0) throw new InvalidDataException("No zstd frames found.");
 
-                var index = new ZstdSeekableIndex
+                FinaliseFile(wip, uncompressedPos, sealedPoints.Count);
+                wip.Dispose();
+                File.Move(wipFilename, indexFilename, overwrite: true);
+
+                Log.Information($"Finished creating zstd index: {Path.GetFileName(indexFilename)} ({sealedPoints.Count:N0} verified points)");
+                return new ZstdSeekableIndex
                 {
                     Filename = indexFilename,
-                    points = newPoints,
+                    points = sealedPoints,
                     UncompressedTotalLength = uncompressedPos,
                 };
-
-                Log.Information($"zstd index: {newPoints.Count:N0} candidate points over {uncompressedPos:N0} bytes. Verifying every span.");
-                index.VerifyAndHeal(compressedStream, windows);
-
-                index.Save(indexFilename, windows);
-                Log.Information($"Finished creating zstd index: {Path.GetFileName(indexFilename)} ({index.points.Count:N0} verified points)");
-                return index;
             }
             finally
             {
                 Methods.ZSTD_freeDCtx(main);
-                if (trial != null) Methods.ZSTD_freeDCtx(trial);
+                confirmedShadow?.Dispose();
+                candidateShadow?.Dispose();
             }
         }
 
-        /// <summary>
-        /// The hard guarantee: re-decode every span from its point exactly as readers will, comparing
-        /// the true decode's MD5 piecewise at every candidate boundary inside the span. A point whose
-        /// resume diverges anywhere in its span gets DROPPED and its predecessor re-verified over the
-        /// merged span (the inline 4 MB trial can be fooled by long stateless stretches - RLE/raw
-        /// blocks neither use nor update repeat-offset state, so a divergence can surface much later).
-        /// Healing always terminates: a frame-start resume IS the true decode, sound at any depth.
-        /// Only points whose full (possibly merged) span verified survive into the index.
-        /// </summary>
-        void VerifyAndHeal(Stream compressedStream, List<byte[]> compressedWindows)
+        //================================================================= file format
+
+        static (List<ZstdIndexPoint> Points, long TotalLength, bool Complete) ReadFile(FileStream fs, bool tolerateTruncatedTail)
         {
-            var sharedCompressed = new libCommon.Streams.SharedStream(compressedStream);
-            var markers = points;                       //every candidate stays a hash boundary
-            var alive = points.Select(_ => true).ToArray();
+            Span<byte> header = stackalloc byte[HeaderSize];
+            fs.ReadExactly(header);
+            if (!header[..8].SequenceEqual(Magic)) throw new InvalidDataException("Not a zstd zran index.");
+            var totalLength = BinaryPrimitives.ReadInt64LittleEndian(header[8..]);
+            var count = BinaryPrimitives.ReadInt32LittleEndian(header[16..]);
+            var complete = count > 0;
 
-            //returns the marker index (a < failIdx <= b) of the first piecewise-hash mismatch, or -1 if
-            //the whole span [markers[a], nextAliveEndOffset) verified
-            int VerifySpan(int a, int b /*exclusive end marker index; markers.Count = EOF*/)
+            var result = new List<ZstdIndexPoint>();
+            Span<byte> record = stackalloc byte[PointFixedSize];
+            while (complete ? result.Count < count : true)
             {
-                var point = markers[a];
-                var endUncompressed = b < markers.Count ? markers[b].UncompressedOffset : UncompressedTotalLength;
-                var endCompressed = b < markers.Count ? markers[b].CompressedOffset : compressedStream.Length;
-
-                byte[] window = [];
-                if (compressedWindows[a].Length > 0)
+                var recordStart = fs.Position;
+                var got = fs.ReadAtLeast(record, PointFixedSize, throwOnEndOfStream: false);
+                if (got < PointFixedSize)
                 {
-                    using var windowDecompressor = new ZstdSharp.Decompressor();
-                    window = windowDecompressor.Unwrap(compressedWindows[a]).ToArray();
+                    if (complete || (!tolerateTruncatedTail && got != 0)) throw new InvalidDataException("zstd index truncated.");
+                    break;
                 }
 
-                var source = sharedCompressed.CreateView();
-                using var resume = new ZstdResumeStream(source, point.CompressedOffset, endCompressed, point.IsFrameStart, point.WindowDescriptor, window);
-
-                var buffer = new byte[1 << 20];
-                var position = point.UncompressedOffset;
-                var intervalIdx = a;    //hash of [markers[j], markers[j+1]) lives in markers[j].SpanMd5
-                var md5 = MD5.Create();
-                try
+                var point = new ZstdIndexPoint
                 {
-                    while (position < endUncompressed)
-                    {
-                        var intervalEnd = intervalIdx + 1 < markers.Count ? markers[intervalIdx + 1].UncompressedOffset : UncompressedTotalLength;
-                        var want = (int)Math.Min(buffer.Length, intervalEnd - position);
-                        var n = resume.Read(buffer, 0, want);
-                        if (n == 0) return intervalIdx + 1;     //short decode: treat as divergence in this interval
-                        md5.TransformBlock(buffer, 0, n, null, 0);
-                        position += n;
+                    UncompressedOffset = BinaryPrimitives.ReadInt64LittleEndian(record),
+                    CompressedOffset = BinaryPrimitives.ReadInt64LittleEndian(record[8..]),
+                    IsFrameStart = record[16] != 0,
+                    WindowDescriptor = record[17],
+                    WindowCompressedLength = BinaryPrimitives.ReadInt32LittleEndian(record[18..]),
+                    WindowPositionInFile = recordStart + PointFixedSize,
+                };
 
-                        if (position == intervalEnd)
-                        {
-                            md5.TransformFinalBlock([], 0, 0);
-                            var expected = markers[intervalIdx].SpanMd5;
-                            if (!md5.Hash!.SequenceEqual(expected)) return intervalIdx + 1;
-                            md5.Dispose();
-                            md5 = MD5.Create();
-                            intervalIdx++;
-                        }
-                    }
-                    return -1;
-                }
-                finally
+                if (point.WindowCompressedLength < 0 || point.UncompressedOffset < 0 || point.CompressedOffset < 0)
                 {
-                    md5.Dispose();
+                    if (tolerateTruncatedTail && !complete) break;
+                    throw new InvalidDataException("zstd index point has implausible values.");
                 }
+
+                if (fs.Position + point.WindowCompressedLength > fs.Length)
+                {
+                    if (tolerateTruncatedTail && !complete) break;
+                    throw new InvalidDataException("zstd index truncated inside a window.");
+                }
+                fs.Seek(point.WindowCompressedLength, SeekOrigin.Current);
+
+                result.Add(point);
             }
 
-            //verify all currently-alive spans in parallel; drop failures; repeat for the merged spans
-            var toVerify = Enumerable.Range(0, markers.Count).Where(i => alive[i]).ToList();
-            var round = 0;
-            while (toVerify.Count > 0)
-            {
-                round++;
-                if (round > markers.Count + 2) throw new InvalidDataException("zstd index verification did not converge.");
-
-                var dropped = new List<int>();
-                var next = new List<int>();
-
-                //each worker takes a CONTIGUOUS slice of spans, in order: a handful of sequential
-                //cursors through the compressed source instead of a random interleave (a seek storm
-                //on spinning disks - the verify pass is I/O-bound, not CPU-bound)
-                var workerCount = Math.Min(4, Environment.ProcessorCount);
-                var ordered = toVerify.OrderBy(x => x).ToList();
-                var spansVerified = 0;
-                Parallel.For(0, workerCount, w =>
-                {
-                    var from = w * ordered.Count / workerCount;
-                    var to = (w + 1) * ordered.Count / workerCount;
-                    for (var idx = from; idx < to; idx++)
-                    {
-                        var a = ordered[idx];
-                        var b = a + 1;
-                        while (b < markers.Count && !alive[b]) b++;
-
-                        if (VerifySpan(a, b) >= 0)
-                        {
-                            lock (dropped) dropped.Add(a);
-                        }
-
-                        var done = System.Threading.Interlocked.Increment(ref spansVerified);
-                        if (done % 50 == 0 || done == ordered.Count)
-                        {
-                            Log.Information($"Verified {done:N0} of {ordered.Count:N0} resume points.");
-                        }
-                    }
-                });
-
-                foreach (var i in dropped.OrderBy(x => x))
-                {
-                    if (markers[i].IsFrameStart)
-                    {
-                        //cannot happen (a frame-start resume is the true decode), but never drop one
-                        throw new InvalidDataException($"zstd frame-start span failed verification at {markers[i].UncompressedOffset:N0}.");
-                    }
-                    alive[i] = false;
-                    //the nearest earlier alive point now covers a longer span - re-verify it
-                    var predecessor = i - 1;
-                    while (predecessor >= 0 && !alive[predecessor]) predecessor--;
-                    if (predecessor >= 0 && !next.Contains(predecessor)) next.Add(predecessor);
-                }
-
-                if (dropped.Count > 0)
-                    Log.Debug($"zstd index verification round {round}: dropped {dropped.Count} unsound resume point(s); re-verifying {next.Count} merged span(s).");
-
-                toVerify = next;
-            }
-
-            var survivingWindows = new List<byte[]>();
-            var surviving = new List<ZstdIndexPoint>();
-            for (var i = 0; i < markers.Count; i++)
-            {
-                if (!alive[i]) continue;
-                surviving.Add(markers[i]);
-                survivingWindows.Add(compressedWindows[i]);
-            }
-
-            if (surviving.Count < markers.Count)
-                Log.Information($"zstd index: {markers.Count - surviving.Count:N0} of {markers.Count:N0} candidate points were unsound and removed; {surviving.Count:N0} verified points remain.");
-
-            points = surviving;
-            compressedWindows.Clear();
-            compressedWindows.AddRange(survivingWindows);
+            return (result, totalLength, complete);
         }
 
-        void Save(string indexFilename, List<byte[]> compressedWindows)
+        static void AppendPoint(FileStream fs, ZstdIndexPoint point, byte[] windowCompressed)
         {
-            var tempFilename = indexFilename + ".wip";
-            using (var fs = File.Create(tempFilename))
-            using (var bw = new BinaryWriter(fs))
-            {
-                bw.Write(Magic);
-                bw.Write(UncompressedTotalLength);
-                bw.Write(points.Count);
+            Span<byte> record = stackalloc byte[PointFixedSize];
+            BinaryPrimitives.WriteInt64LittleEndian(record, point.UncompressedOffset);
+            BinaryPrimitives.WriteInt64LittleEndian(record[8..], point.CompressedOffset);
+            record[16] = point.IsFrameStart ? (byte)1 : (byte)0;
+            record[17] = point.WindowDescriptor;
+            BinaryPrimitives.WriteInt32LittleEndian(record[18..], windowCompressed.Length);
 
-                const int recordSize = 8 + 8 + 1 + 1 + 16 + 8 + 4;
-                var windowOffset = 8L + 8 + 4 + (long)points.Count * recordSize;
-                for (var i = 0; i < points.Count; i++)
-                {
-                    var p = points[i];
-                    p.WindowPositionInFile = windowOffset;
-                    p.WindowCompressedLength = compressedWindows[i].Length;
-                    windowOffset += p.WindowCompressedLength;
+            fs.Write(record);
+            point.WindowPositionInFile = fs.Position;
+            point.WindowCompressedLength = windowCompressed.Length;
+            fs.Write(windowCompressed);
+            fs.Flush();     //each sealed point survives an interruption
+        }
 
-                    bw.Write(p.UncompressedOffset);
-                    bw.Write(p.CompressedOffset);
-                    bw.Write(p.IsFrameStart);
-                    bw.Write(p.WindowDescriptor);
-                    bw.Write(p.SpanMd5.Length == 16 ? p.SpanMd5 : new byte[16]);
-                    bw.Write(p.WindowPositionInFile);
-                    bw.Write(p.WindowCompressedLength);
-                }
-                foreach (var w in compressedWindows) bw.Write(w);
-            }
-            File.Move(tempFilename, indexFilename, overwrite: true);
+        static void FinaliseFile(FileStream fs, long totalLength, int count)
+        {
+            fs.Position = 8;
+            Span<byte> tail = stackalloc byte[12];
+            BinaryPrimitives.WriteInt64LittleEndian(tail, totalLength);
+            BinaryPrimitives.WriteInt32LittleEndian(tail[8..], count);
+            fs.Write(tail);
+            fs.Flush();
         }
 
         //================================================================= low-level helpers
@@ -572,6 +548,52 @@ namespace libZstd
                 }
             }
             return true;
+        }
+
+        /// <summary>
+        /// A decoder resumed at a candidate point (window preloaded via refPrefix, synthetic frame
+        /// header), fed the same blocks as the true decode and byte-compared against it. The window
+        /// array is pinned for the shadow's lifetime (refPrefix references it directly).
+        /// </summary>
+        sealed unsafe class ShadowDecoder : IDisposable
+        {
+            ZSTD_DCtx_s* dctx;
+            GCHandle windowPin;
+            readonly byte[] scratch = new byte[1 << 20];
+
+            public bool Healthy { get; }
+
+            public ShadowDecoder(byte[] windowRaw, byte windowDescriptor)
+            {
+                dctx = Methods.ZSTD_createDCtx();
+                Methods.ZSTD_DCtx_setParameter(dctx, ZSTD_dParameter.ZSTD_d_windowLogMax, 31);
+
+                var ok = true;
+                if (windowRaw.Length > 0)
+                {
+                    windowPin = GCHandle.Alloc(windowRaw, GCHandleType.Pinned);
+                    var r = Methods.ZSTD_DCtx_refPrefix(dctx, (byte*)windowPin.AddrOfPinnedObject(), (nuint)windowRaw.Length);
+                    ok = !Methods.ZSTD_isError(r);
+                }
+                if (ok) ok = Feed(dctx, SyntheticFrameHeader(windowDescriptor), scratch, out _);
+                Healthy = ok;
+            }
+
+            public bool FeedAndCompare(ReadOnlySpan<byte> block, ReadOnlySpan<byte> truth)
+            {
+                if (!Feed(dctx, block, scratch, out var produced)) return false;
+                return produced == truth.Length && scratch.AsSpan(0, produced).SequenceEqual(truth);
+            }
+
+            public void Dispose()
+            {
+                if (dctx != null)
+                {
+                    Methods.ZSTD_freeDCtx(dctx);
+                    dctx = null;
+                }
+                if (windowPin.IsAllocated) windowPin.Free();
+            }
         }
 
         internal enum FrameKind { Zstd, Skippable, EndOfStream }
