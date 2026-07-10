@@ -358,18 +358,190 @@ HEAD and reimplement both properly:
   **Full-suite confirmation (06-29, 693 min, 74/74 green):** −66 min total; Gz & Zst back to baseline; slow-read
   protection intact (no `0x800705AA`; `ext4_lvm`/`dd`/Ubuntu-FS all pass). **Keep this fix.**
 
-> **Resolved by the full-suite run (06-29, D6-fix, 693 min, 74/74 green):** Gz (62.4→40.4) and Zst
-> (48.8→33.9) **recovered to baseline**, but **Xz is still +105.7 min** (270.7→248.1 vs 142.4 baseline).
-> With D6's churn gone, the only thing still inflating Xz is **D3's per-read reopen** re-establishing the
-> expensive xz read position every read (zst/gz reopen cheaply via native seek; xz goes through the costly
-> train-cache path). **→ The D3 fix IS needed, specifically for xz.** Mount.AsFiles.xz (reads a couple
-> files, not a tree-walk) was flat at ~1.5 min throughout — confirming the cost is read-count × per-reopen,
-> not decode per se.
-- [ ] **Fix D3 — item-stream reuse with worker affinity (= Batch 6 (D)).** **Confirmed needed** by the
-  full-suite run: Xz still +105.7 min after the D6 fix. Stop re-opening the native item per `Read`; cache the
-  open item per handle and reuse across consecutive reads, yielding the worker under contention so opens stay
-  unbounded (don't regress to "handle holds a worker"). (`libClonezilla/Extractors/PooledNativeItemStream.cs`
-  + `NativeExtractorPool.cs`.) Validate on the **Xz** large-drive-image proxy (~4 h): expect 248 → ~142.
+> **Full-suite run (06-29, D6-fix, 693 min, 74/74 green):** Gz (62.4→40.4) and Zst (48.8→33.9) **recovered
+> to baseline**, but **Xz is still +105.7 min** (270.7→248.1 vs 142.4 baseline).
+>
+> **Correction (was: "D3 is the xz culprit" — wrong).** Two facts rule D3 out: (1) with D6 fixed, D3 costs
+> ~0 even on zst (proxy: 34.9 *with* D3 vs 35.1 without); (2) xz and zst drive images share the **same**
+> read path — both have no seekable decoder, both serve from the same on-disk `cache.train` (zstd) — so
+> D3's reopen/reseek is format-agnostic. If D3 ≈ 0 on zst it's ≈ 0 on xz. **The D3 fix would not move the
+> xz residual.**
+>
+> **What the xz residual is:** format-amplified (only the slow-decode xz; ~0 on zst/gz), i.e. a mod adding
+> *decode* work, not per-read overhead. Not statically pin-pointable (the train-cache path makes every
+> read-path mod look format-neutral). **Lead guess D4** — its never-disposed cached mmap stream may be a
+> *second* long-lived decode stream over the xz source (≈ doubles the one-time 16.8 GB xz decode; ~free on
+> fast-decoding zst). Unproven — **bisect it (below).**
+- [x] **Experiment 3 — D4 reverted (on the committed D6-fix), two full-suite runs.**
+  - 07-01: 74/74, 680.9 min; **Xz 234.4** — no recovery → **D4 exonerated** (restored to HEAD 07-03).
+  - 07-03: 683.8 min; **Xz FAILED at 254.2 min** — a *crash*, not a perf/correctness signal (see
+    Investigation I1 below). All other 73 passed.
+
+### Status (2026-07-03): xz residual — leading hypothesis ENVIRONMENTAL; Experiment 4 decides it.
+
+> **Operator input (2026-07-03):** no hardware change — the 5×8 GB @2133 config predates the regression
+> (it ran 287 MB/s on that same RAM on 06-22), so the RAM-config theory below is **dead**. The operator
+> suspects the 06-23/24 code drop and wants a revert-to-confirm. **Experiment 4 (below) is that test in a
+> single run.** Remaining environment suspects if Exp 4 exonerates the code: Defender real-time on the
+> fresh install (confirmed ON, exclusions unknown; the build streams 19 GB reads from E: + tens of GB of
+> writes to R: past it) and Win11 EcoQoS/background power-throttling of the long-running console exe.
+
+The 07-03 log revealed the Xz test is ~99.8% **train-cache build** (`E: FileStream → SharpCompress
+XZStream → train-zstd → R:`) — a path containing **no Dokan code**, so no D-mod could ever have caused
+it. Chased the two remaining code suspects to ground the same day:
+
+1. **Local SharpCompress package is a proper RELEASE build** (DebuggableAttribute flags 0x2 — optimized;
+   verified by metadata inspection of the nupkg's net10.0 DLL). Debug-pack theory dead.
+2. **SharpCompress 0.37.0 vs 0.49.1-localbzip2patch decode the actual test file at identical speed**
+   (micro-bench on the real `…sda.img.xz`, 60 s measured legs: **35.2 vs 34.5 MB/s** — noise). Upstream-
+   regression theory dead. The 06-23 package migration is exonerated.
+
+What remains is the machine. Hard evidence from the app's own logs (train build of the SAME image,
+cache hash `f7197852…`):
+
+| Run (install) | Build duration | Tail rate (identical 1.7→2.0 TB range) |
+|---|---|---|
+| 06-21 ×2, 06-22 (old install) | 160.5 / 156.4 / **148.4 min** | **287 MB/s** (06-22) |
+| 07-01 / 07-02→03 (fresh Win11/SSD) | ~230 / **253.6 min** | **155 MB/s** (07-03) |
+
+**1.85× slower on identical work with a speed-identical decoder = environment.** Crucially the slowdown
+**pre-dates the reformat** (06-27 old-install post-reboot run: Xz 240.6) and **survived the OS reinstall**
+→ the cause is at BIOS/hardware level, not Windows. Measured on 2026-07-03: CPU = i7-5820K running a
+normal 3.4 GHz under this exact load (no throttle, no E-cores to mis-schedule); **RAM = 5 × 8 GB mixed
+vendors (Micron/Crucial/Team Group) all at JEDEC 2133** — an asymmetric 4+1 population on a quad-channel
+X99 board. LZMA2 decode is memory-latency/bandwidth-bound, exactly the workload such a config punishes.
+Power plan is Balanced (worth setting High performance, but that alone won't explain 1.85×).
+
+**Open question only the operator can answer:** was a RAM stick added (or CMOS/XMP reset) around
+2026-06-23→26 — i.e. during the memory-exhaustion firefighting? That would explain the timing, the
+persistence across reformat, and the 5-stick mix. Verify BIOS: XMP profile, channel population per the
+board manual. Cheap re-validation after any change: the scratchpad `benchxz` micro-bench (~2 min),
+target ≥ ~55 MB/s cold on the same file — no 4 h test needed.
+
+**Bisect scorecard so far:** D6 per-read Timer = real, fixed & committed (`e7f414d`). D3 = interaction
+artifact of D6, ≈0 once D6 fixed. D4 = exonerated (Exp 3). D1/D2/D5 = untested individually, but the
+build path contains no Dokan code. Zst proxy at parity (33.9–34.2 vs 31.0 baseline). Suite total
+680–693 vs 618 baseline ≈ the xz tax (+~90–105) minus SSD gains elsewhere.
+
+- [x] **Experiment 4 — THE decisive run: baseline binary (`60c4f26`, the 06-22 build) on today's
+  machine, Xz test only (~4 h).** **Ran as a full suite 07-08→09 (74/74, 737 min): Xz = 194 min** —
+  between the two predictions → split verdict, decomposed below. → **RESOLVED, see next section.** Tests the ENTIRE 06-23/24 delta (D1–D6, D6-fix, SharpCompress
+  0.37→0.49.1-patch, gztool 1.8.2) at once — the single-run equivalent of "revert all the optimisations".
+  Do after the 07-03 full-suite re-run (rclone off) completes.
+  - **STAGED 2026-07-04:** baseline worktree created and published (smoke-tested OK) to
+    `C:\Users\Smith\Desktop\dev\cs\clonezilla-util-baseline\publish-baseline\clonezilla-util.exe`.
+    To run: copy that exe over `R:\Temp\clonezilla-util release\clonezilla-util.exe`, run
+    `ListContents.LargeDriveImages.Xz` (playlist `bisect-xz-only.playlist`, ~2.5–4.5 h). Afterwards
+    redeploy the current build (VS publish) and `git worktree remove ..\clonezilla-util-baseline`.
+    (Baseline pins official SharpCompress 0.37.0 from nuget.org — no local feed involved.)
+  - Current-code Xz plateau for comparison: **248.1 / 234.4 / 265.1 / 265.4** (mean ~253) across four
+    D6-fix full-suite runs (D4 in, out, in, in — no effect; pure run noise). The 07-07 run (74/74,
+    741.2 min total) was the current build, NOT this experiment (deployed-exe hash ≠ baseline exe);
+    its total and several small tests carry daytime-contention noise (e.g. Zst drive image 67.5 vs
+    34–49 typical) — Xz still landed on-plateau.
+  - **~148–160 min → the code/package delta IS the cause** → commit-bisect the 06-23/24 window
+    (d93444f pkg swap → 21757dd gztool → D1..D6) with Xz-only runs.
+  - **~230–255 min → code fully exonerated, environment confirmed** → then toggle environment suspects
+    cheaply via the `benchxz` micro-bench (2 min/leg, no 4 h runs): (1) add Defender exclusions for
+    `E:\clonezilla-util-test resources` + `R:\Temp` (+ the exe) and re-bench; (2)
+    `powercfg /powerthrottling disable /path "R:\Temp\clonezilla-util release\clonezilla-util.exe"` and/or
+    High-performance power plan; (3) re-bench cold vs warm (cold 35.2 vs warm 46.7 MB/s on 07-03 already
+    hints the E:-read path carries a ~33% tax).
+
+- [ ] **Fix D3 — item-stream reuse with worker affinity (= Batch 6 (D)).** **Deprioritised** — D3 ≈ 0 once
+  D6 is fixed (see correction above), so this is a latent cleanup for very-high-concurrency mounts, **not**
+  the xz regression fix. Revisit only if a future profile shows reopen cost. Don't build it speculatively.
+
+### RESOLVED (2026-07-09): xz regression root cause = the local SharpCompress pack was built from
+### upstream MASTER, not the 0.49.1 tag. Fixed by a tag-based repack (`0.49.1-localbzip2patch2`).
+
+Experiment 4 (baseline binary on today's machine) split the regression, and the identical-work
+**tail-rate** decomposition closed it exactly: package 1.60× × machine 1.16× = 1.85× observed.
+- Old install + 0.37 binary: 287 MB/s | new install + 0.37 binary: 239–248 | new install + 0.49-pack: 155.
+
+Null-region micro-bench (8 GB-of-zeros xz; head-region rates are EQUAL across all — the regression is
+sparse/high-ratio-region-specific, which is why the earlier head-only bench wrongly exonerated the pkg):
+
+| Decoder | MB/s |
+|---|---|
+| SharpCompress 0.37.0 | 275 |
+| **0.49.1-localbzip2patch (old pack, master-based)** | **159** |
+| 0.49.1 OFFICIAL (nuget.org) | 283 |
+| **0.49.1-localbzip2patch2 (new pack, tag-based)** | **283** |
+| XZ.NET native liblzma | 325 |
+
+**Official 0.49.1 was never slow.** The 06-23 pack was accidentally built from the fork's master
+(= 0.49.1 + ~3.5 weeks of upstream dev commits, one of which regressed the XZ sparse path ~1.7×).
+Meanwhile **upstream merged our bzip2 PR (#1358) on 2026-06-23** but hasn't released it. Fix applied
+2026-07-09: downloaded the 0.49.1 tag source, applied the merged PR's src hunks (tests excluded —
+file moved on master), packed as `0.49.1-localbzip2patch2`, added to the local feed, bumped both
+csprojs; solution builds; bench confirms 283 MB/s (= official).
+
+- **CONFIRMED by the 07-10 full-suite run (74/74): Xz = 192.8 min** (was 248–265 with the master-based
+  pack; baseline binary got 194) — the package component is fully recovered. The remaining ~35–50 over
+  the old 142–160 is the ~1.16× machine component + night-to-night variance, worth a
+  Defender-exclusion / power-plan experiment via the 2-min bench some idle day. NB the rest of the
+  07-10 run was heavily contended (total 823.6 — worst ever; Gz drive image 110.2 vs ~38 typical,
+  Sparse 16.9 vs ~6, Train/partitions elevated) with a time-of-day signature (evening+morning tests
+  slow, middle-of-night tests fast — Xz ran overnight and STILL dropped 70+ min); none of the slow
+  buckets touch SharpCompress, so the contention is environmental, not the repack. A clean-night
+  total should land ≈ **620–640**, i.e. back at the 618.4 pre-regression baseline.
+- **Optional follow-ups:** (a) switch xz decode to XZ.NET native (`xzDecompressor.cs` /
+  `Decompressor.cs`) for a further ~15% and immunity to SharpCompress churn — deliberately NOT done
+  together with the repack, to keep run attribution clean; (b) report the master XZ sparse-path
+  regression upstream (first re-bench current master — it may already be fixed); (c) when upstream
+  ships a release containing PR #1358: switch both csprojs to the official version, delete
+  `nuget.config` + the `local-nuget` feed.
+
+## Investigation I1 — intermittent crash: FileNotFound on our own internal mount  (opened 2026-07-03)
+
+`ListContents.LargeDriveImages.Xz` failed on 07-03 because **the exe died on an unhandled exception**,
+first occurrence ever (same binary passed 07-01). From `clonezilla-util_tests\bin\Debug\net10.0\logs\
+clonezilla-util-20260703.log` line 99:
+
+- 00:34:26 `Successfully cached to …\f7197852…\cache.train` (the 4 h xz train build completes normally)
+- 00:34:55 `[FTL] Unhandled exception System.IO.FileNotFoundException: Could not find file
+  'Z:\uktluojm\e21rbio4\h4oaywly'` at `CompressedImage..ctor` (`CompressedImage.cs:26` `File.OpenRead`)
+  ← `ImageFile..ctor` ← `PartitionContainer.FromPath` ← `Program.ListContents` (`Program.cs:177`).
+  Process dies → no listing printed → test asserts "Could not find …ReAgent.xml".
+
+That path is **our own virtual file**: the ctor loop publishes the just-built decompressed stream as a
+`StreamBackedFileEntry` on the internal Dokan VFS (Z:), then immediately `File.OpenRead`s it (peeling
+the next layer). The volume answered (FileNotFound, not PathNotFound → the mount was alive); **our own
+`CreateFile` said the entry doesn't exist ~29 s after creating it.**
+
+**CONFIRMED by the 07-04 full-suite run (rclone off): 74/74 green, Xz passed (265.1 min).** The crash
+did not recur once rclone was absent — and that run's binary predates the hardening below, so the pass
+isolates the rclone variable itself.
+
+**Root cause (operator-identified, 2026-07-03): drive-letter collision with rclone.** rclone was
+mounted to Z: in another session during that run. Our mount logic picks "the next available letter"
+and then just **waits for the letter to appear** — it never verifies the volume that appeared is OURS.
+If a foreign volume owns (or grabs) the letter, we adopt it: the volume answers, our random path
+doesn't exist on it → FileNotFound → unhandled → process death. Explains the intermittency (only when
+rclone/another mounter is active) and why the volume was "alive". The 07-03 full-suite re-run with
+rclone off doubles as confirmation (Xz should pass).
+
+**Hardening implemented 2026-07-03; VALIDATED by the 07-07 full-suite run** (74/74 green on a binary
+containing it — every ListContents/mount test exercised `TryMount` + sentinel verification with zero
+regressions; ready to commit) — verification, not retry (a retry against a foreign volume would spin
+forever):
+1. **Sentinel-based volume-identity verification** (`OnDemandVFS.TryMount`): each mount attempt plants
+   a uniquely-named `UnlistedFolder` (`clonezilla-util-sentinel-<guid>`) in the fresh `RootFolder`,
+   mounts, waits for the letter, then probes the sentinel *through the mounted letter* (brief 2 s
+   retry for settling). Only our own live VFS instance can answer → a squatter (rclone/subst/network
+   mapping) is detected deterministically. On mismatch: WARN naming the foreign volume's label/format,
+   tear the attempt down (signal ends the mount task → disposes the DokanInstance), and
+   - **auto-chosen letter** → fall back: pick the next free letter **excluding letters already tried**
+     (`GetAvailableDriveLetter(excluding:)` — squatted letters can look free to the scan), up to 3
+     attempts, then `Log.Fatal` + exit;
+   - **user-chosen letter (-m)** → no silent substitution: `Log.Fatal` + exit naming the squatter.
+2. **Bounded mount wait**: `WaitForFolderToExist` gained an optional timeout (30 s here) — previously
+   a failed Dokan mount left the app spinning forever on `while(true)`.
+3. The two mount verbs now log + open Explorer at the **actual** mounted letter
+   (`RootFolder.MountPoint`), which can differ from the tentative one after a fallback.
+   Files: `libClonezilla/VFS/OnDemandVFS.cs`, `libClonezilla/Utility.cs`, `libDokan/Utility.cs`,
+   `clonezilla-util/Program.cs` (4 call sites).
 
 **Validation:** after both fixes, full suite — expect `ListContents.LargeDriveImages` (esp. Xz) back to ~baseline.
 
