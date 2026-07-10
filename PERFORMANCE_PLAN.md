@@ -755,8 +755,10 @@ on-disk `cache.train`:
 - **Validated (scratchpad `zstproto`):** feasibility bench (88.5% boundary yield, divergences caught);
   end-to-end vs in-RAM ground truth on real images sdb1 (345 MB uncompressed: block starts, edges,
   cross-chunk reads, 200 random reads, reload-from-disk, sequential full-read MD5 — ALL PASS) and
-  sda1 (417 MB, nearly incompressible: ALL PASS; index 12.5 MB); 19.9 GB sda2 build-only at scale
-  (internal piecewise verification is itself byte-exact vs the true decode).
+  sda1 (417 MB, nearly incompressible: ALL PASS; index 12.5 MB); 19.9 GB sda2 at scale: **all 677
+  points verified, none dropped** — 32.3 min build (8.8 pass-1 + 23.5 verify, E:-read-bound,
+  one-time), 605.9 MB index (1.3% of the 45.4 GB uncompressed), cold random reads ~1.4 s each,
+  ~1.1 GB peak build RAM.
 - **Deferred as before:** xz / lz4 / lzip (see below); the 2 TB zst **drive image** will also index
   (data-region windows dominate index size; null-tail windows compress to ~nothing).
 - **Known v1 limitation:** during index BUILD the compressed windows are held in RAM until saved —
