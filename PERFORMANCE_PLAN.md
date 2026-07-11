@@ -793,6 +793,28 @@ on-disk `cache.train`:
   Smoke-tested end-to-end on `sda1.img.gz`: index built (137 points), parsed in-process, listing
   correct, index reused on second run. Expect `ListContents.LargeDriveImages` Gz and Zst to change
   behaviour: index build replaces train extraction.
+- **Superseded by the ZstdSeekable NuGet package (2026-07-11).** The in-repo `libZstd` implementation
+  was upstreamed by the author into the standalone **ZstdSeekable 0.2.0** package
+  (nuget.org, maintained at `C:\Users\Smith\Desktop\dev\cs\ZstdSeekable`), which carries the same v2
+  engine: single-pass verified build (insurance + candidate shadows), flat ~10 MB build RAM,
+  incremental `.wip` + resume, `ZSTZRAN2` format (loads `ZSTZRAN1` too), and — beyond our v2 — a
+  divergence fallback that degrades to frame-start-only points instead of aborting. `libZstd` is
+  deleted; `libClonezilla` now references the package. What stays in-repo is a thin bridge
+  (`Decompressors/ZstdSeekableIntegration.cs`): `SeekableZstdStream` adapts `ZstdIndexedStream` to
+  `IReadSuggestor` (32 MB-aligned sub-spans within a point's span — critical, or CachingStream's
+  ~1 MB default segments cost 30-60× decode amplification on cold scans; Read fill-loops because
+  CachingStream issues ONE `BaseStream.Read` per recommendation and requires it to cover the
+  requested range, while `ZstdIndexedStream.Read` returns short at chunk boundaries — recommendations
+  never cross one today, but the loop keeps that from being load-bearing), plus a Serilog
+  `ILogger` bridge and a ~1 GB-interval build-progress reporter. `ZstdDecompressor` gates serving on
+  index density (largest resume gap ≤ 4× `TargetSpanBytes`, else extraction fallback — a
+  frame-start-only degraded index on a huge single-frame stream would serve worse than `cache.train`).
+  Index filename/lookup unchanged (`<partition>.zstd_index.zsi`; ZSTZRAN2 is what v2 already wrote,
+  so existing indexes stay valid). Validated via the rewritten `zstproto` harness driving the
+  production path (`ZstdDecompressor` + `PartitionCache`) on sdb1: recommendations bounded+containing,
+  200 random + span-boundary reads byte-exact vs in-RAM reference, sequential MD5 through a
+  `CachingStream`+suggestor stack at 183 MB/s, reload-from-disk reuse — ALL PASS. Also hardened
+  `GetRecommendation` at/past EOF to return an empty range (the old implementation threw).
 
 > **Refer to this as "Batch 7".** Complements Batch 6; honours the same HARD CONSTRAINT (no disk
 > materialisation of decompressed data). **Scope is zstd only** — xz / lz4 / lzip are deferred (see the end).

@@ -19,6 +19,7 @@
          Switch back to the official NuGet version once a release containing PR #1358 ships. -->
     <PackageReference Include="SharpCompress" Version="0.49.1-localbzip2patch2" />
     <PackageReference Include="ZstdNet" Version="1.5.7" />
+    <PackageReference Include="ZstdSeekable" Version="0.2.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,7 +30,6 @@
     <ProjectReference Include="..\libGZip\libGZip.csproj" />
     <ProjectReference Include="..\libPartclone\libPartclone.csproj" />
     <ProjectReference Include="..\libTrainCompress\libTrainCompress.csproj" />
-    <ProjectReference Include="..\libZstd\libZstd.csproj" />
   </ItemGroup>
 
 </Project>
