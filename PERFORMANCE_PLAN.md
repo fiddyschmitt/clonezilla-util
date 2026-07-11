@@ -815,6 +815,25 @@ on-disk `cache.train`:
   200 random + span-boundary reads byte-exact vs in-RAM reference, sequential MD5 through a
   `CachingStream`+suggestor stack at 183 MB/s, reload-from-disk reuse — ALL PASS. Also hardened
   `GetRecommendation` at/past EOF to return an empty range (the old implementation threw).
+- **ZstdSeekable 0.3.0 (2026-07-11): fill spans (ZSTZRAN3).** The package now records runs of a
+  single repeated byte ≥ 1 MiB (zeros in disk images, 0xFF in flash dumps) during the verified
+  build; reads inside them fill the buffer directly — no window load, no decoder, no compressed
+  I/O (package measured ~34 ms → ~0 ms per cold 1 MB read). Resume points are NOT thinned inside
+  runs (~300 B each; they cap resume distance for reads landing just past a run), so our
+  `MaxPointGap` serving gate is unaffected. Integration is just the version bump plus one semantic
+  to honour: `ZstdIndexedStream.Read` now also returns short at fill-span edges (it stops decoding
+  where a run begins so the next read skips the decoder), which makes the adapter's Read fill-loop
+  load-bearing rather than defensive — comment updated. Old `ZSTZRAN2` indexes still load and
+  serve (no fill spans until rebuilt); to gain fill spans on an already-indexed image, delete its
+  `.zsi` and re-index — biggest win expected on the 2 TB zst drive image's null tail. Validated
+  with a crafted 178 MB synthetic (suite was live, so E: untouched): 0x00/0xFF runs incl. a 40 MB
+  run crossing a point-span and a 32 MB recommendation boundary, a sub-threshold 512 KB run, and
+  an EOF run — all four spans recorded byte-exact, sub-threshold correctly ignored, 300 random +
+  every decode↔fill edge byte-exact, CachingStream-stack MD5 match, reuse-from-disk — ALL PASS
+  (`zstproto`; run with arg `sdb1` for the real-image pass once the suite finishes). Future levers,
+  not built: `ZstdIndex.FillSpans` is verification-grade sparse-extent metadata (e.g. mark sparse
+  regions in the mounted VFS); recommendations could skip caching inside fill spans if zero-segment
+  cache pollution ever shows up in profiles.
 
 > **Refer to this as "Batch 7".** Complements Batch 6; honours the same HARD CONSTRAINT (no disk
 > materialisation of decompressed data). **Scope is zstd only** — xz / lz4 / lzip are deferred (see the end).

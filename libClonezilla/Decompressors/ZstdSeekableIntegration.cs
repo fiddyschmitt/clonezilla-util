@@ -47,8 +47,9 @@ namespace libClonezilla.Decompressors
         public override int Read(byte[] buffer, int offset, int count)
         {
             //CachingStream issues ONE Read per recommendation and requires it to cover the requested
-            //range. ZstdIndexedStream returns short at chunk (point-span) boundaries; recommendations
-            //never cross one today, but loop so correctness doesn't hinge on that alignment.
+            //range. ZstdIndexedStream returns short at chunk (point-span) boundaries and at fill-span
+            //edges (it stops decoding where a fill span begins so the next read is served without the
+            //decoder), so a recommendation-sized read must loop across those transitions.
             var total = 0;
             while (total < count)
             {
