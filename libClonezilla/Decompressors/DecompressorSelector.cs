@@ -118,18 +118,20 @@ namespace libClonezilla.Decompressors
             {
                 Log.Information($"{StreamName} Using a seekable decompressor for this data.");
 
-                //gz and zstd have in-memory random-access support, but need somewhere to keep their
-                //index file. Flows that serve whole (drive) images provide no partition cache, so
-                //synthesize one rooted in the same whole-file cache folder the extraction fallback
-                //uses - this is what lets drive images use the gztool/zstd indexes instead of
-                //extracting the entire decompressed image to disk.
-                if (PartitionCache == null && CompressionInUse is Compression.Gzip or Compression.Zstandard)
+                //gz, zstd and bzip2 have in-memory random-access support, but need somewhere to
+                //keep their index file. Flows that serve whole (drive) images provide no partition
+                //cache, so synthesize one rooted in the same whole-file cache folder the extraction
+                //fallback uses - this is what lets drive images use the gztool/zstd/bzip2 indexes
+                //instead of extracting the entire decompressed image to disk. Without this, bzip2
+                //rebuilt its block index (a full decode of the compressed image) on every mount.
+                if (PartitionCache == null && CompressionInUse is Compression.Gzip or Compression.Zstandard or Compression.bzip2)
                 {
                     var synthesizedCache = new PartitionCache(GetWholeFileCacheFolder(), StreamName);
                     Decompressor = CompressionInUse switch
                     {
                         Compression.Gzip => new GzDecompressor(CompressedStream, synthesizedCache),
                         Compression.Zstandard => new ZstdDecompressor(CompressedStream, synthesizedCache),
+                        Compression.bzip2 => new Bzip2Decompressor(CompressedStream, synthesizedCache, ProcessTrailingNulls),
                         _ => Decompressor,
                     };
                 }

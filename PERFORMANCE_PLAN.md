@@ -859,6 +859,11 @@ on-disk `cache.train`:
     mount 29.5/23.8) while partition bzip2 with a persisted index collapses 19.8→3.2. FIX (small):
     add BZip2 to the synthesis (needs `processTrailingNulls` threaded to the `Bzip2Decompressor`
     ctor there). Expected: both drive bzip2 tests → ~3-8 min cached, ~35-40 min off the suite.
+    **FIXED 2026-07-12** (bzip2 added to the synthesis in `DecompressorSelector`): validated on the
+    395 MB `2021-12-28_pb-devops1_sda1.img.bz2` with a scratch cache — run 1 builds and saves
+    `*.bzip2_index.json` (58 s), run 2 loads it (35 s), listings identical (170 entries). The
+    remaining cached-run time is the 10 s serving perf test + 50 MB cache-key hash + single-threaded
+    block-decode serving (the Batch 8 lever).
     Second-order lever for later (Batch 8 candidate): serving is single-threaded — one ~900 KB
     block per recommendation (`SeekableDecompressingStream.GetRecommendation`), fresh decoder per
     block, no readahead — while blocks are independently decodable and the BUILD path already
