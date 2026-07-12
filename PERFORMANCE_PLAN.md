@@ -833,7 +833,23 @@ on-disk `cache.train`:
   (`zstproto`; run with arg `sdb1` for the real-image pass once the suite finishes). Future levers,
   not built: `ZstdIndex.FillSpans` is verification-grade sparse-extent metadata (e.g. mark sparse
   regions in the mounted VFS); recommendations could skip caching inside fill spans if zero-segment
-  cache pollution ever shows up in profiles.
+  cache pollution ever shows up in profiles. Real-image pass (sdb1, 2026-07-11 post-suite): ALL
+  PASS; the image's zero tail maps to a chain of exactly-10 MiB fill spans separated by 4-byte
+  gaps — partclone's interleaved checksums, captured byte-precisely.
+- **Suite validation of the whole ladder (2026-07-12, binary 2816014, fresh + cached runs).** User
+  deleted all caches, ran the full suite twice. Fresh: 736.4 min — equal to the baseline binary's
+  737 total, but now INCLUDING ~190 min of one-time 2 TB drive-image index builds (gz 130.2,
+  zst 59.6) where baseline instead train-extracted every run; everywhere else far ahead
+  (UbuntuFileSystems mount 15.1 vs 95.7, Zst partition listing 7.3 vs 14.9). Cached: **139.2 min
+  total — 5.3× faster than fresh**; every persistence path confirmed: gz drive listing 130.2→1.2,
+  zst 59.6→1.4 (ZSTZRAN3 with fill spans, built by this run), xz train 189.6→1.4, partclone dd
+  content map 145.1→1.8, all-4 large-partition listing 83.6→7.3. Remaining cached-run costs:
+  **bzip2 drive image ~47 min (listing 23.5 + mount 23.8 = 34% of the suite) — serving cost, not
+  build cost (barely differs fresh vs cached); the top target for the next optimisation round.**
+  Sparse.ExtractAndSparsifyFile steady at ~12-14.5 min across all dev-binary runs vs 5.8 on the
+  baseline binary — the one consistent unexplained regression (~+8 min), still unpicked. Earlier
+  watch items cleared: gz partition listing back to 9.1 (13.4 on 07-11 was noise); bzip2 partition
+  listing 19.8 fresh / 3.2 cached (was 15.4 baseline) — mostly noise, keep half an eye.
 
 > **Refer to this as "Batch 7".** Complements Batch 6; honours the same HARD CONSTRAINT (no disk
 > materialisation of decompressed data). **Scope is zstd only** — xz / lz4 / lzip are deferred (see the end).
