@@ -850,6 +850,30 @@ on-disk `cache.train`:
   baseline binary — the one consistent unexplained regression (~+8 min), still unpicked. Earlier
   watch items cleared: gz partition listing back to 9.1 (13.4 on 07-11 was noise); bzip2 partition
   listing 19.8 fresh / 3.2 cached (was 15.4 baseline) — mostly noise, keep half an eye.
+- **Both remaining items investigated (2026-07-12):**
+  - **bzip2 drive image — ROOT CAUSE: the block index is rebuilt on EVERY mount and never
+    persisted.** `CompressedImage.cs:49` passes `partitionCache: null`, and the drive-image cache
+    synthesis at `DecompressorSelector.cs:126` covers only gz/zstd — so `Bzip2Decompressor` gets a
+    null index filename and `Bzip2StreamSeekable`'s constructor force-builds the whole index
+    (parallel full decode) per mount, unsaved. Explains fresh≈cached exactly (listing 28.3/23.5,
+    mount 29.5/23.8) while partition bzip2 with a persisted index collapses 19.8→3.2. FIX (small):
+    add BZip2 to the synthesis (needs `processTrailingNulls` threaded to the `Bzip2Decompressor`
+    ctor there). Expected: both drive bzip2 tests → ~3-8 min cached, ~35-40 min off the suite.
+    Second-order lever for later (Batch 8 candidate): serving is single-threaded — one ~900 KB
+    block per recommendation (`SeekableDecompressingStream.GetRecommendation`), fresh decoder per
+    block, no readahead — while blocks are independently decodable and the BUILD path already
+    decodes in parallel; widening recommendations to multi-block spans decoded via `Parallel.For`
+    into one cache entry ≈ 5-8× serving throughput. Also noted: `SharedStream.CreateView()` views
+    are already safe concurrent cursors, so the plumbing exists.
+  - **Sparse.ExtractAndSparsifyFile — NOT A REGRESSION; closed.** The test drives
+    `extract-partition-image` (sequential branch: BCL GZipStream → PartcloneStream → Sparsify;
+    no CachingStream/SharedStream/gz-index/Dokan), and every file on that path diffs 0 lines vs
+    baseline 60c4f26. Decisive isolated A/B (both commits re-published same day, same SDK,
+    self-contained → identical runtime; idle machine; alternating runs): baseline 592/642 s vs
+    current 588/571 s — indistinguishable, current marginally faster; identical 2.198 TB sparse
+    output. Isolated ~10 min ≈ the E: cold-read floor (19.9 GB source at ~34 MB/s). The in-suite
+    spread (5.8 baseline vs 12-16.9 dev) is E: cache state + suite contention around the test,
+    not code. No action; treat suite-run Sparse timings as environment-sensitive.
 
 > **Refer to this as "Batch 7".** Complements Batch 6; honours the same HARD CONSTRAINT (no disk
 > materialisation of decompressed data). **Scope is zstd only** — xz / lz4 / lzip are deferred (see the end).
