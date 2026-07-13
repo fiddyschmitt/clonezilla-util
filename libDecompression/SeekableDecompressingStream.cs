@@ -95,6 +95,12 @@ namespace libDecompression
         public long CompressedStartByte;
         public long CompressedEndByte;  //0 in index files created before this field existed
 
+        //Bit offset within the start/end byte (0-7, MSB-first). Non-zero only for bit-aligned bzip2
+        //entries; absent (0) in gzip and older byte-aligned indexes, which then behave exactly as
+        //before. Absolute bit offset = CompressedStartByte * 8 + CompressedStartBitInByte.
+        public int CompressedStartBitInByte;
+        public int CompressedEndBitInByte;
+
         public long UncompressedStartByte;
         public long UncompressedEndByte;
 

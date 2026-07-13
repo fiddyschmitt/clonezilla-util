@@ -201,32 +201,21 @@ namespace libBzip2
         }
 
         /// <summary>
-        /// Decodes one index entry: fresh decoder over [4-byte file header] + [the entry's compressed
-        /// bytes], skipping <paramref name="skipBytes"/> of decompressed output, then filling
-        /// <paramref name="count"/> bytes (bounded by the entry's end). Thread-safe: each call uses
-        /// its own SharedStream view, so parallel callers can decode different entries concurrently.
+        /// Decodes one index entry: reconstructs a standalone single-block .bz2 image in memory
+        /// (bit-shifting the block onto a byte boundary behind the 4-byte file header, see
+        /// <see cref="BuildStandaloneBlockBytes"/>), decodes it, skips <paramref name="skipBytes"/> of
+        /// decompressed output, then fills <paramref name="count"/> bytes. Thread-safe: each call uses
+        /// its own SharedStream view and its own in-memory image, so parallel callers can decode
+        /// different entries concurrently. A wrong reconstruction fails the block's CRC (loud), never
+        /// returns silent garbage.
         /// </summary>
         int DecodeBlock(Mapping block, long skipBytes, byte[] buffer, int offset, int count)
         {
             var sourceView = sharedSource.CreateView();
+            var (startBit, endBit) = BlockBitRange(block, sourceView.Length);
+            var standalone = BuildStandaloneBlockBytes(sourceView, startBit, endBit);
 
-            //index files created before CompressedEndByte existed deserialize it as 0; fall back to the old
-            //(generous) bound of UncompressedEndByte, which works as long as the block compressed at all
-            var compressedEndByte = block.CompressedEndByte > block.CompressedStartByte
-                                        ? block.CompressedEndByte
-                                        : block.UncompressedEndByte;
-            var compressedContent = new SubStream(sourceView, block.CompressedStartByte, compressedEndByte);
-
-            var fileHeaderContent = new MemoryStream(FileHeader);
-            var fullBlockContent = new Multistream([fileHeaderContent, compressedContent]);
-
-            //the decoder pulls its input in tiny reads; each would otherwise pay the SharedStream
-            //gate (lock + reposition of the one underlying FileStream). Buffering coalesces that to
-            //one gate crossing per megabyte, which is also what makes parallel workers scale instead
-            //of serialising on the gate.
-            var bufferedContent = new BufferedStream(fullBlockContent, 1024 * 1024);
-
-            var decompressor = BZip2Stream.Create(bufferedContent, SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
+            var decompressor = BZip2Stream.Create(new MemoryStream(standalone), SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
 
             //read and discard anything before the requested position
             if (skipBytes > 0)
@@ -245,6 +234,76 @@ namespace libBzip2
             decompressor.Close();
 
             return totalRead;
+        }
+
+        /// <summary>Absolute [startBit, endBit) of an entry's compressed bits, clamped to the stream.
+        /// Byte-aligned entries (gzip-style / old bzip2 indexes) have zero bit-in-byte offsets, so this
+        /// degenerates to whole-byte bounds. Pre-CompressedEndByte indexes fall back to the old
+        /// generous UncompressedEndByte bound.</summary>
+        static (long StartBit, long EndBit) BlockBitRange(Mapping block, long streamLengthBytes)
+        {
+            var startBit = block.CompressedStartByte * 8L + block.CompressedStartBitInByte;
+
+            long endBit;
+            var hasEnd = block.CompressedEndByte > block.CompressedStartByte
+                || (block.CompressedEndByte == block.CompressedStartByte && block.CompressedEndBitInByte > block.CompressedStartBitInByte);
+            if (hasEnd)
+                endBit = block.CompressedEndByte * 8L + block.CompressedEndBitInByte;
+            else
+                endBit = block.UncompressedEndByte * 8L;   //ancient-index fallback (generous; clamped below)
+
+            endBit = Math.Min(endBit, streamLengthBytes * 8L);
+            return (startBit, endBit);
+        }
+
+        /// <summary>
+        /// Reads the compressed bits [startBit, endBit) and re-emits them as a valid standalone .bz2
+        /// byte array: the 4-byte file header ("BZh" + level) followed by the block's bits shifted so
+        /// the block-start magic lands on the byte-4 boundary, zero-padded to a byte. This is the
+        /// bzip2recover technique - it lets an unmodified decoder read a block that started at any bit
+        /// offset in the original stream.
+        /// </summary>
+        byte[] BuildStandaloneBlockBytes(Stream view, long startBit, long endBit)
+        {
+            var startByte = startBit >> 3;
+            var shift = (int)(startBit & 7);
+            var numBits = endBit - startBit;
+            var numOutBytes = (int)((numBits + 7) >> 3);
+
+            //raw bytes covering the block, plus one for the shift lookahead
+            var rawEndExclusive = Math.Min(view.Length, startByte + numOutBytes + 1);
+            var rawLen = (int)(rawEndExclusive - startByte);
+            var raw = new byte[rawLen];
+            view.Seek(startByte, SeekOrigin.Begin);
+            view.ReadExactly(raw, 0, rawLen);
+
+            var outBuf = new byte[FileHeader.Length + numOutBytes];
+            Array.Copy(FileHeader, outBuf, FileHeader.Length);
+
+            if (shift == 0)
+            {
+                Array.Copy(raw, 0, outBuf, FileHeader.Length, Math.Min(numOutBytes, rawLen));
+            }
+            else
+            {
+                for (var k = 0; k < numOutBytes; k++)
+                {
+                    var hi = (raw[k] << shift) & 0xFF;
+                    var lo = (k + 1 < rawLen) ? (raw[k + 1] >> (8 - shift)) : 0;
+                    outBuf[FileHeader.Length + k] = (byte)(hi | lo);
+                }
+            }
+
+            //zero the bits past the block's end in the final output byte, so trailing padding can
+            //never be mistaken for the next magic
+            var validBitsInLastByte = (int)(numBits & 7);
+            if (validBitsInLastByte != 0 && numOutBytes > 0)
+            {
+                var mask = (byte)(0xFF << (8 - validBitsInLastByte));
+                outBuf[^1] &= mask;
+            }
+
+            return outBuf;
         }
 
         public IEnumerable<Mapping> GetIndexContent(Stream inputStream, string? indexFilename)
@@ -274,20 +333,15 @@ namespace libBzip2
             var blocks = new List<Mapping>();
 
             var result = BZip2BlockFinder
-                            .FindBlocks(progressView)
+                            .FindBlocksBitAligned(progressView)
                             .SelectParallelPreserveOrder(block =>
                             {
                                 var blockView = sharedSource.CreateView();
 
-                                var compressedContent = new MemoryStream();
-                                blockView.Seek(block.Start, SeekOrigin.Begin);
-                                blockView.CopyTo(compressedContent, block.End - block.Start, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
-                                compressedContent.Seek(0, SeekOrigin.Begin);
+                                //reconstruct the block as a standalone byte-aligned .bz2 image, then decode
+                                var standalone = BuildStandaloneBlockBytes(blockView, block.StartBit, block.EndBit);
 
-                                var fileHeaderContent = new MemoryStream(FileHeader);
-                                var fullBlockContent = new Multistream([fileHeaderContent, compressedContent]);
-
-                                using var bzip2Decompressor = BZip2Stream.Create(fullBlockContent, SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
+                                using var bzip2Decompressor = BZip2Stream.Create(new MemoryStream(standalone), SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
 
                                 var blockUncompressedLength = 0L;
                                 if (!ProcessTrailingNulls && block.IsLast)
@@ -356,8 +410,10 @@ namespace libBzip2
                             {
                                 var blockInfo = new Mapping()
                                 {
-                                    CompressedStartByte = block.Metadata.Start,
-                                    CompressedEndByte = block.Metadata.End,
+                                    CompressedStartByte = block.Metadata.StartBit >> 3,
+                                    CompressedStartBitInByte = (int)(block.Metadata.StartBit & 7),
+                                    CompressedEndByte = block.Metadata.EndBit >> 3,
+                                    CompressedEndBitInByte = (int)(block.Metadata.EndBit & 7),
                                     UncompressedStartByte = uncompressedStartPos,
                                     UncompressedEndByte = uncompressedStartPos + block.UncompressedLength
                                 };

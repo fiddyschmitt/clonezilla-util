@@ -38,7 +38,10 @@ namespace libClonezilla.Cache
 
         public string GetBZip2IndexFilename()
         {
-            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.bzip2_index.json");
+            //v2: bit-aligned block boundaries (Batch 8b). The old byte-aligned ".bzip2_index.json"
+            //still decodes correctly if present, but is coarse (merged blocks that can only serve
+            //single-threaded); the new name forces a one-time rebuild at the finer granularity.
+            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.bzip2_index_v2.json");
             return result;
         }
 
