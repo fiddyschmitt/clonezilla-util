@@ -864,6 +864,17 @@ on-disk `cache.train`:
     `*.bzip2_index.json` (58 s), run 2 loads it (35 s), listings identical (170 entries). The
     remaining cached-run time is the 10 s serving perf test + 50 MB cache-key hash + single-threaded
     block-decode serving (the Batch 8 lever).
+    **Suite-confirmed (two cached runs, 07-12/07-13): cached suite 139.2 → 113.8 → 77.0 min.**
+    bzip2 drive listing 23.5 → 6.8 (run 1 pays the one-time index build mid-run) → 5.7; bzip2 drive
+    mount 23.8 → 22.7 (anomaly, see below) → 5.6. Sparse 6.2 min in run 2 — at baseline, sealing the
+    environment-variance conclusion. Run-1 mount anomaly investigated: cache timestamps prove the
+    drive index was written once at 18:47 during run 1's listing and never rewritten, and nothing
+    else in the cache changed during the mount phase — so run 1's mount saw identical disk state to
+    run 2 yet took 4×. An isolated re-run of exactly that test (same exe, same cache): **5 m 36 s**,
+    matching run 2. One-off environmental blip (no logs retained to pin it; fresh-exe AV scan or E:
+    contention suspected); not state-dependent, closed. Remaining bzip2 share of the 77-min suite ≈
+    19 min across all bzip2 tests — now genuinely serving-bound (single-threaded block decode during
+    NTFS enumeration); that is Batch 8's parallel-serving target.
     Second-order lever for later (Batch 8 candidate): serving is single-threaded — one ~900 KB
     block per recommendation (`SeekableDecompressingStream.GetRecommendation`), fresh decoder per
     block, no readahead — while blocks are independently decodable and the BUILD path already
