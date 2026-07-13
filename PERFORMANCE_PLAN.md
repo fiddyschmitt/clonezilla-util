@@ -890,6 +890,44 @@ on-disk `cache.train`:
     output. Isolated ~10 min ≈ the E: cold-read floor (19.9 GB source at ~34 MB/s). The in-suite
     spread (5.8 baseline vs 12-16.9 dev) is E: cache state + suite contention around the test,
     not code. No action; treat suite-run Sparse timings as environment-sensitive.
+- **Batch 8 — parallel bzip2 serving (2026-07-13).** With the index now persisted (above), the
+  remaining bzip2 cost is serving: single-threaded ~900 KB-at-a-time decode while 7z enumerates
+  NTFS. Two commits:
+  - **8a (`1e72824`) — multi-block groups + buffered decoder input.** `GetRecommendation` now
+    returns a ~32 MB *group* of consecutive index entries (not one entry), and a new
+    `Bzip2StreamSeekable.Read` override decodes a group's entries concurrently (`Parallel.For`, one
+    `SharedStream.CreateView()` per worker, each into its own slice of the caller's buffer); single
+    entries keep the inline path. Crucial secondary fix: the decoder pulls input in tiny reads, each
+    of which was paying the `SharedStream` gate (lock + FileStream reposition) — a 576 MB scan ran
+    at **2 MB/s** (0.2× a plain decode!). Wrapping the decoder input coalesced that; 8a reached
+    17 MB/s (1.8×).
+  - **8b (`80a645b`) — bit-aligned block boundaries.** The byte-aligned magic scan only finds
+    boundaries that land on a byte (~1 in 8), merging the rest into coarse entries (median 5.5 MB,
+    outliers to 100s of MB) that can't be split for parallelism. `FindBlocksBitAligned` scans every
+    bit offset (rolling 64-bit accumulator, 8 alignments/byte) so every ~900 KB block is its own
+    entry; a block starting mid-byte is decoded by reconstructing a standalone byte-aligned `.bz2`
+    image in memory (bzip2recover's bit-shift: 4-byte header + block bits shifted onto the byte-4
+    boundary). `Mapping` gains `CompressedStart/EndBitInByte` (0 ⇒ old byte behaviour, so gzip and
+    old indexes are unaffected); the bit-shift also removes 8a's gate problem outright (decode now
+    reads from a RAM image, one gated read per block). A wrong reconstruction fails the block CRC
+    (loud) — never silent garbage. Cache filename bumped to `*.bzip2_index_v2.json` to force a
+    one-time rebuild at the finer granularity (old byte-aligned `.json` still decodes if present,
+    just coarse).
+  - **Validated** on `sda1.img.bz2` (395 MB) via the `bz8proto` harness driving the production stack
+    against a full in-RAM reference: fresh bit-aligned build **458 entries** (was 61), **median
+    900 KB** (was 5.5 MB), 397 starting mid-byte, byte-exact across 100 random multi-entry reads +
+    every entry-boundary/mid-entry/EOF read; sequential MD5 through `CachingStream` **35 MB/s = 3.7×
+    the single-thread floor** (8a was 1.8×, pre-8a 0.2×). Integration-gated by
+    `Mount.AsFiles.SmallPartitionImages.Bzip2` (mounts sda1, verifies `ReAgent.xml` MD5 through the
+    full 7z→PartcloneStream→bit-shift stack): **PASS, 57 s** incl. the ~11 s fresh v2 build. The few
+    residual >32 MB entries are single bzip2 blocks whose RLE stage swallowed a large zero-run —
+    inherent to bzip2, and they decode fast. Index grows ~10× (more entries + bit fields): sda1
+    10 KB → 108 KB.
+  - **Big-image cached-mount number pending the user's suite.** The 2 TB `sda.img.bz2` fresh v2
+    build is ~20 min (decodes the whole image once) — exceeds the 10-min isolated-run cap here, so
+    the cached-serving improvement on that image will surface on the next suite's cached run (expect
+    the ~5.6 min 8a mount to drop further; scan-heavy listing benefits most). Prior isolated 8a
+    mount was 4m44s.
 
 > **Refer to this as "Batch 7".** Complements Batch 6; honours the same HARD CONSTRAINT (no disk
 > materialisation of decompressed data). **Scope is zstd only** — xz / lz4 / lzip are deferred (see the end).
