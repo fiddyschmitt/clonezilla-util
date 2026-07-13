@@ -58,7 +58,7 @@ namespace libDecompression
             return bytesRead;
         }
 
-        public (long Start, long End) GetRecommendation(long start)
+        public virtual (long Start, long End) GetRecommendation(long start)
         {
             var startIndexPoint = Blocks.BinarySearch(start, MappingComparer) ?? throw new Exception($"Could not find block which contains position {start:N0}");
 

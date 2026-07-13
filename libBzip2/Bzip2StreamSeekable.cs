@@ -60,6 +60,118 @@ namespace libBzip2
             foreach (var _ in blocks)
             {
             }
+
+            //Batch 8: group consecutive blocks into ~32 MB spans. GetRecommendation returns a whole
+            //group, and Read decodes a group's blocks in parallel - bzip2 blocks are independently
+            //decodable, so serving throughput scales with cores instead of being pinned to one.
+            //A group only closes at a block boundary; a single merged entry larger than the target
+            //(byte-aligned magic detection can merge many real blocks into one index entry) forms a
+            //group by itself, which matches the old one-entry-per-recommendation behaviour.
+            Mapping? currentGroup = null;
+            foreach (var block in blocks)
+            {
+                if (currentGroup != null && (currentGroup.UncompressedEndByte - currentGroup.UncompressedStartByte) + (block.UncompressedEndByte - block.UncompressedStartByte) > TargetGroupBytes)
+                {
+                    blockGroups.Add(currentGroup);
+                    currentGroup = null;
+                }
+
+                if (currentGroup == null)
+                {
+                    currentGroup = new Mapping()
+                    {
+                        CompressedStartByte = block.CompressedStartByte,
+                        CompressedEndByte = block.CompressedEndByte,
+                        UncompressedStartByte = block.UncompressedStartByte,
+                        UncompressedEndByte = block.UncompressedEndByte,
+                    };
+                }
+                else
+                {
+                    currentGroup.CompressedEndByte = block.CompressedEndByte;
+                    currentGroup.UncompressedEndByte = block.UncompressedEndByte;
+                }
+            }
+            if (currentGroup != null)
+            {
+                blockGroups.Add(currentGroup);
+            }
+        }
+
+        const long TargetGroupBytes = 32L * 1024 * 1024;
+        readonly List<Mapping> blockGroups = [];
+
+        public override (long Start, long End) GetRecommendation(long start)
+        {
+            var group = blockGroups.BinarySearch(start, MappingComparer)
+                ?? throw new Exception($"Could not find block group which contains position {start:N0}");
+
+            return (group.UncompressedStartByte, group.UncompressedEndByte);
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var pos = Position;
+            var bytesLeftInFile = Length - pos;
+            if (bytesLeftInFile <= 0 || count <= 0) return 0;
+            var toRead = (int)Math.Min(count, bytesLeftInFile);
+
+            var firstIndex = FindBlockIndex(pos);
+            if (firstIndex < 0) return 0;
+            var lastIndex = FindBlockIndex(pos + toRead - 1);
+            if (lastIndex < 0) lastIndex = Blocks.Count - 1;
+
+            int totalRead;
+            if (firstIndex == lastIndex)
+            {
+                //single block - decode inline, no parallel overhead
+                var block = Blocks[firstIndex];
+                totalRead = DecodeBlock(block, pos - block.UncompressedStartByte, buffer, offset, toRead);
+            }
+            else
+            {
+                //multiple blocks - decode them concurrently, each into its own slice of the buffer.
+                //Workers use independent SharedStream views, so compressed-file access is safe.
+                var expected = new int[lastIndex - firstIndex + 1];
+                var actual = new int[expected.Length];
+
+                Parallel.For(firstIndex, lastIndex + 1, new ParallelOptions() { MaxDegreeOfParallelism = Environment.ProcessorCount }, i =>
+                {
+                    var block = Blocks[i];
+                    var sliceStart = Math.Max(pos, block.UncompressedStartByte);
+                    var sliceEnd = Math.Min(pos + toRead, block.UncompressedEndByte);
+                    var sliceLength = (int)(sliceEnd - sliceStart);
+
+                    expected[i - firstIndex] = sliceLength;
+                    actual[i - firstIndex] = DecodeBlock(block, sliceStart - block.UncompressedStartByte, buffer, offset + (int)(sliceStart - pos), sliceLength);
+                });
+
+                //only the contiguous prefix counts; a short block decode invalidates everything after it
+                totalRead = 0;
+                for (var i = 0; i < actual.Length; i++)
+                {
+                    totalRead += actual[i];
+                    if (actual[i] < expected[i]) break;
+                }
+            }
+
+            Position = pos + totalRead;
+            return totalRead;
+        }
+
+        int FindBlockIndex(long uncompressedPosition)
+        {
+            var lo = 0;
+            var hi = Blocks.Count - 1;
+            while (lo <= hi)
+            {
+                var mid = lo + (hi - lo) / 2;
+                var block = Blocks[mid];
+                if (uncompressedPosition < block.UncompressedStartByte) hi = mid - 1;
+                else if (uncompressedPosition >= block.UncompressedEndByte) lo = mid + 1;
+                else return mid;
+            }
+            return -1;
         }
 
         //public override long UncompressedTotalLength => Blocks.Last().UncompressedEndByte;
@@ -84,6 +196,18 @@ namespace libBzip2
         readonly SharedStream sharedSource;
         public override int ReadFromChunk(Mapping block, byte[] buffer, int offset, int count)
         {
+            var positionInBlock = Position - block.UncompressedStartByte;
+            return DecodeBlock(block, positionInBlock, buffer, offset, count);
+        }
+
+        /// <summary>
+        /// Decodes one index entry: fresh decoder over [4-byte file header] + [the entry's compressed
+        /// bytes], skipping <paramref name="skipBytes"/> of decompressed output, then filling
+        /// <paramref name="count"/> bytes (bounded by the entry's end). Thread-safe: each call uses
+        /// its own SharedStream view, so parallel callers can decode different entries concurrently.
+        /// </summary>
+        int DecodeBlock(Mapping block, long skipBytes, byte[] buffer, int offset, int count)
+        {
             var sourceView = sharedSource.CreateView();
 
             //index files created before CompressedEndByte existed deserialize it as 0; fall back to the old
@@ -96,22 +220,31 @@ namespace libBzip2
             var fileHeaderContent = new MemoryStream(FileHeader);
             var fullBlockContent = new Multistream([fileHeaderContent, compressedContent]);
 
-            //determine where we should start reading in the substream
-            var positionInBlock = Position - block.UncompressedStartByte;
+            //the decoder pulls its input in tiny reads; each would otherwise pay the SharedStream
+            //gate (lock + reposition of the one underlying FileStream). Buffering coalesces that to
+            //one gate crossing per megabyte, which is also what makes parallel workers scale instead
+            //of serialising on the gate.
+            var bufferedContent = new BufferedStream(fullBlockContent, 1024 * 1024);
 
-            var decompressor = BZip2Stream.Create(fullBlockContent, SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
+            var decompressor = BZip2Stream.Create(bufferedContent, SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
 
-            //read and discard anything before it
-            if (positionInBlock > 0)
+            //read and discard anything before the requested position
+            if (skipBytes > 0)
             {
-                Debug.WriteLine($"Skipping {positionInBlock.BytesToString()} to read {count.BytesToString()} from position {Position.BytesToString()}");
-                decompressor.CopyTo(Null, positionInBlock, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
+                Debug.WriteLine($"Skipping {skipBytes.BytesToString()} to read {count.BytesToString()} from block starting at {block.UncompressedStartByte.BytesToString()}");
+                decompressor.CopyTo(Null, skipBytes, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
             }
 
-            var bytesActuallyRead = decompressor.Read(buffer, offset, count);
+            var totalRead = 0;
+            while (totalRead < count)
+            {
+                var n = decompressor.Read(buffer, offset + totalRead, count - totalRead);
+                if (n == 0) break;
+                totalRead += n;
+            }
             decompressor.Close();
 
-            return bytesActuallyRead;
+            return totalRead;
         }
 
         public IEnumerable<Mapping> GetIndexContent(Stream inputStream, string? indexFilename)
