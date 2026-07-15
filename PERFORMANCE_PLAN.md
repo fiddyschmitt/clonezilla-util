@@ -929,15 +929,36 @@ on-disk `cache.train`:
     which is essentially the whole 8.9-min suite delta. `Mount.LargeClonezillaImages.bzip2` read
     3.4 → 4.9 (cold 4.4 the same run) — within the ±1.5 min variance these 2-5 min mount numbers
     have shown repeatedly; watch, don't chase.
-  - **Trade-off: the fresh (cache-clear) bzip2 DRIVE listing roughly doubled, 28.3 → 56.5 min.**
-    The bit-aligned build decodes ~8× more, smaller units, and each parallel worker does its own
-    gated `SharedStream` seek+read per ~900 KB block — 8× more gate crossings and seeks on the one
-    underlying FileStream, so the raw-read phase serialises. It is a ONE-TIME cost (cached
-    afterwards) and the fresh SUITE total did not regress (736 → 705, other lines + variance absorbed
-    it), so it is left as-is for now. If it needs fixing: have the finder (which already does one
-    sequential pass) hand each block's raw bytes to the decoders instead of every worker re-seeking
-    — removes the per-block seek/gate contention without touching the index format or the serving
-    path. Deferred pending whether cache-clears are frequent enough to matter.
+  - **8b cold regression (fresh bzip2 DRIVE listing 28.3 → 56.5 min) — FIXED by 8c + 8d
+    (2026-07-15). Users typically open an archive once, so cold speed is what matters.** Two causes,
+    both addressed; the produced index is byte-for-byte identical to 8b at every step (validated on
+    sda1 + MD5-gated on the big image), so serving and the 24 MB cached index are unchanged — only
+    the cold build speeds up.
+    - **8c (`a922c88`) — one sequential pass instead of N gated seeks.** 8b had each of ~8× more
+      parallel decoders do its own gated `SharedStream` seek+read per ~900 KB block, serialising the
+      read phase on the one underlying FileStream. Restructured as a bounded producer→consumer: the
+      finder (`FindBlocksBitAlignedWithBytes`) makes ONE sequential pass, slicing each block's bytes
+      into a size-capped `BlockingCollection` that parallel decoders drain (the bound back-pressures
+      the finder, which outruns decode). No seeks, no gate contention.
+    - **8d (`a282775`) — dedup the zero tail.** The real culprit turned out to be the trailing
+      zeros: a mostly-empty disk image has a multi-TB tail that bit-alignment splits into tens of
+      thousands of identical ~46 MB null blocks (byte-aligned had collapsed them into one capped
+      entry, so its index only covered ~58 GB — that is why old-byte-aligned was "only" 28 min). 8b/8c
+      decoded every one (~2 TB of zeros = the bulk of the build). Fix: bzip2 is deterministic, so
+      equal content ⇒ equal bits, and the bit-shift normalises away the blocks' differing
+      alignments — consecutive blocks with a byte-identical standalone image decode to the same
+      length, so decode ONE and reuse it for the run (~43k decodes → ~1). Deterministic, not a
+      heuristic. The final partial block is always decoded (keeps the trailing-null cap).
+    - **Measured on the real 2 TB `sda.img.bz2` (isolated `list`, directly comparable to the suite's
+      cold ListContents line): 56.5 min (8b) → 13.3 min (8c+8d)** — 4.2× faster than 8b and >2×
+      faster than even the original byte-aligned 28.3 min. Index 98,910 entries / 2.2 TB Length /
+      24 MB JSON; cached mount MD5 gate 1 m 51 s (unchanged vs 8b's 2.0). Cold build progress
+      confirms the mechanism: real data decodes to ~99% at ~12 min, then the tail dedups instantly
+      (the "Indexed N GB" counter stops climbing at real-data size instead of pumping out 500 GB+).
+    - Residual, not chased: the 24 MB index (98,910 entries incl. the never-read null-tail entries)
+      parses in ~1-2 s per mount. Dropping the trailing-null run would shrink it toward the old
+      ~1 MB and cap Length at ~58 GB like byte-aligned did, but needs trailing-vs-interior detection;
+      deferred since cached mount is already ~2 min and cold is now the fast path.
 
 > **Refer to this as "Batch 7".** Complements Batch 6; honours the same HARD CONSTRAINT (no disk
 > materialisation of decompressed data). **Scope is zstd only** — xz / lz4 / lzip are deferred (see the end).
