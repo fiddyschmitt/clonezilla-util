@@ -349,19 +349,42 @@ namespace libBzip2
             //read phase). The bound back-pressures the finder: it outruns decoding, so an unbounded
             //queue would hold the entire compressed file in RAM.
             var dop = Environment.ProcessorCount;
-            var queue = new System.Collections.Concurrent.BlockingCollection<(int Seq, long StartBit, long EndBit, bool IsLast, byte[] Raw)>(2 * dop);
+            var queue = new System.Collections.Concurrent.BlockingCollection<(int Seq, byte[] Standalone, bool IsLast)>(2 * dop);
             var lengths = new System.Collections.Concurrent.ConcurrentDictionary<int, long>();
             var metadata = new System.Collections.Concurrent.ConcurrentDictionary<int, (long StartBit, long EndBit, bool IsLast)>();
+
+            //Dedup identical blocks: a disk image's multi-TB tail of zeros becomes tens of thousands
+            //of identical ~46 MB null blocks (bzip2 is deterministic, so equal content compresses to
+            //equal bits; the bit-shift into the standalone image normalises away their differing bit
+            //alignments). Consecutive blocks with a byte-identical standalone therefore decode to the
+            //same length, so we decode ONE and reuse the length for the run - collapsing the tail's
+            //decode from ~43k blocks to ~1. Deterministic (equal bytes provably decode equally), not a
+            //heuristic. The finder is sequential, so the producer sees the run in order.
+            var duplicateOf = new Dictionary<int, int>();
 
             var producer = Task.Factory.StartNew(() =>
             {
                 try
                 {
                     var seq = 0;
+                    byte[]? prevStandalone = null;
+                    var prevDistinctSeq = -1;
                     foreach (var block in BZip2BlockFinder.FindBlocksBitAlignedWithBytes(finderView, streamLength))
                     {
                         metadata[seq] = (block.StartBit, block.EndBit, block.IsLast);
-                        queue.Add((seq, block.StartBit, block.EndBit, block.IsLast, block.Raw));
+                        var standalone = BuildStandaloneBlockBytes(block.Raw, block.StartBit, block.EndBit);
+
+                        //the final (often partial) block is always decoded - it carries the trailing-null cap
+                        if (prevStandalone != null && !block.IsLast && ((ReadOnlySpan<byte>)standalone).SequenceEqual(prevStandalone))
+                        {
+                            duplicateOf[seq] = prevDistinctSeq;
+                        }
+                        else
+                        {
+                            queue.Add((seq, standalone, block.IsLast));
+                            prevStandalone = standalone;
+                            prevDistinctSeq = seq;
+                        }
                         seq++;
                     }
                 }
@@ -379,10 +402,7 @@ namespace libBzip2
             {
                 foreach (var item in queue.GetConsumingEnumerable())
                 {
-                    //reconstruct the block as a standalone byte-aligned .bz2 image (from the bytes the
-                    //finder handed us), decode, and measure its decompressed length
-                    var standalone = BuildStandaloneBlockBytes(item.Raw, item.StartBit, item.EndBit);
-                    using var decompressor = BZip2Stream.Create(new MemoryStream(standalone), SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
+                    using var decompressor = BZip2Stream.Create(new MemoryStream(item.Standalone), SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
 
                     var blockUncompressedLength = MeasureBlockLength(decompressor, item.IsLast);
                     lengths[item.Seq] = blockUncompressedLength;
@@ -394,7 +414,8 @@ namespace libBzip2
                         {
                             if (runningTotal >= nextProgressAt)
                             {
-                                var percentThroughCompressedSource = (double)(item.EndBit >> 3) / streamLength * 100;
+                                var m = metadata[item.Seq];
+                                var percentThroughCompressedSource = (double)(m.EndBit >> 3) / streamLength * 100;
                                 Log.Information($"Indexed {runningTotal.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
                                 nextProgressAt = (runningTotal / (1024 * 1024 * 1024) + 1) * 1024 * 1024 * 1024;
                             }
@@ -406,13 +427,15 @@ namespace libBzip2
             Task.WaitAll(consumers);
             producer.Wait();   //surface any exception from the finder
 
-            //stitch the (independently measured) block lengths back into ordered, prefix-summed offsets
+            //stitch the (independently measured) block lengths back into ordered, prefix-summed offsets;
+            //deduped blocks reuse the length of the distinct block they matched
             var count = metadata.Count;
             var blocks = new List<Mapping>(count);
             long uncompressedStartPos = 0L;
             for (var i = 0; i < count; i++)
             {
                 var m = metadata[i];
+                var length = duplicateOf.TryGetValue(i, out var leader) ? lengths[leader] : lengths[i];
                 var blockInfo = new Mapping()
                 {
                     CompressedStartByte = m.StartBit >> 3,
@@ -420,7 +443,7 @@ namespace libBzip2
                     CompressedEndByte = m.EndBit >> 3,
                     CompressedEndBitInByte = (int)(m.EndBit & 7),
                     UncompressedStartByte = uncompressedStartPos,
-                    UncompressedEndByte = uncompressedStartPos + lengths[i]
+                    UncompressedEndByte = uncompressedStartPos + length
                 };
                 blocks.Add(blockInfo);
                 uncompressedStartPos = blockInfo.UncompressedEndByte;
