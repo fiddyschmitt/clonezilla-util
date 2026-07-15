@@ -959,6 +959,13 @@ on-disk `cache.train`:
       parses in ~1-2 s per mount. Dropping the trailing-null run would shrink it toward the old
       ~1 MB and cap Length at ~58 GB like byte-aligned did, but needs trailing-vs-interior detection;
       deferred since cached mount is already ~2 min and cold is now the fast path.
+    - **Suite-confirmed (2026-07-16, cold then cached; all 74 pass both).** COLD bzip2 drive listing
+      **56.5 → 13.1 min** (matches the isolated 13.3), cold partition-bzip2 listing 14.8 → 12.8
+      (less trailing zero than the drive image, so mostly the 8c gain); cold suite total 705 → 677.
+      CACHED run unchanged at 68.6 min with every bzip2 serving number flat (drive listing 1.7,
+      drive mount 1.8, partition 2.1) — confirming 8d is build-time only. bzip2 is no longer a cold
+      outlier; the cold suite is now dominated by the gz/xz/zst drive-image builds (~330 min) and the
+      partclone dd content map (~152 min), not bzip2.
 
 > **Refer to this as "Batch 7".** Complements Batch 6; honours the same HARD CONSTRAINT (no disk
 > materialisation of decompressed data). **Scope is zstd only** — xz / lz4 / lzip are deferred (see the end).
