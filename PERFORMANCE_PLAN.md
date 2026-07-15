@@ -923,11 +923,21 @@ on-disk `cache.train`:
     residual >32 MB entries are single bzip2 blocks whose RLE stage swallowed a large zero-run —
     inherent to bzip2, and they decode fast. Index grows ~10× (more entries + bit fields): sda1
     10 KB → 108 KB.
-  - **Big-image cached-mount number pending the user's suite.** The 2 TB `sda.img.bz2` fresh v2
-    build is ~20 min (decodes the whole image once) — exceeds the 10-min isolated-run cap here, so
-    the cached-serving improvement on that image will surface on the next suite's cached run (expect
-    the ~5.6 min 8a mount to drop further; scan-heavy listing benefits most). Prior isolated 8a
-    mount was 4m44s.
+  - **Suite-confirmed (2026-07-14, cold then cached; all 74 pass both).** Cached suite **77.0 →
+    68.1 min**. The two big bzip2 drive tests dropped ~3×: drive **listing 5.7 → 1.8 min**, drive
+    **mount 5.6 → 2.0 min**; partition listing 3.0 → 2.0. bzip2-specific cached savings ≈ 8.5 min,
+    which is essentially the whole 8.9-min suite delta. `Mount.LargeClonezillaImages.bzip2` read
+    3.4 → 4.9 (cold 4.4 the same run) — within the ±1.5 min variance these 2-5 min mount numbers
+    have shown repeatedly; watch, don't chase.
+  - **Trade-off: the fresh (cache-clear) bzip2 DRIVE listing roughly doubled, 28.3 → 56.5 min.**
+    The bit-aligned build decodes ~8× more, smaller units, and each parallel worker does its own
+    gated `SharedStream` seek+read per ~900 KB block — 8× more gate crossings and seeks on the one
+    underlying FileStream, so the raw-read phase serialises. It is a ONE-TIME cost (cached
+    afterwards) and the fresh SUITE total did not regress (736 → 705, other lines + variance absorbed
+    it), so it is left as-is for now. If it needs fixing: have the finder (which already does one
+    sequential pass) hand each block's raw bytes to the decoders instead of every worker re-seeking
+    — removes the per-block seek/gate contention without touching the index format or the serving
+    path. Deferred pending whether cache-clears are frequent enough to matter.
 
 > **Refer to this as "Batch 7".** Complements Batch 6; honours the same HARD CONSTRAINT (no disk
 > materialisation of decompressed data). **Scope is zstd only** — xz / lz4 / lzip are deferred (see the end).
