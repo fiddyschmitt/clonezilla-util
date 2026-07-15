@@ -69,6 +69,99 @@ namespace libBzip2
         }
 
         /// <summary>
+        /// Like <see cref="FindBlocksBitAligned"/>, but also hands back each block's raw compressed
+        /// bytes (sliced from the single sequential scan) so the caller can decode without seeking
+        /// back to the block. <paramref name="Raw"/> begins at the block's start byte
+        /// (<c>StartBit &gt;&gt; 3</c>) and runs one byte past the block's end for the bit-shift
+        /// lookahead. This turns the index build from ~N random gated seek+reads into one sequential
+        /// read: the finder is the sole reader of the stream, and decoders work purely from the
+        /// handed-over bytes. Feed the results through a BOUNDED queue - the scan outruns decoding, so
+        /// an unbounded buffer would hold the whole compressed file in RAM.
+        /// </summary>
+        public static IEnumerable<(long StartBit, long EndBit, bool IsLast, byte[] Raw)> FindBlocksBitAlignedWithBytes(Stream stream, long streamLength)
+        {
+            stream.Seek(0, SeekOrigin.Begin);
+
+            var readBuf = new byte[1 * 1024 * 1024];
+            ulong acc = 0;
+            long p = 0;
+            var filled = 0;
+
+            //bytes retained from the in-progress block's start byte onward (blockBuf[0] == byte blockBufBase)
+            var blockBuf = new byte[2 * 1024 * 1024];
+            long blockBufBase = 0;
+            var blockBufLen = 0;
+
+            long? prevStartBit = null;
+            long prevStartByte = 0;
+
+            while (true)
+            {
+                var bytesRead = stream.Read(readBuf, 0, readBuf.Length);
+                if (bytesRead == 0) break;
+
+                for (var i = 0; i < bytesRead; i++)
+                {
+                    var b = readBuf[i];
+
+                    if (blockBufLen == blockBuf.Length) Array.Resize(ref blockBuf, blockBuf.Length * 2);
+                    blockBuf[blockBufLen++] = b;
+
+                    acc = (acc << 8) | b;
+                    if (filled < 8) filled++;
+
+                    if (filled == 8)
+                    {
+                        for (var s = 0; s < 8; s++)
+                        {
+                            if (((acc >> s) & Mask48) == BlockMagic48)
+                            {
+                                var g = 8L * p - 40 - s;
+                                if (g >= 32)
+                                {
+                                    if (prevStartBit != null)
+                                    {
+                                        //emit the completed block [prevStartBit, g), bytes starting at its start byte
+                                        var rawEnd = Math.Min(streamLength, ((g + 7) >> 3) + 1);
+                                        var srcOffset = (int)(prevStartByte - blockBufBase);
+                                        var rawLen = (int)(rawEnd - prevStartByte);
+                                        var raw = new byte[rawLen];
+                                        Array.Copy(blockBuf, srcOffset, raw, 0, rawLen);
+                                        yield return (prevStartBit.Value, g, false, raw);
+
+                                        //drop everything before the next block's start byte
+                                        var newBase = g >> 3;
+                                        var drop = (int)(newBase - blockBufBase);
+                                        if (drop > 0)
+                                        {
+                                            Array.Copy(blockBuf, drop, blockBuf, 0, blockBufLen - drop);
+                                            blockBufLen -= drop;
+                                            blockBufBase = newBase;
+                                        }
+                                    }
+                                    prevStartBit = g;
+                                    prevStartByte = g >> 3;
+                                    break;   //at most one real magic per byte; avoid a second (coincidental) split corrupting the buffer
+                                }
+                            }
+                        }
+                    }
+
+                    p++;
+                }
+            }
+
+            if (prevStartBit != null)
+            {
+                var srcOffset = (int)(prevStartByte - blockBufBase);
+                var rawLen = blockBufLen - srcOffset;
+                var raw = new byte[rawLen];
+                Array.Copy(blockBuf, srcOffset, raw, 0, rawLen);
+                yield return (prevStartBit.Value, streamLength * 8L, true, raw);
+            }
+        }
+
+        /// <summary>
         /// Yields the absolute bit offset (MSB-first, matching bzip2's bit order) of every occurrence
         /// of the 48-bit block-start magic. A rolling 64-bit accumulator holds the last 8 bytes; after
         /// loading the byte at absolute index p, the 8 bit-alignments that newly complete are the

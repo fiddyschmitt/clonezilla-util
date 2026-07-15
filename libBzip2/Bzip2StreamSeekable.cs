@@ -263,10 +263,10 @@ namespace libBzip2
         /// bzip2recover technique - it lets an unmodified decoder read a block that started at any bit
         /// offset in the original stream.
         /// </summary>
+        //serve path: read the block's bytes from the stream, then assemble
         byte[] BuildStandaloneBlockBytes(Stream view, long startBit, long endBit)
         {
             var startByte = startBit >> 3;
-            var shift = (int)(startBit & 7);
             var numBits = endBit - startBit;
             var numOutBytes = (int)((numBits + 7) >> 3);
 
@@ -277,19 +277,36 @@ namespace libBzip2
             view.Seek(startByte, SeekOrigin.Begin);
             view.ReadExactly(raw, 0, rawLen);
 
+            return AssembleStandalone(raw, 0, startBit, endBit);
+        }
+
+        //build path: the finder already handed us the block's bytes (starting at its start byte),
+        //so no stream read is needed - this is what turns the build into one sequential pass
+        byte[] BuildStandaloneBlockBytes(byte[] raw, long startBit, long endBit)
+            => AssembleStandalone(raw, 0, startBit, endBit);
+
+        /// <summary>Bit-shifts the block's bits (starting at <paramref name="startBit"/>, sourced from
+        /// <paramref name="raw"/> at <paramref name="rawOffset"/>) onto the byte-4 boundary behind the
+        /// file header, zero-padding the final byte. See <see cref="BuildStandaloneBlockBytes(Stream,long,long)"/>.</summary>
+        byte[] AssembleStandalone(byte[] raw, int rawOffset, long startBit, long endBit)
+        {
+            var shift = (int)(startBit & 7);
+            var numBits = endBit - startBit;
+            var numOutBytes = (int)((numBits + 7) >> 3);
+
             var outBuf = new byte[FileHeader.Length + numOutBytes];
             Array.Copy(FileHeader, outBuf, FileHeader.Length);
 
             if (shift == 0)
             {
-                Array.Copy(raw, 0, outBuf, FileHeader.Length, Math.Min(numOutBytes, rawLen));
+                Array.Copy(raw, rawOffset, outBuf, FileHeader.Length, Math.Min(numOutBytes, raw.Length - rawOffset));
             }
             else
             {
                 for (var k = 0; k < numOutBytes; k++)
                 {
-                    var hi = (raw[k] << shift) & 0xFF;
-                    var lo = (k + 1 < rawLen) ? (raw[k + 1] >> (8 - shift)) : 0;
+                    var hi = (raw[rawOffset + k] << shift) & 0xFF;
+                    var lo = (rawOffset + k + 1 < raw.Length) ? (raw[rawOffset + k + 1] >> (8 - shift)) : 0;
                     outBuf[FileHeader.Length + k] = (byte)(hi | lo);
                 }
             }
@@ -322,119 +339,133 @@ namespace libBzip2
 
             Log.Information($"Creating bzip2 index.");
 
-            var progressView = sharedSource.CreateView();
+            var finderView = sharedSource.CreateView();
+            var streamLength = finderView.Length;
 
+            //One sequential pass over the compressed file (the finder) feeds a BOUNDED queue that
+            //parallel decoders drain. The finder is the only reader of the stream, so there are no
+            //per-block seeks and no SharedStream-gate contention (the old approach did one gated
+            //seek+read per block - ~8x more of them after bit-alignment, which serialised the whole
+            //read phase). The bound back-pressures the finder: it outruns decoding, so an unbounded
+            //queue would hold the entire compressed file in RAM.
+            var dop = Environment.ProcessorCount;
+            var queue = new System.Collections.Concurrent.BlockingCollection<(int Seq, long StartBit, long EndBit, bool IsLast, byte[] Raw)>(2 * dop);
+            var lengths = new System.Collections.Concurrent.ConcurrentDictionary<int, long>();
+            var metadata = new System.Collections.Concurrent.ConcurrentDictionary<int, (long StartBit, long EndBit, bool IsLast)>();
+
+            var producer = Task.Factory.StartNew(() =>
+            {
+                try
+                {
+                    var seq = 0;
+                    foreach (var block in BZip2BlockFinder.FindBlocksBitAlignedWithBytes(finderView, streamLength))
+                    {
+                        metadata[seq] = (block.StartBit, block.EndBit, block.IsLast);
+                        queue.Add((seq, block.StartBit, block.EndBit, block.IsLast, block.Raw));
+                        seq++;
+                    }
+                }
+                finally
+                {
+                    queue.CompleteAdding();
+                }
+            }, TaskCreationOptions.LongRunning);
+
+            var totalDecoded = 0L;
+            var nextProgressAt = 1L * 1024 * 1024 * 1024;
+            var progressLock = new object();
+
+            var consumers = Enumerable.Range(0, dop).Select(_ => Task.Run(() =>
+            {
+                foreach (var item in queue.GetConsumingEnumerable())
+                {
+                    //reconstruct the block as a standalone byte-aligned .bz2 image (from the bytes the
+                    //finder handed us), decode, and measure its decompressed length
+                    var standalone = BuildStandaloneBlockBytes(item.Raw, item.StartBit, item.EndBit);
+                    using var decompressor = BZip2Stream.Create(new MemoryStream(standalone), SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
+
+                    var blockUncompressedLength = MeasureBlockLength(decompressor, item.IsLast);
+                    lengths[item.Seq] = blockUncompressedLength;
+
+                    var runningTotal = Interlocked.Add(ref totalDecoded, blockUncompressedLength);
+                    if (runningTotal >= Volatile.Read(ref nextProgressAt))
+                    {
+                        lock (progressLock)
+                        {
+                            if (runningTotal >= nextProgressAt)
+                            {
+                                var percentThroughCompressedSource = (double)(item.EndBit >> 3) / streamLength * 100;
+                                Log.Information($"Indexed {runningTotal.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
+                                nextProgressAt = (runningTotal / (1024 * 1024 * 1024) + 1) * 1024 * 1024 * 1024;
+                            }
+                        }
+                    }
+                }
+            })).ToArray();
+
+            Task.WaitAll(consumers);
+            producer.Wait();   //surface any exception from the finder
+
+            //stitch the (independently measured) block lengths back into ordered, prefix-summed offsets
+            var count = metadata.Count;
+            var blocks = new List<Mapping>(count);
             long uncompressedStartPos = 0L;
+            for (var i = 0; i < count; i++)
+            {
+                var m = metadata[i];
+                var blockInfo = new Mapping()
+                {
+                    CompressedStartByte = m.StartBit >> 3,
+                    CompressedStartBitInByte = (int)(m.StartBit & 7),
+                    CompressedEndByte = m.EndBit >> 3,
+                    CompressedEndBitInByte = (int)(m.EndBit & 7),
+                    UncompressedStartByte = uncompressedStartPos,
+                    UncompressedEndByte = uncompressedStartPos + lengths[i]
+                };
+                blocks.Add(blockInfo);
+                uncompressedStartPos = blockInfo.UncompressedEndByte;
+            }
 
-            var blockCount = 0;
-            var largestCompressedPositionProcessed = 0L;
-            var largestCompressedPositionProcessedLock = new object();
+            if (indexFilename != null)
+            {
+                Log.Information($"Finished generating bzip2 index. Saving to final location: {indexFilename}");
+                File.WriteAllText(indexFilename, JsonConvert.SerializeObject(blocks, Formatting.Indented));
+            }
 
-            var blocks = new List<Mapping>();
+            return blocks;
+        }
 
-            var result = BZip2BlockFinder
-                            .FindBlocksBitAligned(progressView)
-                            .SelectParallelPreserveOrder(block =>
-                            {
-                                var blockView = sharedSource.CreateView();
+        /// <summary>Fully decodes a reconstructed block to measure its decompressed length. The final
+        /// block of an image (unless <see cref="ProcessTrailingNulls"/>) is capped once it has yielded
+        /// &gt;4 GB of trailing zeros, which no filesystem references.</summary>
+        long MeasureBlockLength(Stream decompressor, bool isLast)
+        {
+            if (!ProcessTrailingNulls && isLast)
+            {
+                var blockUncompressedLength = 0L;
+                var sequenceOfEmptyBytes = 0L;
+                using var sparseAwareReader = new SparseAwareReader(decompressor);
 
-                                //reconstruct the block as a standalone byte-aligned .bz2 image, then decode
-                                var standalone = BuildStandaloneBlockBytes(blockView, block.StartBit, block.EndBit);
+                while (true)
+                {
+                    var read = sparseAwareReader.CopyTo(Null, Buffers.ARBITRARY_LARGE_SIZE_BUFFER, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
+                    if (read == 0) break;
 
-                                using var bzip2Decompressor = BZip2Stream.Create(new MemoryStream(standalone), SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
+                    blockUncompressedLength += read;
+                    sequenceOfEmptyBytes = sparseAwareReader.LatestReadWasAllNull ? sequenceOfEmptyBytes + read : 0;
 
-                                var blockUncompressedLength = 0L;
-                                if (!ProcessTrailingNulls && block.IsLast)
-                                {
-                                    //The last block in the archive tends to have a lot of trailing nulls, so we don't want to read the whole thing.
+                    if (sequenceOfEmptyBytes > 4L * 1024 * 1024 * 1024)
+                    {
+                        Log.Warning($"The final bzip2 block has more that 4GB of empty bytes. Assuming the rest of the file is empty.");
+                        break;
+                    }
+                }
+                return blockUncompressedLength;
+            }
 
-                                    var sequenceOfEmptyBytes = 0L;
-                                    using var sparseAwareReader = new SparseAwareReader(bzip2Decompressor);
-
-                                    while (true)
-                                    {
-                                        var read = sparseAwareReader.CopyTo(Null, Buffers.ARBITRARY_LARGE_SIZE_BUFFER, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
-                                        if (read == 0)
-                                        {
-                                            break;
-                                        }
-
-                                        blockUncompressedLength += read;
-
-                                        if (sparseAwareReader.LatestReadWasAllNull)
-                                        {
-                                            sequenceOfEmptyBytes += read;
-                                        }
-                                        else
-                                        {
-                                            sequenceOfEmptyBytes = 0;
-                                        }
-
-                                        if (sequenceOfEmptyBytes > 4L * 1024 * 1024 * 1024)
-                                        {
-                                            Log.Warning($"The final bzip2 block has more that 4GB of empty bytes. Assuming the rest of the file is empty.");
-                                            break;
-                                        }
-                                    }
-                                }
-                                else
-                                {
-                                    using var positionTrackingStream = new PositionTrackerStream();
-
-                                    bzip2Decompressor.CopyTo(positionTrackingStream, Buffers.ARBITRARY_LARGE_SIZE_BUFFER,
-                                        progress =>
-                                        {
-                                            lock (largestCompressedPositionProcessedLock)
-                                            {
-                                                if (progressView.Position > largestCompressedPositionProcessed)
-                                                {
-                                                    largestCompressedPositionProcessed = progressView.Position;
-                                                }
-                                            }
-
-                                            var percentThroughCompressedSource = (double)largestCompressedPositionProcessed / progressView.Length * 100;
-
-                                            Log.Information($"Indexed {progress.TotalRead.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
-                                        });
-
-                                    blockUncompressedLength = positionTrackingStream.Length;
-                                }
-
-                                return new
-                                {
-                                    Metadata = block,
-                                    UncompressedLength = blockUncompressedLength
-                                };
-                            }, Environment.ProcessorCount)
-                            .Select(block =>
-                            {
-                                var blockInfo = new Mapping()
-                                {
-                                    CompressedStartByte = block.Metadata.StartBit >> 3,
-                                    CompressedStartBitInByte = (int)(block.Metadata.StartBit & 7),
-                                    CompressedEndByte = block.Metadata.EndBit >> 3,
-                                    CompressedEndBitInByte = (int)(block.Metadata.EndBit & 7),
-                                    UncompressedStartByte = uncompressedStartPos,
-                                    UncompressedEndByte = uncompressedStartPos + block.UncompressedLength
-                                };
-                                blocks.Add(blockInfo);
-
-                                if (indexFilename != null && block.Metadata.IsLast)
-                                {
-                                    Log.Information($"Finished generating bzip2 index. Saving to final location: {indexFilename}");
-
-                                    var json = JsonConvert.SerializeObject(blocks, Formatting.Indented);
-                                    File.WriteAllText(indexFilename, json);
-                                }
-
-                                Debug.WriteLine($"{++blockCount:N0}    {blockInfo}");
-
-                                uncompressedStartPos = blockInfo.UncompressedEndByte;
-
-                                return blockInfo;
-                            });
-
-            return result;
+            using var positionTrackingStream = new PositionTrackerStream();
+            decompressor.CopyTo(positionTrackingStream, Buffers.ARBITRARY_LARGE_SIZE_BUFFER);
+            return positionTrackingStream.Length;
         }
     }
 }
