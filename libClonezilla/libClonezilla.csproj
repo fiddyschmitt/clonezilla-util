@@ -24,7 +24,7 @@
          native index); local feed in ..\nuget.config. A ProjectReference across solutions broke VS
          publish, so consume it as a package like ZstdSeekable. Switch to the official nuget.org
          version once XzSeekable is published there. -->
-    <PackageReference Include="XzSeekable" Version="0.1.0-local" />
+    <PackageReference Include="XzSeekable" Version="0.1.0-local2" />
   </ItemGroup>
 
   <ItemGroup>
