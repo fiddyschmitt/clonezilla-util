@@ -20,6 +20,11 @@
     <PackageReference Include="SharpCompress" Version="0.49.1-localbzip2patch2" />
     <PackageReference Include="ZstdNet" Version="1.5.7" />
     <PackageReference Include="ZstdSeekable" Version="0.3.0" />
+    <!-- TEMP: locally-packed XzSeekable (single-block xz LZMA2-chunk checkpoint index + multi-block
+         native index); local feed in ..\nuget.config. A ProjectReference across solutions broke VS
+         publish, so consume it as a package like ZstdSeekable. Switch to the official nuget.org
+         version once XzSeekable is published there. -->
+    <PackageReference Include="XzSeekable" Version="0.1.0-local" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,9 +35,6 @@
     <ProjectReference Include="..\libGZip\libGZip.csproj" />
     <ProjectReference Include="..\libPartclone\libPartclone.csproj" />
     <ProjectReference Include="..\libTrainCompress\libTrainCompress.csproj" />
-    <!-- Local project reference during development; switch to a NuGet PackageReference once
-         XzSeekable is published to nuget.org (as with ZstdSeekable). -->
-    <ProjectReference Include="..\..\XzSeekable\src\XzSeekable\XzSeekable.csproj" />
   </ItemGroup>
 
 </Project>
