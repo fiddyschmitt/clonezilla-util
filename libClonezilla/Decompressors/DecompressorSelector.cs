@@ -45,7 +45,7 @@ namespace libClonezilla.Decompressors
                 Compression.LZ4 => new LZ4Decompressor(CompressedStream),
                 Compression.LZip => new LZipDecompressor(CompressedStream),
                 Compression.None => new NoChangeDecompressor(CompressedStream),
-                Compression.xz => new xzDecompressor(CompressedStream),
+                Compression.xz => new xzDecompressor(CompressedStream, partitionCache),
                 Compression.Zstandard => new ZstdDecompressor(CompressedStream, partitionCache),
                 _ => throw new Exception($"Could not initialise a decompressor for {StreamName}"),
             };

@@ -51,6 +51,14 @@ namespace libClonezilla.Cache
             return result;
         }
 
+        public string GetXzIndexFilename()
+        {
+            //single-block xz only: LZMA2-chunk checkpoint index (multi-block xz uses the file's
+            //native footer index and needs no cache file).
+            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.xz_index.xzi");
+            return result;
+        }
+
 
 
         public List<ArchiveEntry>? GetFileList()

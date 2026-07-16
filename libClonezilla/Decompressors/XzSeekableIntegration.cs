@@ -1,3 +1,4 @@
+using libCommon;
 using libCommon.Streams;
 using System;
 using System.IO;
@@ -5,14 +6,33 @@ using XzSeekable;
 
 namespace libClonezilla.Decompressors
 {
+    /// <summary>Emits the xz checkpoint-index build progress in the house log format, every ~1 GB of
+    /// output. Implements IProgress directly (not Progress&lt;T&gt;) so reports stay synchronous.</summary>
+    public class XzBuildProgressLogger : IProgress<XzIndexProgress>
+    {
+        const long IntervalBytes = 1L * 1024 * 1024 * 1024;
+        long nextAt = IntervalBytes;
+
+        public void Report(XzIndexProgress value)
+        {
+            if (value.UncompressedBytesProduced < nextAt) return;
+            var percentThroughCompressedSource = value.CompressedTotalBytes > 0
+                ? 100.0 * value.CompressedBytesProcessed / value.CompressedTotalBytes
+                : 0;
+            Serilog.Log.Information($"Indexed {value.UncompressedBytesProduced.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
+            nextAt = (value.UncompressedBytesProduced / IntervalBytes + 1) * IntervalBytes;
+        }
+    }
+
     /// <summary>
-    /// Bridges the XzSeekable package's <see cref="XzBlockIndexedStream"/> (multi-block xz served via
-    /// the native block index) into this codebase: implements <see cref="IReadSuggestor"/> as
-    /// 32 MB-aligned sub-spans within a block, so the CachingStream layer reads pooled-buffer-sized
-    /// segments instead of ~1 MB defaults (a cold ~1 MB read would otherwise decode-and-discard up to
-    /// a whole block). Mirrors <see cref="SeekableZstdStream"/>.
+    /// Bridges an XzSeekable serve stream (either <c>XzBlockIndexedStream</c> for multi-block xz via
+    /// the native block index, or <c>XzIndexedStream</c> for single-block xz via a checkpoint index)
+    /// into this codebase: implements <see cref="IReadSuggestor"/> as 32 MB-aligned sub-spans within
+    /// the containing block/point span, so the CachingStream layer reads pooled-buffer-sized segments.
+    /// The <paramref name="spanOf"/> delegate returns that containing span for a position. Mirrors
+    /// <see cref="SeekableZstdStream"/>.
     /// </summary>
-    public class SeekableXzStream(XzBlockIndexedStream inner) : Stream, IReadSuggestor
+    public class SeekableXzStream(Stream inner, Func<long, (long Start, long End)> spanOf) : Stream, IReadSuggestor
     {
         const long RecommendationSubSpanBytes = 32L * 1024 * 1024;
 
@@ -20,20 +40,17 @@ namespace libClonezilla.Decompressors
         {
             if (start >= inner.Length) return (start, start);
 
-            //the whole containing block, then a 32 MB-aligned sub-span within it (blocks are the
-            //resume unit; a sub-span still decodes from the block start, but keeps cache segments
-            //poolable - the same trade-off SeekableZstdStream makes within a point span)
-            var (blockStart, blockEnd) = inner.GetRecommendation(start);
-            var subSpanIndex = (start - blockStart) / RecommendationSubSpanBytes;
-            var subSpanStart = blockStart + subSpanIndex * RecommendationSubSpanBytes;
-            var subSpanEnd = Math.Min(subSpanStart + RecommendationSubSpanBytes, blockEnd);
+            var (spanStart, spanEnd) = spanOf(start);
+            var subSpanIndex = (start - spanStart) / RecommendationSubSpanBytes;
+            var subSpanStart = spanStart + subSpanIndex * RecommendationSubSpanBytes;
+            var subSpanEnd = Math.Min(subSpanStart + RecommendationSubSpanBytes, spanEnd);
             return (subSpanStart, subSpanEnd);
         }
 
         public override int Read(byte[] buffer, int offset, int count)
         {
             //CachingStream issues ONE Read per recommendation and requires it to cover the requested
-            //range; XzBlockIndexedStream short-reads at block boundaries, so loop.
+            //range; the inner stream short-reads at block/point boundaries, so loop.
             var total = 0;
             while (total < count)
             {
