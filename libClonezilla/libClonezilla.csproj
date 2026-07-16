@@ -30,6 +30,9 @@
     <ProjectReference Include="..\libGZip\libGZip.csproj" />
     <ProjectReference Include="..\libPartclone\libPartclone.csproj" />
     <ProjectReference Include="..\libTrainCompress\libTrainCompress.csproj" />
+    <!-- Local project reference during development; switch to a NuGet PackageReference once
+         XzSeekable is published to nuget.org (as with ZstdSeekable). -->
+    <ProjectReference Include="..\..\XzSeekable\src\XzSeekable\XzSeekable.csproj" />
   </ItemGroup>
 
 </Project>
