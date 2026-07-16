@@ -1013,10 +1013,22 @@ LZMA2 decoder (byte-identical to SharpCompress, parity-tested) + a fresh xz cont
   `SeekableXzStream` adapter (32 MB sub-spans, mirrors zstd). Single-block xz still extracts (Part B).
   **Measured: `ListContents.LargeDriveImages.Xz` 187.6 → 3.2 min (58×);** `Mount.AsFiles.LargeDriveImages.xz`
   MD5 gate PASS 3m48s. Package parity + seek + production-path harness all byte-exact.
-- **Part B — single-block xz (in progress).** LZMA2-chunk checkpoint index mirroring ZstdSeekable's
-  build/verify/persist/resume; forks the vendored decoder to snapshot {dict window + probability model +
-  reps + state} at chunk boundaries (range coder is fresh per chunk, so not captured). B0 (prove
-  snapshot→resume byte-exact) is the gate before B1/B2.
+- **Part B — single-block xz (DONE, validated).** Genuinely novel (no prior tool checkpoints full LZMA
+  state to seek inside one LZMA2 stream). Forks the vendored decoder to snapshot {4 MiB dict window +
+  ~16 KB probability model + reps + state} at chunk boundaries (range coder is fresh per chunk, not
+  captured); `XzIndex` builds a verified resume-point index in one pass, `XzIndexedStream` serves it,
+  persisted at `PartitionCache.GetXzIndexFilename()` (`.xz_index.xzi`). `xzDecompressor` builds/loads it
+  for single-block partitions instead of extracting to `cache.train` — restores the no-disk-materialisation
+  constraint, ~1.2 GB index vs ~15-20 GB train.
+  - **B0** proven byte-exact (resume from 50/200/350 MB on the 417 MB partition). **B1** 417 MB: 13 points
+    all verified, 200 random + boundary reads + MD5 byte-exact, reload 0.10 s. **B2** clonezilla harness
+    byte-exact through xzDecompressor→adapter→CachingStream.
+  - Two build-perf fixes were needed to beat extraction: verify only a small SAMPLE of spans (exact
+    snapshots ⇒ the rest are correct by construction; verifying all doubled the decode) and BUFFER the
+    decoder input (the range decoder pulls bytes tiny, and over the gated SharedStreamView each pull
+    re-seeked the shared stream — ~5x slowdown). 417 MB build 10.8 → 5.8 s; sda2 (45 GB) building ~20 min
+    < ~30 min extraction. Follow-ups (not blockers): incremental compressed persistence (build holds all
+    windows ~5.6 GB in RAM for sda2), fill spans for zero runs, interrupted-build resume.
 
 ### Deferred (future batch) — lz4 / lzip (xz now Batch 9)
 Researched 2026-06-24; xz has since moved to Batch 9 (above). Summary so the rest isn't re-derived:
