@@ -1004,8 +1004,22 @@ introspection). Reference impls to crib from: `derijkp/zstdra`, `zraorg/ZRA`.
 **Once landed:** zstd inherits Batch 6's profile (decompress-and-discard within the span + the ¼-RAM cache),
 so Batch 6 (A) global cache budget and (E) pooled buffers then apply to it too.
 
-### Deferred (future batch) — xz / lz4 / lzip
-Researched 2026-06-24; out of scope for Batch 7. Summary so the work isn't re-derived:
+### Batch 9 — xz seekable (2026-07-16, in progress)
+New self-contained **XzSeekable** package (alongside ZstdSeekable, for nuget.org), vendoring a managed
+LZMA2 decoder (byte-identical to SharpCompress, parity-tested) + a fresh xz container parser.
+- **Part A — multi-block xz (DONE, shipped).** Drive images (`xz -T`/pixz, `sda.img.xz` = 32,768 × 64 MiB
+  blocks) carry a native footer block index → free random access, **no index build, no `cache.train`**.
+  `xzDecompressor.GetSeekableStream()` opens `XzBlockIndexedStream` for multi-block input via a thin
+  `SeekableXzStream` adapter (32 MB sub-spans, mirrors zstd). Single-block xz still extracts (Part B).
+  **Measured: `ListContents.LargeDriveImages.Xz` 187.6 → 3.2 min (58×);** `Mount.AsFiles.LargeDriveImages.xz`
+  MD5 gate PASS 3m48s. Package parity + seek + production-path harness all byte-exact.
+- **Part B — single-block xz (in progress).** LZMA2-chunk checkpoint index mirroring ZstdSeekable's
+  build/verify/persist/resume; forks the vendored decoder to snapshot {dict window + probability model +
+  reps + state} at chunk boundaries (range coder is fresh per chunk, so not captured). B0 (prove
+  snapshot→resume byte-exact) is the gate before B1/B2.
+
+### Deferred (future batch) — lz4 / lzip (xz now Batch 9)
+Researched 2026-06-24; xz has since moved to Batch 9 (above). Summary so the rest isn't re-derived:
 - **lz4** — 64 KB window → tiny gztool-class index (or a pure block index if the frame uses independent
   blocks). Easiest, but low value (rare). `.NET: K4os` + a little frame parsing.
 - **xz** — *two regimes*: **pixz/`-z5p` (multi-block)** has a built-in block index → cheap, low effort
