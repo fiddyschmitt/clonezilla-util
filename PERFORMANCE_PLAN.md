@@ -842,7 +842,8 @@ on-disk `cache.train`:
   zst 59.6) where baseline instead train-extracted every run; everywhere else far ahead
   (UbuntuFileSystems mount 15.1 vs 95.7, Zst partition listing 7.3 vs 14.9). Cached: **139.2 min
   total — 5.3× faster than fresh**; every persistence path confirmed: gz drive listing 130.2→1.2,
-  zst 59.6→1.4 (ZSTZRAN3 with fill spans, built by this run), xz train 189.6→1.4, partclone dd
+  zst 59.6→1.4 (**correction 2026-07-17: this was cache.train persistence, NOT a served index — see
+  the zst drive-image divergence note in Batch 9's section**), xz train 189.6→1.4, partclone dd
   content map 145.1→1.8, all-4 large-partition listing 83.6→7.3. Remaining cached-run costs:
   **bzip2 drive image ~47 min (listing 23.5 + mount 23.8 = 34% of the suite) — serving cost, not
   build cost (barely differs fresh vs cached); the top target for the next optimisation round.**
@@ -1029,6 +1030,25 @@ LZMA2 decoder (byte-identical to SharpCompress, parity-tested) + a fresh xz cont
     re-seeked the shared stream — ~5x slowdown). 417 MB build 10.8 → 5.8 s; sda2 (45 GB) building ~20 min
     < ~30 min extraction. Follow-ups (not blockers): incremental compressed persistence (build holds all
     windows ~5.6 GB in RAM for sda2), fill spans for zero runs, interrupted-build resume.
+
+### Finding (2026-07-17): the zst DRIVE image has been extract-falling-back all along
+User noticed a `cache.train` for `2021-12-28_pb-devops1_sda.img.zst`. Diagnosis (artifacts + an
+instrumented rebuild): ZstdSeekable's **insurance shadow diverges at uncompressed offset
+5,860,098,048** (~5.46 GiB, dense real data — nearest fill span starts 209 MB later, so not an
+RLE edge). A point verified its full 64 MB span, was promoted, then drifted in its SECOND span —
+the documented "window-prefix divergence surfaces late" behaviour, caught by the insurance
+mechanism working as designed. The package's response is the frame-start-only fallback (single
+frame ⇒ 1 point + 142 fill spans covering 97.6%), clonezilla's density gate correctly rejects it
+(maxGap 2.2 TB vs 256 MB), and the extraction fallback writes cache.train. Every layer behaved as
+designed; correctness was never at risk. The zst PARTITIONS (partclone-framed) index perfectly
+(677/677) — only the raw drive image trips it. The all-or-nothing fallback is a soundness
+requirement of window-prefix resume: a mid-frame span is only servable if a shadow verified that
+exact span, so a single bad point cannot simply be dropped. Fix options (ZstdSeekable roadmap):
+(A) on divergence, keep sealed points and resume-restart from the last frame start, leaving a
+bounded unserved hole (moderate complexity, ugly serving); (B) **ZstdSeekable 0.4.0: exact-state
+snapshots** — capture repcodes + entropy tables alongside the window via ZstdSharp's managed
+internals (the proven XzSeekable design) — divergence class vanishes, insurance becomes
+sample-only, builds get cheaper; (C) accept extraction for raw zst drive images (status quo).
 
 ### Deferred (future batch) — lz4 / lzip (xz now Batch 9)
 Researched 2026-06-24; xz has since moved to Batch 9 (above). Summary so the rest isn't re-derived:
