@@ -1049,6 +1049,21 @@ bounded unserved hole (moderate complexity, ugly serving); (B) **ZstdSeekable 0.
 snapshots** — capture repcodes + entropy tables alongside the window via ZstdSharp's managed
 internals (the proven XzSeekable design) — divergence class vanishes, insurance becomes
 sample-only, builds get cheaper; (C) accept extraction for raw zst drive images (status quo).
+**RESOLVED (2026-07-17): user chose (B); ZstdSeekable 0.4.0 built, validated, and wired in.**
+Mid-frame points now carry the exact carried decoder state (entropy tables + repeat offsets +
+symbolic table-selector classification + flags, ~27 KB raw before compression) reinstated into the
+DCtx after the synthetic frame header — resume is exact by construction. Candidate/insurance
+machinery and the divergence fallback retired; a sampled shadow check (default 3 spans) remains as
+an integration guard; interrupted builds exact-restore the last sealed point (fingerprinted
+ZSTZRAN4; v1-v3 load/serve unchanged). Gates: synthetic level-19 70/70 boundaries byte-exact
+(window-prefix failed 31/70 of the same); full package suite 76/76; **acceptance on the exact
+image/offset that failed: full 2.2 TB build in 10m47s, zero fallbacks, dense through
+5,860,098,048, 229.5 MB index, spot serves byte-exact** (old chain: ~49 min ending in a 24 GB
+cache.train). clonezilla bumped to 0.4.0-local and republished — on the next cold run the zst
+drive image indexes like everything else, and NOTHING in the test set produces a cache.train
+(xz was the last, fixed by Batch 9; zst drive was the hidden one, fixed here). Existing degraded
+2,593-byte .zsi files rebuild automatically (fingerprint/density path); the 24 GB cache.train can
+be deleted with the next cache clear.
 
 ### Deferred (future batch) — lz4 / lzip (xz now Batch 9)
 Researched 2026-06-24; xz has since moved to Batch 9 (above). Summary so the rest isn't re-derived:
