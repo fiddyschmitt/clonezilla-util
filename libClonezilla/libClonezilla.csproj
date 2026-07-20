@@ -14,10 +14,9 @@
     <PackageReference Include="K4os.Compression.LZ4.Streams" Version="1.3.8" />
     <PackageReference Include="LTRData.DiscUtils.FileSystems" Version="1.0.83" />
     <PackageReference Include="LTRData.DiscUtils.Xfs" Version="1.0.83" />
-    <!-- TEMP: locally-built patched SharpCompress (BZip2 tolerateTruncatedStream); local feed in
-         ..\nuget.config. Tag-based (0.49.1 + merged upstream PR #1358) - see libBzip2.csproj for why.
-         Switch back to the official NuGet version once a release containing PR #1358 ships. -->
-    <PackageReference Include="SharpCompress" Version="0.49.1-localbzip2patch2" />
+    <!-- 0.50.0 is the first official release containing our BZip2 tolerateTruncatedStream PR (#1358) -
+         see libBzip2.csproj (and why NOT 1.0.0). -->
+    <PackageReference Include="SharpCompress" Version="0.50.0" />
     <PackageReference Include="ZstdNet" Version="1.5.7" />
     <!-- TEMP: locally-packed ZstdSeekable 0.4.0 (exact decoder-state resume points - fixes the raw
          zst drive image degrading to frame-start-only and extract-falling-back to cache.train).
