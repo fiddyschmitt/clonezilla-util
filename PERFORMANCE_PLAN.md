@@ -498,6 +498,24 @@ csprojs; solution builds; bench confirms 283 MB/s (= official).
   ships a release containing PR #1358: switch both csprojs to the official version, delete
   `nuget.config` + the `local-nuget` feed.
 
+### DONE (2026-07-17): switched to official SharpCompress 0.50.0 (first release with PR #1358) —
+### follow-up (c). The XZ sparse-path regression IS in 0.50.0 — follow-up (b) re-benched, not fixed.
+
+- **0.50.0 (2026-07-13) is the first official release containing PR #1358.** Both csprojs switched to
+  it; smoke-verified (bzip2 index build + start/middle/tail seekable reads over `sda1.img.bz2`
+  hash-match a sequential reference decode). `nuget.config` + `local-nuget` NOT deleted — the feed
+  now also serves the locally-packed `XzSeekable`/`ZstdSeekable`; only the SharpCompress entry retired.
+- **Do NOT use "SharpCompress 1.0.0"** on nuget.org: bad upstream publish — its nuspec points at a
+  2026-01-08 master commit (pre-#1358, pre-`Create` API); our code doesn't compile against it.
+- **The master XZ sparse-path regression shipped in 0.50.0.** Null-region micro-bench (rebuilt
+  benchxz, 8 GiB-of-zeros xz, 2 interleaved rounds, run DURING a contended suite evening —
+  relative ratio is the signal): official 0.49.1 = 326.6/328.3 MB/s, official 0.50.0 =
+  170.3/172.3 MB/s → **1.9× slower**, same signature as the June master-based pack. Impact today is
+  confined to SharpCompress `XZStream` sequential/fallback paths (`xzDecompressor.GetSequentialStream`,
+  `Decompressor.cs` sequential xz) — the indexed hot paths moved to XzSeekable in Batch 9 and don't
+  touch SharpCompress. If a future suite run shows xz fallbacks getting hit, do follow-up (a)
+  (XZ.NET native) or report upstream with the bench numbers above.
+
 ## Investigation I1 — intermittent crash: FileNotFound on our own internal mount  (opened 2026-07-03)
 
 `ListContents.LargeDriveImages.Xz` failed on 07-03 because **the exe died on an unhandled exception**,
@@ -552,7 +570,105 @@ forever):
 
 - **Restore everything to HEAD:** `git checkout HEAD -- libClonezilla/Extractors/ libDokan/VFS/DokanVFS.cs`
 
-## Investigation I0 — gz seekable decode spawns gztool per read  (flagged 2026-06-25, **DONE 2026-07-10** — awaiting 10h suite)
+## Investigation I2 — drive-letter collision: one process destroys another's live mount  (2026-07-17, **RESOLVED same day**)
+
+`Mount.AsFiles.LargeClonezillaImages.bzip2` failed with `IOException: A device which does not exist
+was specified` mid-copy of the SECOND check file — after `Reload.xml` had already MD5-matched. Not
+data corruption: full-stream byte-compares of all partitions' `Bzip2StreamSeekable` output against
+sequential reference decodes (using the failing run's own index files) were IDENTICAL.
+
+**Root cause (Dokan2 driver event log):** the test's healthy L: volume (mount ID 23, alive 5 min,
+sentinel-verified) was destroyed at 21:54:50.925 by ANOTHER clonezilla-util process running
+`TryMount`'s unconditional `RemoveMountPoint(mountPoint)` — a slow ListContents process had picked
+L: as its "available" letter minutes earlier (during a 38 s window when L: was free between tests)
+and only reached its mount now. Under that night's ~60× machine slowdown the choose-letter→mount
+gap stretched from milliseconds to minutes, so auto-letter processes collided with the suite's
+explicit `-m L:\`. Cascade: L: churned through mount IDs 24–29 (each alive 0.7–5.6 s as more
+laggards stole it in turn); the following gz test's mount (ID 27) was stolen 2.4 s in — inside its
+sentinel-probe window, so it declared success and then waited forever on files of a dead volume
+(its `File.Exists` retry loop had no timeout). Same family as I1 (the sentinel guards mount-time
+squatting but nothing protected an ESTABLISHED mount from later theft). Also exposed:
+`ConfirmFilesExist` skipped `process.Kill()` on the exception path, orphaning the bzip2 exe (8.4 GB
+WS, still burning CPU against the rest of the run).
+
+**Fixes (same day):**
+1. `OnDemandVFS.TryMount` never displaces a live volume: if `Directory.Exists` answers at the
+   letter, the attempt fails with "refusing to displace it" (auto letters retry elsewhere;
+   user-chosen letters Fatal). `RemoveMountPoint` now runs only when the letter is NOT answering —
+   clearing a dead/stale Dokan entry, which harms nobody. TOCTOU window remains but is ms-wide and
+   still backstopped by the sentinel probe.
+2. Auto letters are now chosen INSIDE the `RootFolder` lazy (mount time), not at VFS construction —
+   callers pass `null` (`Program.cs` 4 sites) — collapsing the choose→mount gap to milliseconds.
+3. Test harness: `ConfirmFilesExist` kills the exe in a `finally`; fails fast if the exe exits
+   early; overall wait timeout (default 6 h — cold drive-image index builds are legitimately hours);
+   MD5 assert now names the file + expected/computed hashes; timeout message names the missing file.
+
+**Not done (discussion item):** mounting internal VFS instances onto NTFS directory mount points
+instead of drive letters, which would remove letter contention entirely.
+
+## GzipSeekable replaces gztool  (2026-07-18, **implemented — awaiting suite gates**)
+
+gztool (the last external native binary in the serve path) is decommissioned. New sibling package
+**GzipSeekable 0.1.0-local** (repo `..\GzipSeekable`, XzSeekable-shaped: vendored SharpZipLib
+inflater carried from libGZip + 5 new guarded hooks for the index builder; `"GZSKIDX1"` format —
+fingerprint, streaming resumable `.wip` builds with member-CRC continuation, lazy windows, fill
+spans, sampled shadow verify; native multi-member continuation replaces the gztool per-read
+fallback; per-member CRC32/ISIZE verified during build; 4 MiB default spans = gztool's `-s 4`).
+Package suite 28/28 on net10.0/net8.0/net48 incl. full-MD5 BCL parity on both real E: gz images.
+
+clonezilla side: `GzDecompressor` rewritten in the xz shape (LoadOrBuild + 4× density gate +
+`SeekableGzipStream`); cache filename now `{name}.gzip_index.gzsi` (old `.gztool_index.gzi` files
+are dead weight — cache clear removes them); **deleted**: libGZip project, vendored SharpZipLib,
+gztool exes + publish bundling, sln entry.
+
+**Smoke (production sda2.ntfs-ptcl-img.gz, 45.37 GB uncompressed):** cold `list -p sda2` end-to-end
+**12.1 min** — index build 11m22s ≈ **66 MB/s output** (gztool built the same index in ~9-10 min on
+good nights: comparable, in-process, no subprocess), 10,764 points + 86 fill spans, 171.7 MB `.gzsi`
+(gztool's `.gzi` was 169.7 MB). **Warm re-list: 39 s.** Small files keep choosing the sequential
+decompressor via the 10 s perf test, as before.
+
+**Gates before publishing 0.1.0:** full suite cold (gz indexes rebuild once; the 2 TB drive image's
+gztool `.gzi` is discarded — clean break, no importer) + warm. Then: create the nuget.org Trusted
+Publishing policy for `GzipSeekable` BEFORE pushing the v0.1.0 tag (XzSeekable lesson), tag →
+CI publishes, flip the csproj to official — and once all three seekable packages are official,
+delete `nuget.config` + the local feed for good.
+
+**GATES PASSED (2026-07-19): cold 71/71 = 756.7 min, warm 71/71 = 118.8 min** (also the first suite
+on official ZstdSeekable 0.4.0 + XzSeekable 0.2.0; the `.xzi` XZSKIDX1 rebuild cost ~+4 min, zst
+needed no rebuild as predicted). Read of the deltas vs the 07-18 pair (498.1 / 89.9):
+- **Warm gz serving is at parity with gztool**: every warm gz number ≈ flat (drive listing 1.5 min,
+  clonezilla/drive mounts 1.5-1.6 min). GzipSeekable costs nothing at serve time.
+- **The one real regression: the 2 TB gz drive COLD index build = 266.5 min vs gztool's 130-148**
+  (~2×, one-off per image). Cause (called out in advance as the risk): the vendored inflater's
+  `OutputWindow.Repeat` copies distance-1 (RLE zero) matches byte-at-a-time, and the image is
+  ~2 TB of zeros; zlib fast-paths this. **Optimization target for GzipSeekable 0.2.0**: batch
+  overlapping repeats (distance==1 → fill; distance<length → doubling Array.Copy) — mechanical,
+  decode-identical, should reclaim most of the 2×. Dense-data builds are near-parity already
+  (sda2 partition: 17.3 min in-suite vs ~11 gztool-era; standalone 11m22s ≈ 66 MB/s).
+- The rest of the cold delta is environmental, not gzip: Mount.Partclone.**dd** (no compression
+  involved) +106 min (158→264.5), Sparse +2.3, bzip2 drive +5.9, etc. — same broad drift the
+  07-10/07-18 runs showed. Warm's +29 min is the same pattern (zst clonezilla mount 1.7→11.4,
+  Sparse 11.2→18.1, bzip2 mount 5.4→11.3, Ubuntu ext4 IMPROVED 11.4→6.2 — uncorrelated with any
+  code path we changed; gz flat throughout). The pending Defender-exclusion/power-plan experiment
+  remains the highest-value environmental lead.
+
+**RESOLVED (2026-07-19): sparse-decode optimization (GzipSeekable 0.1.0-local3) — the 2 TB gz
+drive cold build went 266.5 min → 62.7 min (3.8x end-to-end; 2.1x faster than gztool ever was).**
+Two hot loops batched: `OutputWindow.Repeat` overlapping copies (distance-1 zero runs → vector
+fill; length≥64 → doubling Array.Copy; SHORT matches keep the upstream byte loop — the first
+unthresholded attempt regressed dense decode 29% because LZ77-dense data is dominated by
+length-3..10 matches where an Array.Copy call costs more than the loop) and slicing-by-8 CRC32.
+Micro: zeros inflate 412 → ~3,900 MB/s, build pipeline 192 → ~650-820 MB/s; dense sda2 build 16%
+faster than a same-afternoon original-package control (yesterday's 682 s baseline was a faster
+machine-day — today's control paced ~940 s, the documented drift). Real 2 TB run: build 62m39s
+(~585 MB/s avg; 521,229 points, 142 fill spans), full cold list 69m48s, warm list 109 s (parity).
+Package suite 28/28 x3 TFMs throughout; decode output byte-identical (same points/fills/CRCs).
+Cold-suite projection: LargeDriveImages.Gz ~266 → ~70 min, taking the cold total down ~200 min.
+
+**PUBLISHED (2026-07-20): GzipSeekable 0.1.0 on nuget.org** (github.com/fiddyschmitt/GzipSeekable,
+tag v0.1.0). clonezilla-util now references all three seekable packages officially; `nuget.config`
+and the `local-nuget` feed are deleted — the last temporary plumbing from the SharpCompress-patch
+era is gone. The `.gzsi` files built by the -local packs stay valid (same GZSKIDX1 format).
 
 **Implemented option 1: in-process zran reads using gztool's existing index.** gztool remains the
 index *builder* (unchanged, reliable); the per-read `gztool.exe` subprocess is gone. Design:
