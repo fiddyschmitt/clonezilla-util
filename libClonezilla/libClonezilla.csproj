@@ -18,18 +18,13 @@
          see libBzip2.csproj (and why NOT 1.0.0). -->
     <PackageReference Include="SharpCompress" Version="0.50.0" />
     <PackageReference Include="ZstdNet" Version="1.5.7" />
-    <!-- TEMP: locally-packed ZstdSeekable 0.4.0 (exact decoder-state resume points - fixes the raw
-         zst drive image degrading to frame-start-only and extract-falling-back to cache.train).
-         Switch to the official nuget.org 0.4.0 once published. -->
-    <PackageReference Include="ZstdSeekable" Version="0.4.0-local" />
-    <!-- TEMP: locally-packed XzSeekable (single-block xz LZMA2-chunk checkpoint index + multi-block
-         native index); local feed in ..\nuget.config. A ProjectReference across solutions broke VS
-         publish, so consume it as a package like ZstdSeekable. Switch to the official nuget.org
-         version once XzSeekable is published there. -->
-    <PackageReference Include="XzSeekable" Version="0.1.0-local2" />
-    <!-- TEMP: locally-packed GzipSeekable (zran checkpoint index; replaces gztool + libGZip);
-         local feed in ..\nuget.config. Switch to the official nuget.org version once published. -->
-    <PackageReference Include="GzipSeekable" Version="0.1.0-local3" />
+    <!-- official nuget.org releases (exact decoder-state resume points for zstd; single-block
+         LZMA2-chunk checkpoint index + multi-block native index for xz; zran checkpoint index for
+         gzip). NB consumed as packages, not ProjectReferences - a ProjectReference across
+         solutions broke VS single-file publish. -->
+    <PackageReference Include="ZstdSeekable" Version="0.4.0" />
+    <PackageReference Include="XzSeekable" Version="0.2.0" />
+    <PackageReference Include="GzipSeekable" Version="0.1.0" />
   </ItemGroup>
 
   <ItemGroup>
