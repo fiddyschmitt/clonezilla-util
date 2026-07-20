@@ -4,9 +4,6 @@ using libCommon.Streams;
 using libCommon.Streams.Seekable;
 using libCommon.Streams.Sparse;
 using libPartclone;
-using libTrainCompress;
-using libTrainCompress.Compressors;
-using Newtonsoft.Json.Linq;
 using Serilog;
 using System;
 using System.Collections.Generic;
@@ -118,13 +115,12 @@ namespace libClonezilla.Decompressors
             {
                 Log.Information($"{StreamName} Using a seekable decompressor for this data.");
 
-                //gz, zstd and bzip2 have in-memory random-access support, but need somewhere to
-                //keep their index file. Flows that serve whole (drive) images provide no partition
-                //cache, so synthesize one rooted in the same whole-file cache folder the extraction
-                //fallback uses - this is what lets drive images use the gztool/zstd/bzip2 indexes
-                //instead of extracting the entire decompressed image to disk. Without this, bzip2
-                //rebuilt its block index (a full decode of the compressed image) on every mount.
-                if (PartitionCache == null && CompressionInUse is Compression.Gzip or Compression.Zstandard or Compression.bzip2)
+                //gz, zstd, bzip2 and (single-block) xz have in-memory random-access support, but
+                //need somewhere to keep their index file. Flows that serve whole (drive) images
+                //provide no partition cache, so synthesize one rooted in the whole-file cache
+                //folder - this is what lets drive images use the indexes instead of degrading to
+                //restart-based seeking. (Multi-block xz needs no cache - its index is native.)
+                if (PartitionCache == null && CompressionInUse is Compression.Gzip or Compression.Zstandard or Compression.bzip2 or Compression.xz)
                 {
                     var synthesizedCache = new PartitionCache(GetWholeFileCacheFolder(), StreamName);
                     Decompressor = CompressionInUse switch
@@ -132,6 +128,7 @@ namespace libClonezilla.Decompressors
                         Compression.Gzip => new GzDecompressor(CompressedStream, synthesizedCache),
                         Compression.Zstandard => new ZstdDecompressor(CompressedStream, synthesizedCache),
                         Compression.bzip2 => new Bzip2Decompressor(CompressedStream, synthesizedCache, ProcessTrailingNulls),
+                        Compression.xz => new xzDecompressor(CompressedStream, synthesizedCache),
                         _ => Decompressor,
                     };
                 }
@@ -140,128 +137,20 @@ namespace libClonezilla.Decompressors
 
                 if (seekableStream == null)
                 {
-                    uncompressedStream = Stream.Null;
-                    Log.Information($"{StreamName} uses {CompressionInUse} compression, which is not seekable. Extracting first.");
+                    //No random-access index exists for this stream: large lz4/lzip (no index support
+                    //yet), a single-block xz drive image with nowhere to keep an index, or an index
+                    //build failure. Serve by re-decoding from the start on backward seeks - correct
+                    //and fully in-memory, though slow for large images. (This replaced the old
+                    //cache.train extraction, which materialised the entire decompressed image to
+                    //disk; every mainstream format - gz, bzip2, zstd, xz - now has a real index, so
+                    //the extraction subsystem and libTrainCompress are gone.)
+                    Log.Warning($"{StreamName} uses {CompressionInUse} compression, which has no random-access index. Serving via restart-based seeking; this can be slow for large images.");
 
-                    var cacheFolder = GetWholeFileCacheFolder();
-                    var cachedFilename = Path.Combine(cacheFolder, "cache.train");
-
-                    var compressors = new List<libTrainCompress.Compressors.Compressor>()
+                    uncompressedStream = new SeekableStreamUsingRestarts(() =>
                     {
-                        new zstdCompressor()
-                    };
-
-                    //check if we've already cached the file
-                    if (File.Exists(cachedFilename))
-                    {
-                        Log.Information($"Using cached file: {cachedFilename}");
-                    }
-                    else
-                    {
-                        //if (Utility.ConsoleConfirm("Would you like to extract it now?"))
-                        if (true)
-                        {
-                            Log.Information($"Creating cache file: {cachedFilename}");
-
-                            var decompressedStream = Decompressor.GetSequentialStream();
-
-                            var wipFilename = Path.ChangeExtension(cachedFilename, ".wip");
-                            if (File.Exists(wipFilename))
-                            {
-                                File.Delete(wipFilename);
-                            }
-
-                            //The following slowed gz processing from 91 mins to 114 mins for LargeDriveImages.Gz()
-
-                            /*
-                            using (var wipStream = File.Create(wipFilename))
-                            {
-                                using var sparseAwareReader = new SparseAwareReader(decompressedStream);
-                                using var trainCompressor = new TrainCompressor(wipStream, compressors, 10 * 1024 * 1024);
-
-                                var totalUncompressedBytes = 0L;
-                                var sequenceOfEmptyBytes = 0L;
-
-                                while (true)
-                                {
-                                    var read = sparseAwareReader.CopyTo(trainCompressor, Buffers.ARBITRARY_LARGE_SIZE_BUFFER, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
-                                    if (read == 0)
-                                    {
-                                        break;
-                                    }
-
-                                    totalUncompressedBytes += read;
-
-                                    var percentThroughCompressedSource = (double)CompressedStream.Position / CompressedStream.Length * 100;
-                                    Log.Information($"{StreamName} Cached {totalUncompressedBytes.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
-
-                                    //disabled for now, because it's hard to know where the trailing nulls start
-                                    if (!ProcessTrailingNulls && percentThroughCompressedSource > 90 && false)
-                                    {
-                                        if (sparseAwareReader.LatestReadWasAllNull)
-                                        {
-                                            sequenceOfEmptyBytes += read;
-                                        }
-                                        else
-                                        {
-                                            sequenceOfEmptyBytes = 0;
-                                        }
-
-                                        if (sequenceOfEmptyBytes > 4L * 1024 * 1024 * 1024)
-                                        {
-                                            Log.Warning($"{StreamName} The end of this stream has more than 4GB of empty bytes. Assuming the rest of the file is empty.");
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            */
-
-                            using (var wipStream = File.Create(wipFilename))
-                            {
-                                using var trainCompressor = new TrainCompressor(wipStream, compressors, 10 * 1024 * 1024);
-                                decompressedStream.CopyTo(trainCompressor, Buffers.ARBITRARY_LARGE_SIZE_BUFFER, progress =>
-                                {
-                                    try
-                                    {
-                                        var perThroughCompressedSource = (double)CompressedStream.Position / CompressedStream.Length * 100;
-
-                                        Log.Information($"{StreamName} Cached {progress.TotalRead.BytesToString()}. ({perThroughCompressedSource:N0}% through source file)");
-                                    }
-                                    catch
-                                    {
-                                        //just in case the Close() call below causes the percentage calculation to fail
-                                    }
-                                });
-                            }
-
-                            File.Move(wipFilename, cachedFilename);
-
-                            Log.Information($"Successfully cached to: {cachedFilename}");
-
-                            var metadataJson = JObject.FromObject(new
-                            {
-                                CacheInfo = new
-                                {
-                                    OriginalLocation = OriginFilename,
-                                    StreamName
-                                }
-                            }).ToString();
-
-                            var metadataFilename = Path.Combine(cacheFolder, "metadata.json");
-                            File.WriteAllText(metadataFilename, metadataJson);
-                        }
-                        else
-                        {
-                            /*
-                            Console.WriteLine("Exiting...");
-                            Environment.Exit(1);
-                            */
-                        }
-                    }
-
-                    var cachedTrain = File.OpenRead(cachedFilename);
-                    uncompressedStream = new TrainDecompressor(cachedTrain, compressors);
+                        var sequentialStream = Decompressor.GetSequentialStream();
+                        return sequentialStream;
+                    }, UncompressedLength);
 
                     addCacheLayer = true;
                 }
@@ -297,7 +186,7 @@ namespace libClonezilla.Decompressors
         /// <summary>
         /// Identity folder for a whole (unnamed) stream without reading all of it: MD5 of the first
         /// 50 MB of DECOMPRESSED content, salted with the stream name and compressed length. This is
-        /// the exact key the extraction cache has always used, so existing cache folders stay valid;
+        /// the exact key the old extraction cache used, so existing index-cache folders stay valid;
         /// the gz/zstd index files synthesized for cache-less flows land in the same folder.
         /// </summary>
         string GetWholeFileCacheFolder()

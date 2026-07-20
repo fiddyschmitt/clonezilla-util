@@ -31,7 +31,6 @@
   <ItemGroup>
     <ProjectReference Include="..\libCommon\libCommon.csproj" />
     <ProjectReference Include="..\libPartclone\libPartclone.csproj" />
-    <ProjectReference Include="..\libTrainCompress\libTrainCompress.csproj" />
   </ItemGroup>
 
 </Project>
