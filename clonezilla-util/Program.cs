@@ -169,8 +169,9 @@ namespace clonezilla_util
 
             var vfs = new Lazy<IVFS>(() =>
             {
-                var mountPoint = libDokan.Utility.GetAvailableDriveLetter();
-                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint, allowMountPointFallback: true);
+                //null mount point = OnDemandVFS picks a free letter at mount time, minimising the
+                //choose-vs-mount window in which another process can take the same letter
+                var result = new OnDemandVFS(PROGRAM_NAME, null, allowMountPointFallback: true);
                 return result;
             });
 
@@ -258,9 +259,9 @@ namespace clonezilla_util
         {
             if (mountAsImageOptions.InputPaths == null) throw new Exception($"{nameof(mountAsImageOptions.InputPaths)} not specified.");
 
-            //only an auto-chosen drive letter may silently fall back to another; a user-chosen one must not
+            //only an auto-chosen drive letter may silently fall back to another; a user-chosen one must not.
+            //A null mount point stays null: OnDemandVFS picks a free letter at mount time.
             var mountPointWasAutoSelected = mountAsImageOptions.MountPoint == null;
-            mountAsImageOptions.MountPoint ??= libDokan.Utility.GetAvailableDriveLetter();
 
             var mountPoint = mountAsImageOptions.MountPoint;
             var vfs = new Lazy<IVFS>(() =>
@@ -292,9 +293,9 @@ namespace clonezilla_util
         {
             if (mountAsFilesOptions.InputPaths == null) throw new Exception($"{nameof(mountAsFilesOptions.InputPaths)} not specified.");
 
-            //only an auto-chosen drive letter may silently fall back to another; a user-chosen one must not
+            //only an auto-chosen drive letter may silently fall back to another; a user-chosen one must not.
+            //A null mount point stays null: OnDemandVFS picks a free letter at mount time.
             var mountPointWasAutoSelected = mountAsFilesOptions.MountPoint == null;
-            mountAsFilesOptions.MountPoint ??= libDokan.Utility.GetAvailableDriveLetter();
 
             var mountPoint = mountAsFilesOptions.MountPoint;
             var vfs = new Lazy<IVFS>(() =>
@@ -335,8 +336,9 @@ namespace clonezilla_util
 
             var vfs = new Lazy<IVFS>(() =>
             {
-                var mountPoint = libDokan.Utility.GetAvailableDriveLetter();
-                var result = new OnDemandVFS(PROGRAM_NAME, mountPoint, allowMountPointFallback: true);
+                //null mount point = OnDemandVFS picks a free letter at mount time, minimising the
+                //choose-vs-mount window in which another process can take the same letter
+                var result = new OnDemandVFS(PROGRAM_NAME, null, allowMountPointFallback: true);
                 return result;
             });
 

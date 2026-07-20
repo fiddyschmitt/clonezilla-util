@@ -22,10 +22,10 @@ namespace libClonezilla.VFS
     {
         const int MaxMountAttempts = 3;
 
-        public OnDemandVFS(string programName, string mountPoint, bool allowMountPointFallback = false)
+        public OnDemandVFS(string programName, string? mountPoint, bool allowMountPointFallback = false)
         {
             ProgramName = programName;
-            MountPoint = mountPoint;
+            MountPoint = mountPoint;    //null = auto-select a drive letter at mount time
             AllowMountPointFallback = allowMountPointFallback;
 
             try
@@ -43,7 +43,12 @@ namespace libClonezilla.VFS
             //requesting the root will trigger the Virtual File System to be created
             RootFolder = new Lazy<RootFolder>(() =>
             {
-                var candidateMountPoint = MountPoint;
+                //An auto letter is chosen HERE, at mount time - not at construction time. The gap
+                //between choosing a letter and mounting it is where another process can pick (or be
+                //granted) the same letter; under heavy load that gap used to stretch to minutes and
+                //two clonezilla-util processes collided on one letter (2026-07-17, Investigation I2
+                //in PERFORMANCE_PLAN.md).
+                var candidateMountPoint = MountPoint ?? libDokan.Utility.GetAvailableDriveLetter();
                 var triedMountPoints = new List<string>();
 
                 for (var attempt = 1; ; attempt++)
@@ -105,6 +110,30 @@ namespace libClonezilla.VFS
         /// </summary>
         RootFolder? TryMount(string mountPoint, out string failureReason)
         {
+            //If a live volume currently answers at this letter, it belongs to someone - possibly
+            //another clonezilla-util mid-serve. Never RemoveMountPoint it: that destroys the other
+            //process's mount out from under its open handles (2026-07-17: a slow ListContents
+            //process did exactly this to the suite's L: mount mid-copy - Investigation I2). Report
+            //the letter as unavailable instead; the caller retries elsewhere or fails fast.
+            var probeRoot = mountPoint.TrimEnd('\\') + "\\";
+            if (Directory.Exists(probeRoot))
+            {
+                failureReason = "a live volume already answers at this mount point; refusing to displace it";
+                return null;
+            }
+
+            //The letter is not answering, but a dead Dokan mount entry can still be registered there
+            //(e.g. its owner died without unmounting), which makes our Mount() fail. Clearing a dead
+            //entry harms nobody - this is the ONLY case where RemoveMountPoint is used. A live
+            //volume can still appear between the check above and the mount below; the sentinel
+            //probe at the end catches that (we'd be the squatter, and our sentinel wouldn't serve).
+            try
+            {
+                using var dokan = new Dokan(new NullLogger());
+                dokan.RemoveMountPoint(mountPoint);
+            }
+            catch { }
+
             var root = new RootFolder(mountPoint);
 
             //unlisted: reachable by exact path but absent from directory listings
@@ -119,15 +148,6 @@ namespace libClonezilla.VFS
 
             Task.Factory.StartNew(() =>
             {
-                try
-                {
-                    //This seems to prevent the Mount() method from having issues with previous instances of Dokan.
-                    //(Only affects Dokan mounts, so a foreign squatter like rclone is not touched by this.)
-                    using var dokan = new Dokan(new NullLogger());
-                    dokan.RemoveMountPoint(mountPoint);
-                }
-                catch { }
-
                 try
                 {
                     //vfs.Mount(root.MountPoint, DokanOptions.WriteProtection, 256, new DokanNet.Logging.NullLogger());
