@@ -27,6 +27,9 @@
          publish, so consume it as a package like ZstdSeekable. Switch to the official nuget.org
          version once XzSeekable is published there. -->
     <PackageReference Include="XzSeekable" Version="0.1.0-local2" />
+    <!-- TEMP: locally-packed GzipSeekable (zran checkpoint index; replaces gztool + libGZip);
+         local feed in ..\nuget.config. Switch to the official nuget.org version once published. -->
+    <PackageReference Include="GzipSeekable" Version="0.1.0-local3" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,7 +37,6 @@
     <ProjectReference Include="..\libBzip2\libBzip2.csproj" />
     <ProjectReference Include="..\libCommon\libCommon.csproj" />
     <ProjectReference Include="..\libDokan\libDokan.csproj" />
-    <ProjectReference Include="..\libGZip\libGZip.csproj" />
     <ProjectReference Include="..\libPartclone\libPartclone.csproj" />
   </ItemGroup>
 

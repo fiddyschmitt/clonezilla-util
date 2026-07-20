@@ -12,7 +12,7 @@ namespace libClonezilla.Cache
 {
     public interface IPartitionCache
     {
-        public string GetGztoolIndexFilename();
+        public string GetGzipIndexFilename();
         public string GetBZip2IndexFilename();
         public string GetZstdIndexFilename();
         public string GetXzIndexFilename();

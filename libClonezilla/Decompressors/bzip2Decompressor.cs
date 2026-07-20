@@ -1,7 +1,6 @@
 ﻿using libBzip2;
 using libClonezilla.Cache;
 using libCommon;
-using libGZip;
 using Serilog;
 using SharpCompress.Compressors.BZip2;
 using System;

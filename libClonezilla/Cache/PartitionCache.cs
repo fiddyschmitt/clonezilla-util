@@ -30,9 +30,11 @@ namespace libClonezilla.Cache
             FileListFilename = Path.Combine(ClonezillaCacheFolder, $"{partitionName}.Files.json");
         }
 
-        public string GetGztoolIndexFilename()
+        public string GetGzipIndexFilename()
         {
-            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.gztool_index.gzi");
+            //GzipSeekable zran checkpoint index. (The old gztool-era "{name}.gztool_index.gzi"
+            //files are dead weight since gztool was decommissioned - a cache clear removes them.)
+            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.gzip_index.gzsi");
             return result;
         }
 

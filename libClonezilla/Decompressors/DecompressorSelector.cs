@@ -200,8 +200,8 @@ namespace libClonezilla.Decompressors
             var cacheFolder = Path.Combine(WholeFileCacheManager.RootCacheFolder, md5);
             Directory.CreateDirectory(cacheFolder);
 
-            //hashing consumed part of the compressed stream; downstream consumers (e.g. the gzip
-            //index build, which pipes the stream to gztool from its CURRENT position) must start at 0
+            //hashing consumed part of the compressed stream; downstream consumers expect to
+            //start at 0
             CompressedStream.Seek(0, SeekOrigin.Begin);
 
             return cacheFolder;
