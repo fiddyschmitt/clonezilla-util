@@ -10,6 +10,13 @@ namespace lib7Zip
     {
         public string Path;
 
+        //for System.Text.Json (fields are populated via IncludeFields)
+        [System.Text.Json.Serialization.JsonConstructor]
+        public ArchiveEntry()
+        {
+            Path = "";
+        }
+
         public ArchiveEntry(string path)
         {
             Path = path;

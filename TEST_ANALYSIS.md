@@ -9,7 +9,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | # | Test | Cold | Warm | Analysed | Verdict |
 |---|------|------|------|----------|---------|
 | 1 | ListContents.LargeClonezillaPartitions.Bzip2 | 17.2 min | 3.2 min | 2026-07-21 | **FIXED: SharedStream gate contention** — warm 150→109 s (−27%) |
-| 2 | ListContents.LargeClonezillaPartitions.Gz | 10.9 min | 1.1 min | | |
+| 2 | ListContents.LargeClonezillaPartitions.Gz | 10.9 min | 1.1 min | 2026-07-21 | **FIXED ×3**: serving-decision cache; STJ file lists (also killed the cold GC storm). Warm 40→20 s; listing phase → 18 s |
 | 3 | ListContents.LargeClonezillaPartitions.Xz | 27 min | 3.1 min | | |
 | 4 | ListContents.LargeClonezillaPartitions.Zst | 5.2 min | 1.3 min | | |
 | 5 | ListContents.LargeDriveImages.Bzip2 | 14.5 min | 2.2 min | | |
@@ -108,3 +108,38 @@ instead of contending). `GC.RunFinalizers` also left the top-10. Expect the othe
 tests (#5, #11, #15, #22, #26, #45, #52) to benefit on the next suite run.
 New secondary observation: `Utilities.GetMemoryPressure()` at 2.8% exclusive — small, but a
 polling cost worth a look when we profile a mount test.
+
+### 2. ListContents.LargeClonezillaPartitions.Gz  (cold 619 s + warm 40 s, private cache)
+
+**Cold (619 s; suite 654):** the expected work is there — file IO reads 20.8% excl, vendored
+`Inflater.DecodeHuffman` 15%, memmove 7.3%, `Crc32.Update` 3.1% (slicing-by-8 visible) — but the
+single biggest consumer is **GC infrastructure: ArrayPool TLS-bucket trimming 28.7% exclusive +
+`GC.RunFinalizers` 19.8% exclusive (48.5% inclusive)**. Absent from the warm leg, so it belongs to
+the cold-only phases: the REAL 7z listing of 721k files (warm reads Files.json instead) and/or the
+index build's allocation pattern. **Lead L1 (potentially large, affects EVERY cold listing test):
+run an allocation trace / gcdump of the cold listing phase to find what mass-produces finalizable
+objects and pool churn.** Suspects: per-entry objects in the 7z list parse, per-window
+DeflateStream/SafeHandle churn in the index build.
+
+**Warm (40 s; suite 66):** ~20 s is the two 10-second seekable-vs-sequential perf tests (fixed
+cost per partition per open); most of the rest is **Newtonsoft deserialization of the 278 MB
+Files.json** — `String/span.Trim` alone is 25% of samples (721k ArchiveEntry parses; DateTime
+parsing trims internally), plus the JSON's own file IO. Leads:
+- **L2: persist the perf-test verdict** per stream in the cache — saves a fixed 10 s per
+  partition on every warm open, across the entire suite (dozens of tests).
+- **L3: replace the Files.json format** (System.Text.Json source-gen, or a compact binary list) —
+  the 278 MB parse costs ~20-25 s per 721k-file partition on every open, warm or cold.
+
+**All three leads RESOLVED (2026-07-21):**
+- L2: `{name}.serving_decision.txt` in the partition cache (whole-file cache folder for drive
+  images); a cache clear re-evaluates. Second-open probes eliminated.
+- L3: file lists read/written with System.Text.Json directly on the UTF-8 stream (IncludeFields,
+  parameterless [JsonConstructor] on ArchiveEntry). Old Newtonsoft-written caches load unchanged
+  (verified on the real 278 MB file, identical 722,134-line listing); new files are compact
+  (237 MB vs 278) and write without materialising a 556 MB string.
+- L1: resolved BY L3 — the re-listing phase re-profiled clean (GC.RunFinalizers 48.5%→4.5% incl,
+  ArrayPool trimming gone from top-12) and collapsed to **18 s**. The storm was the old indented
+  Newtonsoft serialize churning the LOH on every cold listing.
+- Net test #2 warm: 40 s → **20 s** (suite had 66 s); remaining floor ≈ STJ parse of 237 MB
+  (~10 s) + IO/print. A binary list format could cut further - diminishing returns, revisit only
+  if list-load shows up again.
