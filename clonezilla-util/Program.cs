@@ -205,23 +205,45 @@ namespace clonezilla_util
 
                             Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
-                            var partitionStream = mountedPartition.Partition.FullPartitionImage
-                                ?? throw new Exception($"[{container.ContainerName}] [{partitionName}] {nameof(mountedPartition.Partition.FullPartitionImage)} is not initialised.");
-                            var sharedPartitionStream = new SharedStream(partitionStream);
-
-                            // Listing only enumerates - one worker is enough (mounting uses several for
-                            // concurrent reads). Dispose it once we've listed; it's not needed after.
+                            // With a warm cache, listing needs no extractor at all: opening the native
+                            // 7z workers makes 7z scan the filesystem through the compressed stream,
+                            // which cost warm xz listings ~100 s for nothing (TEST_ANALYSIS.md #3).
+                            // Only a cache miss constructs one (to enumerate; disposed straight after).
                             IExtractor? extractor = null;
                             try
                             {
-                                extractor = DetermineExtractor.FindExtractor(
-                                    sharedPartitionStream.CreateView,
-                                    DetermineExtractor.ListingWorkerCount);
-
-                                if (extractor is IFileListProvider fileListProvider)
+                                List<ArchiveEntry> filesInArchive;
+                                var cachedList = mountedPartition.Partition.PartitionCache?.GetFileList();
+                                if (cachedList != null)
                                 {
-                                    var filesInArchive = mountedPartition.GetFilesInPartition(fileListProvider).ToList();
+                                    filesInArchive = cachedList
+                                        .Where(entry => !Path.GetFileName(entry.Path).Equals("desktop.ini", StringComparison.OrdinalIgnoreCase))
+                                        .ToList();
+                                }
+                                else
+                                {
+                                    var partitionStream = mountedPartition.Partition.FullPartitionImage
+                                        ?? throw new Exception($"[{container.ContainerName}] [{partitionName}] {nameof(mountedPartition.Partition.FullPartitionImage)} is not initialised.");
+                                    var sharedPartitionStream = new SharedStream(partitionStream);
 
+                                    // Listing only enumerates - one worker is enough (mounting uses several for
+                                    // concurrent reads).
+                                    extractor = DetermineExtractor.FindExtractor(
+                                        sharedPartitionStream.CreateView,
+                                        DetermineExtractor.ListingWorkerCount);
+
+                                    if (extractor is IFileListProvider fileListProvider)
+                                    {
+                                        filesInArchive = mountedPartition.GetFilesInPartition(fileListProvider).ToList();
+                                    }
+                                    else
+                                    {
+                                        Log.Error($"[{container.ContainerName}] [{partitionName}] Could not find a suitable extractor for this partition. Returning empty file list.");
+                                        filesInArchive = [];
+                                    }
+                                }
+
+                                {
                                     foreach (var archiveEntry in filesInArchive)
                                     {
                                         var filenameIncludingPartition = Path.Combine(container.ContainerName, partitionName, archiveEntry.Path);
@@ -236,10 +258,6 @@ namespace clonezilla_util
                                             Console.Write(listContentsOptions.OutputSeparator);
                                         }
                                     }
-                                }
-                                else
-                                {
-                                    Log.Error($"[{container.ContainerName}] [{partitionName}] Could not find a suitable extractor for this partition. Returning empty file list.");
                                 }
                             }
                             catch (NotAnArchiveException)

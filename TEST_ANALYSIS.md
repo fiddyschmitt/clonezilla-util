@@ -10,7 +10,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 |---|------|------|------|----------|---------|
 | 1 | ListContents.LargeClonezillaPartitions.Bzip2 | 17.2 min | 3.2 min | 2026-07-21 | **FIXED: SharedStream gate contention** — warm 150→109 s (−27%) |
 | 2 | ListContents.LargeClonezillaPartitions.Gz | 10.9 min | 1.1 min | 2026-07-21 | **FIXED ×3**: serving-decision cache; STJ file lists (also killed the cold GC storm). Warm 40→20 s; listing phase → 18 s |
-| 3 | ListContents.LargeClonezillaPartitions.Xz | 27 min | 3.1 min | | |
+| 3 | ListContents.LargeClonezillaPartitions.Xz | 27 min | 3.1 min | 2026-07-21 | **FIXED (L4)**: listing skips extractor opens on cache hit — warm 102→14 s (7×) |
 | 4 | ListContents.LargeClonezillaPartitions.Zst | 5.2 min | 1.3 min | | |
 | 5 | ListContents.LargeDriveImages.Bzip2 | 14.5 min | 2.2 min | | |
 | 6 | ListContents.LargeDriveImages.Gz | 58.3 min | 1 min | | |
@@ -143,3 +143,36 @@ parsing trims internally), plus the JSON's own file IO. Leads:
 - Net test #2 warm: 40 s → **20 s** (suite had 66 s); remaining floor ≈ STJ parse of 237 MB
   (~10 s) + IO/print. A binary list format could cut further - diminishing returns, revisit only
   if list-load shows up again.
+
+### 3. ListContents.LargeClonezillaPartitions.Xz  (cold 1621 s + warm 102 s, private cache)
+
+**Cold (1621 s; suite 1620):** honest LZMA2 work — `XzSeekable...Decoder.Code` 32% exclusive; the
+single-block checkpoint build is inherently serial. No fixable decode-side finding.
+
+**Warm (102 s; suite 186, already halved by L2+L3): ~100 s is `SevenZipNativeArchive..ctor` via
+`NativeExtractorPool`** — the pool opens ALL native-7z workers up front
+(`MountedPartitionImage.cs:88`) BEFORE the file-list cache is even consulted (`:126`), and each
+open makes 7z scan NTFS structures through the compressed stream. With xz's 32 MiB spans every
+scattered read decodes ~16 MiB average from a checkpoint — hence xz warm (102 s) ≫ gz warm (20 s).
+A pure listing never reads content, so on a warm cache this work buys nothing. The eager open is
+deliberate (D3-era: never open lazily inside a Dokan callback) - the fix must respect that.
+Corollaries: the `DynamicResolver+DestroyScout.Finalize` storm (30% of warm samples) and the
+residual cold finalizer/Trim entries live under these native opens (COM marshaling churn), and
+test #1's warm decode was largely the same open scans - fixing L4 improves the bzip2/zst/gz
+listings too.
+
+**Lead L4 (big; all 19 warm ListContents tests + faster mounts-with-cache):** construct the
+extractor lazily (`Lazy<IExtractor>` wired into the FileEntry factories); short-circuit the file
+list from cache BEFORE touching it; mount flows force the Lazy during mount population so nothing
+opens inside a Dokan callback (invariant preserved). Expected: warm xz listing 102 → ~15 s.
+
+**Considered and rejected: denser xz spans (L5).** 32 MiB spans make cold random reads expensive,
+but sda2's `.xzi` is already 2.6 GB (inline windows); halving the span doubles the index. L4
+removes the listing-path pain; mounts pay the decode only on first real content access.
+
+**L4 RESOLVED (2026-07-21), scoped to the listing flow only** (the mount flow's eager-open Dokan
+invariant is untouched): `Program.ListContents` now consults the cached file list BEFORE
+constructing any extractor; only a cache miss opens one (and disposes it after enumerating).
+Retest: warm xz listing **102 s → 14 s** (9 s page-warm), identical 722,134 lines; cache-miss
+branch verified (deleted one partition's list → re-listed via extractor, cache regenerated).
+Every warm ListContents test benefits; the DestroyScout/COM-churn storm goes with it.
