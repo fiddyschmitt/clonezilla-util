@@ -670,6 +670,16 @@ tag v0.1.0). clonezilla-util now references all three seekable packages official
 and the `local-nuget` feed are deleted — the last temporary plumbing from the SharpCompress-patch
 era is gone. The `.gzsi` files built by the -local packs stay valid (same GZSKIDX1 format).
 
+**CONFIRMED by the 07-20→21 suite pair (all-official packages + optimized GzipSeekable):
+cold 71/71 = 336.8 min — the best cold total ever recorded — and warm 71/71 = 88.7 min.**
+`ListContents.LargeDriveImages.Gz` landed at **58.3 min cold** (was 266.5 unoptimized, 110-148 in
+the gztool era) and `LargeClonezillaPartitions.Gz` at 10.9 (beating gztool-era 11.3); warm gz all
+≈1 min (parity). The rest of the −420 vs 07-19 is the machine having a good night: dd 264.5→112.4
+(best ever; identical code both runs — the strongest datapoint yet that the environmental swing,
+not code, drives run-to-run variance), bzip2 drive 27.4→14.5, Ubuntu 18.2→10. Warm Sparse 23.1 is
+the one elevated outlier (daytime tail). The Defender-exclusion/power-plan experiment remains the
+open environmental lead.
+
 **Implemented option 1: in-process zran reads using gztool's existing index.** gztool remains the
 index *builder* (unchanged, reliable); the per-read `gztool.exe` subprocess is gone. Design:
 

@@ -11,8 +11,8 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 1 | ListContents.LargeClonezillaPartitions.Bzip2 | 17.2 min | 3.2 min | 2026-07-21 | **FIXED: SharedStream gate contention** — warm 150→109 s (−27%) |
 | 2 | ListContents.LargeClonezillaPartitions.Gz | 10.9 min | 1.1 min | 2026-07-21 | **FIXED ×3**: serving-decision cache; STJ file lists (also killed the cold GC storm). Warm 40→20 s; listing phase → 18 s |
 | 3 | ListContents.LargeClonezillaPartitions.Xz | 27 min | 3.1 min | 2026-07-21 | **FIXED (L4)**: listing skips extractor opens on cache hit — warm 102→14 s (7×) |
-| 4 | ListContents.LargeClonezillaPartitions.Zst | 5.2 min | 1.3 min | | |
-| 5 | ListContents.LargeDriveImages.Bzip2 | 14.5 min | 2.2 min | | |
+| 4 | ListContents.LargeClonezillaPartitions.Zst | 5.2 min | 1.3 min | 2026-07-21 | **Clean — no action.** Cold 304 s IO-bound (59.5% raw file reads); warm 78→7 s (11×) from the accumulated #1–#3 fixes, no zst-specific work needed |
+| 5 | ListContents.LargeDriveImages.Bzip2 | 14.5 min | 2.2 min | 2026-07-21 | Cold clean (Release 900 s ≈ suite 870 s; Debug-config artifact explained the scare). Warm 75 s still decodes bzip2 — **Lead L6**: drive-image partitions get null PartitionCache |
 | 6 | ListContents.LargeDriveImages.Gz | 58.3 min | 1 min | | |
 | 7 | ListContents.LargeDriveImages.Raw | 41.2 sec | 39.3 sec | | |
 | 8 | ListContents.LargeDriveImages.Xz | 3.9 min | 4 min | | |
@@ -81,6 +81,12 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 71 | Sparse.SparseTests.ExtractAndSparsifyFile | 13.6 min | 23.1 min | | |
 
 ## Findings
+
+**Methodology note (2026-07-21, discovered during #5):** tests 1-4 were profiled against the
+DEBUG build. Before/after improvements (same config both sides) stand, and package-code-dominated
+results (Xz/Zstd cold ≈ suite) are unaffected because NuGet package code is Release regardless -
+but absolute comparisons to suite numbers skew wherever REPO code dominates (bzip2's
+BZip2BlockFinder). From #5 onward the campaign profiles the Release build.
 
 ### 1. ListContents.LargeClonezillaPartitions.Bzip2  (warm, 150 s run, dotnet-trace cpu+thread-time)
 
@@ -176,3 +182,39 @@ constructing any extractor; only a cache miss opens one (and disposes it after e
 Retest: warm xz listing **102 s → 14 s** (9 s page-warm), identical 722,134 lines; cache-miss
 branch verified (deleted one partition's list → re-listed via extractor, cache regenerated).
 Every warm ListContents test benefits; the DestroyScout/COM-churn storm goes with it.
+
+### 4. ListContents.LargeClonezillaPartitions.Zst  (cold 304 s + warm 7 s, private cache)
+
+First clean sweep — no new findings; the #1–#3 fix set fully generalizes.
+
+**Cold (304 s; suite 312): IO-bound, no action.** 59.5% of samples are raw file reads — the build
+ingests 19.9 GB from E: faster than zstd can be made to matter (ZstdSharp decode only ~12%,
+window re-compression 2%). The disk is the ceiling, not the code.
+
+**Warm (7 s; suite 78 — 11×):** the profile is console output (`StreamWriter.Flush` 23%,
+printing 722k lines), waits, and GC polling. Effectively optimal. Nothing zst-specific was
+touched: the decision cache, STJ lists and lazy extractor are format-agnostic.
+
+### 5. ListContents.LargeDriveImages.Bzip2  (Release cold 900 s + warm 75 s, private cache)
+
+The test that exposed the Debug/Release methodology error. Sequence of evidence:
+- Debug traced cold: 1630 s (43% `SemaphoreSlim.WaitCore` — Batch 8c pipeline consumers starved).
+- Debug untraced cold: 1472 s (so trace overhead ~10%, not the cause).
+- **Release untraced cold: 900 s ≈ suite 870 s.** The 2× was the Debug build: the pipeline's
+  producer (`BZip2BlockFinder`, repo code) runs unoptimized in Debug, while consumers (SharpCompress
+  decode, NuGet = always Release) idle behind it. Yesterday's SharedStream/Bzip2StreamSeekable
+  commit (0187f88) is exonerated; cold is honest work — no action.
+
+**Warm (75 s):** unlike the partition tests, warm drive-image listing still spends its time in
+real bzip2 decode + NTFS scan. Root cause: **drive-image partitions are constructed with a null
+`PartitionCache`** (`RawDriveImage.cs:100`, `RawPartitionImage.cs:20`) — so no `Files.json`, no
+serving decision, and the L4 cache-first short-circuit never applies. The whole-file synthesized
+cache folder (keyed on MD5 of first 50 MB decompressed) already exists at the DecompressorSelector
+level; it just isn't threaded down to the partitions.
+
+**Lead L6 (affects all 8 drive-image listing tests, warm):** expose the synthesized cache folder
+from `DecompressorSelector`, thread it through `CompressedImage` → `RawImage` →
+`RawDriveImage`/`RawPartitionImage` so drive-image partitions get real `PartitionCache` instances.
+File lists, serving decisions and L4 then apply to all four compressed drive-image formats.
+Same umbrella: `RawImage.EnumerateTopLevel` re-scans the partition table via native 7z on every
+construction — cacheable in the same folder.
