@@ -20,11 +20,16 @@ namespace libBzip2
 
         readonly byte[] FileHeader = new byte[4];
 
+        //invariant for a read-only source; hoisted so the parallel block decoders never touch the
+        //shared view's Length in their hot path
+        readonly long compressedLength;
+
         public Bzip2StreamSeekable(Stream compressedInputStream, string? indexFilename, bool processTrailingNulls)
         {
             CompressedInputStream = compressedInputStream;
             sharedSource = new SharedStream(compressedInputStream);
             ProcessTrailingNulls = processTrailingNulls;
+            compressedLength = compressedInputStream.Length;
 
             compressedInputStream.Seek(0, SeekOrigin.Begin);
             FileHeader = new byte[4];
@@ -212,7 +217,7 @@ namespace libBzip2
         int DecodeBlock(Mapping block, long skipBytes, byte[] buffer, int offset, int count)
         {
             var sourceView = sharedSource.CreateView();
-            var (startBit, endBit) = BlockBitRange(block, sourceView.Length);
+            var (startBit, endBit) = BlockBitRange(block, compressedLength);
             var standalone = BuildStandaloneBlockBytes(sourceView, startBit, endBit);
 
             var decompressor = BZip2Stream.Create(new MemoryStream(standalone), SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);

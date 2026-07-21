@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 
 namespace libCommon.Streams
 {
@@ -12,38 +13,58 @@ namespace libCommon.Streams
     /// the view class - the sharing contract is correct by construction.
     /// (Replaces the old IndependentStream pattern, where every call site had to know the shared
     /// lock object and wrapper class; also drops the redundant Stream.Synchronized layer it carried -
-    /// the gate already serialises every touch of the base stream, including Length.)
+    /// the gate already serialises every touch of the base stream.)
+    /// The base stream's length is read once and cached: shared sources here are read-only
+    /// (compressed input files), so Length is invariant - and an uncached Length was both a gate
+    /// acquisition and a file-size syscall per call, which parallel block decoders turned into
+    /// measurable lock contention (18% of samples on the warm bzip2 listing profile, 2026-07-21).
     /// </summary>
     public sealed class SharedStream(Stream baseStream)
     {
+        readonly Stream baseStream = baseStream;
         readonly object gate = new();
+        long cachedLength = -1;
 
         /// <summary>An independent read cursor over the shared base stream.</summary>
-        public Stream CreateView() => new SharedStreamView(baseStream, gate);
+        public Stream CreateView() => new SharedStreamView(this);
+
+        long Length
+        {
+            get
+            {
+                var cached = Volatile.Read(ref cachedLength);
+                if (cached < 0)
+                {
+                    lock (gate)
+                    {
+                        cached = baseStream.Length;
+                    }
+                    Volatile.Write(ref cachedLength, cached);
+                }
+                return cached;
+            }
+        }
 
         /// <summary>
         /// A read-only cursor over the shared stream. The base stream's position is set and used
         /// only inside the shared gate, so any number of sibling views can read concurrently.
         /// </summary>
-        sealed class SharedStreamView(Stream source, object gate) : Stream
+        sealed class SharedStreamView(SharedStream owner) : Stream
         {
             long position;
 
             public override int Read(byte[] buffer, int offset, int count)
             {
-                lock (gate)
+                lock (owner.gate)
                 {
-                    source.Position = position;
-                    var read = source.Read(buffer, offset, count);
+                    owner.baseStream.Position = position;
+                    var read = owner.baseStream.Read(buffer, offset, count);
                     position += read;
                     return read;
                 }
             }
 
-            public override long Length
-            {
-                get { lock (gate) return source.Length; }
-            }
+            public override long Length => owner.Length;
 
             public override long Position
             {
