@@ -14,6 +14,7 @@ namespace libClonezilla.Cache
     {
         public string GetGzipIndexFilename();
         public string GetBZip2IndexFilename();
+        public string GetServingDecisionFilename();
         public string GetZstdIndexFilename();
         public string GetXzIndexFilename();
         public List<ArchiveEntry>? GetFileList();

@@ -63,14 +63,30 @@ namespace libClonezilla.Cache
 
 
 
+        //System.Text.Json over the raw UTF-8 stream: profiling (TEST_ANALYSIS.md #2) showed the
+        //old Newtonsoft + ReadAllText path spending ~25 s per 721k-file partition on every open
+        //(a 278 MB file materialised as a 556 MB string, then per-entry DateTime parsing).
+        //The JSON shape is unchanged, so caches written by the old code still load; new files are
+        //written compact (no indentation), which also shrinks them substantially.
+        static readonly System.Text.Json.JsonSerializerOptions FileListJsonOptions = new()
+        {
+            IncludeFields = true,
+        };
+
+        public string GetServingDecisionFilename()
+        {
+            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.serving_decision.txt");
+            return result;
+        }
+
         public List<ArchiveEntry>? GetFileList()
         {
             List<ArchiveEntry>? result = null;
 
             if (File.Exists(FileListFilename))
             {
-                string json = File.ReadAllText(FileListFilename);
-                result = JsonConvert.DeserializeObject<List<ArchiveEntry>>(json);
+                using var fs = File.OpenRead(FileListFilename);
+                result = System.Text.Json.JsonSerializer.Deserialize<List<ArchiveEntry>>(fs, FileListJsonOptions);
             }
 
             return result;
@@ -81,13 +97,7 @@ namespace libClonezilla.Cache
             try
             {
                 using var fs = File.Create(FileListFilename);
-                using var sw = new StreamWriter(fs);
-                using var writer = new JsonTextWriter(sw);
-
-                writer.Formatting = Formatting.Indented;
-
-                var serializer = JsonSerializer.CreateDefault();
-                serializer.Serialize(writer, filenames);
+                System.Text.Json.JsonSerializer.Serialize(fs, filenames, FileListJsonOptions);
             }
             catch (Exception ex)
             {

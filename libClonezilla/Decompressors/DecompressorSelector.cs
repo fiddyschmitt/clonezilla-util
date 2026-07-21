@@ -59,44 +59,66 @@ namespace libClonezilla.Decompressors
 
         public override Stream GetSeekableStream()
         {
-            //Do a performance test. If the entire file can be read quickly then let's not bother using any indexing
+            //Do a performance test. If the entire file can be read quickly then let's not bother
+            //using any indexing. The verdict is stable for a given stream on a given machine, so
+            //it is persisted in the cache and reused - reopening a partition used to pay the
+            //10 second probe on every open (TEST_ANALYSIS.md #2). A cache clear re-evaluates.
+            bool useSequential;
+            bool sequentialIsRawFile;
 
-            var testDurationSeconds = 10;
-            Log.Information($"{StreamName} Running a {testDurationSeconds:N0} second performance test to determine the optimal way to serve it.");
-
-            var startTime = DateTime.Now;
-            var testStream = Decompressor.GetSequentialStream();
+            var decisionFilename = GetServingDecisionFilename();
+            var cachedDecision = ReadCachedServingDecision(decisionFilename);
+            if (cachedDecision != null)
             {
-                while (true)
-                {
-                    var bytesRead = 0L;
-
-                    try
-                    {
-                        bytesRead = testStream.CopyTo(Stream.Null, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER, Buffers.ARBITRARY_SMALL_SIZE_BUFFER);
-                    }
-                    catch { }
-                    if (bytesRead == 0) break;
-                    var duration = DateTime.Now - startTime;
-                    if (duration.TotalSeconds > testDurationSeconds) break;
-                }
+                Log.Information($"{StreamName} Using cached serving decision: {(cachedDecision.Value ? "sequential" : "seekable")}.");
+                useSequential = cachedDecision.Value;
+                //the equivalent of the probe's "testStream is FileStream" check, without a probe
+                sequentialIsRawFile = CompressionInUse == Compression.None && CompressedStream is FileStream;
+                CompressedStream.Seek(0, SeekOrigin.Begin);
             }
+            else
+            {
+                var testDurationSeconds = 10;
+                Log.Information($"{StreamName} Running a {testDurationSeconds:N0} second performance test to determine the optimal way to serve it.");
 
-            var progressThroughFile = CompressedStream.Position / (double)CompressedStream.Length;  //the compressed stream is more accurate than the uncompressed stream, for determining how far we got through the stream
-            var testDuration = DateTime.Now - startTime;
-            Log.Debug($"Processed {CompressedStream.Position.BytesToString()} ({progressThroughFile * 100:N1}%) of the compressed data in {testDuration.TotalSeconds:N1} seconds.");
-            var predictedSecondsToReadEntireFile = testDuration.TotalSeconds / progressThroughFile;
-            Log.Debug($"At that rate, it would take {predictedSecondsToReadEntireFile:N1} seconds to read the entire file.");
+                var startTime = DateTime.Now;
+                var testStream = Decompressor.GetSequentialStream();
+                {
+                    while (true)
+                    {
+                        var bytesRead = 0L;
 
-            CompressedStream.Seek(0, SeekOrigin.Begin);
+                        try
+                        {
+                            bytesRead = testStream.CopyTo(Stream.Null, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER, Buffers.ARBITRARY_SMALL_SIZE_BUFFER);
+                        }
+                        catch { }
+                        if (bytesRead == 0) break;
+                        var duration = DateTime.Now - startTime;
+                        if (duration.TotalSeconds > testDurationSeconds) break;
+                    }
+                }
+
+                var progressThroughFile = CompressedStream.Position / (double)CompressedStream.Length;  //the compressed stream is more accurate than the uncompressed stream, for determining how far we got through the stream
+                var testDuration = DateTime.Now - startTime;
+                Log.Debug($"Processed {CompressedStream.Position.BytesToString()} ({progressThroughFile * 100:N1}%) of the compressed data in {testDuration.TotalSeconds:N1} seconds.");
+                var predictedSecondsToReadEntireFile = testDuration.TotalSeconds / progressThroughFile;
+                Log.Debug($"At that rate, it would take {predictedSecondsToReadEntireFile:N1} seconds to read the entire file.");
+
+                CompressedStream.Seek(0, SeekOrigin.Begin);
+
+                useSequential = predictedSecondsToReadEntireFile < 10;
+                sequentialIsRawFile = testStream is FileStream;
+                WriteCachedServingDecision(decisionFilename, useSequential);
+            }
 
             bool addCacheLayer = true;
             Stream uncompressedStream;
-            if (predictedSecondsToReadEntireFile < 10)
+            if (useSequential)
             {
                 Log.Information($"{StreamName} Using a sequential decompressor for this data.");
 
-                if (testStream is FileStream)
+                if (sequentialIsRawFile)
                 {
                     addCacheLayer = false;
                 }
@@ -181,6 +203,63 @@ namespace libClonezilla.Decompressors
             }
 
             return uncompressedStream;
+        }
+
+        /// <summary>Where this stream's persisted serving decision lives: the partition cache when
+        /// one was provided, else the whole-file cache folder (drive images). Null when neither is
+        /// resolvable - the probe then simply runs every time.</summary>
+        string? GetServingDecisionFilename()
+        {
+            try
+            {
+                if (PartitionCache != null)
+                {
+                    return PartitionCache.GetServingDecisionFilename();
+                }
+                return Path.Combine(GetWholeFileCacheFolder(), "serving_decision.txt");
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"{StreamName} No serving-decision cache available ({ex.Message}).");
+                return null;
+            }
+        }
+
+        static bool? ReadCachedServingDecision(string? decisionFilename)
+        {
+            if (decisionFilename == null || !File.Exists(decisionFilename))
+            {
+                return null;
+            }
+            try
+            {
+                return File.ReadAllText(decisionFilename).Trim() switch
+                {
+                    "sequential" => true,
+                    "seekable" => false,
+                    _ => null,   //unknown content: re-evaluate
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        static void WriteCachedServingDecision(string? decisionFilename, bool useSequential)
+        {
+            if (decisionFilename == null)
+            {
+                return;
+            }
+            try
+            {
+                File.WriteAllText(decisionFilename, useSequential ? "sequential" : "seekable");
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"Non-fatal: could not persist the serving decision to {decisionFilename} ({ex.Message}).");
+            }
         }
 
         /// <summary>
