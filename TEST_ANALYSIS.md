@@ -71,14 +71,45 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 61 | Mount.AsImageFiles.ImageFileTests.Partclone | 9.9 sec | 10.8 sec | 2026-07-25 | **Clean** — 8/7 s (1 GiB partial hash, per test definition) |
 | 62 | Mount.AsImageFiles.ImageFileTests.UncompressedPartitionImage_and_gzClonezillaImage | 16.9 sec | 17.3 sec | 2026-07-25 | **Clean** — 16/12 s |
 | 63 | Mount.AsImageFiles.ImageFileTests.Zst | 11.9 sec | 6.1 sec | 2026-07-25 | **Clean** — 10/6 s |
-| 64 | Partclone.PartcloneContentMapTests.EdgePatterns | 813 ms | 856 ms | | |
-| 65 | Partclone.PartcloneContentMapTests.V1_Typical | 78 ms | 35 ms | | |
-| 66 | Partclone.PartcloneContentMapTests.V2_DeviceLargerThanBitmap | 1.2 sec | 940 ms | | |
-| 67 | Partclone.PartcloneContentMapTests.V2_LargeBlocksPerChecksum_RunSpansManyStrips | 54 ms | 38 ms | | |
-| 68 | Partclone.PartcloneContentMapTests.V2_NoChecksum_Typical | 38 ms | 30 ms | | |
-| 69 | Partclone.PartcloneContentMapTests.V2_PartialLastBlock | 32 ms | 28 ms | | |
-| 70 | Partclone.PartcloneContentMapTests.V2_WithChecksum_Typical | 39 ms | 39 ms | | |
-| 71 | Sparse.SparseTests.ExtractAndSparsifyFile | 13.6 min | 23.1 min | | |
+| 64 | Partclone.PartcloneContentMapTests.EdgePatterns | 813 ms | 856 ms | 2026-07-25 | **Trivial** — in-process unit tests; all 7 pass in 3 s total, nothing to optimize |
+| 65 | Partclone.PartcloneContentMapTests.V1_Typical | 78 ms | 35 ms | 2026-07-25 | **Trivial** (see #64) |
+| 66 | Partclone.PartcloneContentMapTests.V2_DeviceLargerThanBitmap | 1.2 sec | 940 ms | 2026-07-25 | **Trivial** (see #64) |
+| 67 | Partclone.PartcloneContentMapTests.V2_LargeBlocksPerChecksum_RunSpansManyStrips | 54 ms | 38 ms | 2026-07-25 | **Trivial** (see #64) |
+| 68 | Partclone.PartcloneContentMapTests.V2_NoChecksum_Typical | 38 ms | 30 ms | 2026-07-25 | **Trivial** (see #64) |
+| 69 | Partclone.PartcloneContentMapTests.V2_PartialLastBlock | 32 ms | 28 ms | 2026-07-25 | **Trivial** (see #64) |
+| 70 | Partclone.PartcloneContentMapTests.V2_WithChecksum_Typical | 39 ms | 39 ms | 2026-07-25 | **Trivial** (see #64) |
+| 71 | Sparse.SparseTests.ExtractAndSparsifyFile | 13.6 min | 23.1 min | 2026-07-25 | **Clean** — 4.5 min both legs (ratio 0.02); identical cold/warm proves the suite's 23.1 warm was environmental. Sequential decode + sparse write; nothing cacheable |
+
+## Campaign complete (2026-07-25)
+
+All 71 tests analysed, cold and warm, with per-test verdicts above. Every measured leg's output
+was verified (listing hashes / file MD5s through the mounts).
+
+**Fixes shipped during the sweep** (each profile-verified, all committed):
+1. SharedStream length caching (#1) — warm bzip2 −27%.
+2. Serving-decision persistence (#2) — −10 s per partition per open.
+3. STJ file lists (#2) — −25 s per large partition, killed the cold GC storm.
+4. L4: cache-first listing, no extractor on hit (#3) — warm xz listing 9×.
+5. L6: drive-image partitions get real caches via the whole-file identity folder (#5) —
+   warm drive listings 3–14×, and every bare-image mount benefits.
+
+**Leads pending approval:**
+- **L7** (#21, designed): persist the uncompressed length in the identity folder — kills 24 s per
+  open of sequential-decision compressed images (ext4_zst's full-33 GB decode-for-length).
+- **L9** (#22, diagnosed): eager native-7z pool opens dominate warm mounts of large compressed
+  images (xz ~280 s, bzip2 ~202 s, zst ~45 s, gz ~8 s; ext4/LVM extractors same family). Fix
+  design (serialize first open to warm CachingStream, or background pool growth) needs
+  NativeExtractorPool + CODE_REVIEW_PLAN DokanVFS reading first.
+- **L10** (#35, diagnosed): bare-partclone mounts rebuild the partclone layer (41 s, map not
+  cached) and pay L9 through a restart-gz stream (94 s); the same image via the clonezilla flow
+  mounts in 25 s.
+- **L8** (parked): serving-decision heuristic ignores random access for huge-decompressed images.
+
+**Protocol notes for interpreting the table:** suite "cold" numbers for Mount tests of large
+images are index-warm (earlier ListContents tests build the indexes); private-cache colds here
+are true from-scratch builds. Absolute numbers carry the documented machine variance; every
+before/after claim used the same config and harness both sides. Tests #1–#4 were profiled on the
+Debug build (see methodology note below); #5 onward used Release.
 
 ## Findings
 
