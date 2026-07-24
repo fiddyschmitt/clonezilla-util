@@ -262,28 +262,30 @@ namespace libClonezilla.Decompressors
             }
         }
 
+        string? wholeFileCacheFolder;
+
         /// <summary>
-        /// Identity folder for a whole (unnamed) stream without reading all of it: MD5 of the first
-        /// 50 MB of DECOMPRESSED content, salted with the stream name and compressed length. This is
-        /// the exact key the old extraction cache used, so existing index-cache folders stay valid;
-        /// the gz/zstd index files synthesized for cache-less flows land in the same folder.
+        /// Identity folder for a whole (unnamed) stream (key math in WholeFileCacheManager); the
+        /// index files and serving decisions synthesized for cache-less flows land in this folder,
+        /// and containers built on this stream (drive images) use it to give their partitions real
+        /// caches. Memoized: computing it decompresses 50 MB, and it is needed more than once per
+        /// open (serving decision + synthesized index cache + container).
         /// </summary>
-        string GetWholeFileCacheFolder()
+        public string GetWholeFileCacheFolder()
         {
+            if (wholeFileCacheFolder != null)
+            {
+                return wholeFileCacheFolder;
+            }
+
             var streamForHashing = Decompressor.GetSequentialStream();
-            var beginningOfFile = new byte[50 * 1024 * 1024];
-            //a single Read() can return fewer bytes than requested (and how many is not deterministic), which would make the cache key vary from run to run
-            streamForHashing.ReadAtLeast(beginningOfFile, beginningOfFile.Length, throwOnEndOfStream: false);
-            var md5 = libCommon.Utility.CalculateMD5(beginningOfFile);
-            md5 = libCommon.Utility.CalculateMD5(Encoding.UTF8.GetBytes($"{md5} {StreamName} {CompressedStream.Length}"));
-            var cacheFolder = Path.Combine(WholeFileCacheManager.RootCacheFolder, md5);
-            Directory.CreateDirectory(cacheFolder);
+            wholeFileCacheFolder = WholeFileCacheManager.GetCacheFolder(streamForHashing, StreamName, CompressedStream.Length);
 
             //hashing consumed part of the compressed stream; downstream consumers expect to
             //start at 0
             CompressedStream.Seek(0, SeekOrigin.Begin);
 
-            return cacheFolder;
+            return wholeFileCacheFolder;
         }
 
         public override Stream GetSequentialStream()

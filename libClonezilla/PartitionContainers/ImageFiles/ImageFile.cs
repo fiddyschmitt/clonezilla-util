@@ -1,7 +1,9 @@
 ﻿using lib7Zip;
+using libClonezilla.Cache;
 using libClonezilla.Decompressors;
 using libClonezilla.Partitions;
 using libClonezilla.VFS;
+using Serilog;
 using libCommon;
 using libCommon.Streams;
 using libCommon.Streams.Seekable;
@@ -44,7 +46,19 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
                 if (compressionInUse == Compression.None)
                 {
-                    container = new RawImage(filename, partitionsToLoad, ContainerName, willPerformRandomSeeking, processTrailingNulls);
+                    //bare uncompressed image: derive an identity-keyed cache folder from the file
+                    //itself, so its partitions still get cached file lists and serving decisions
+                    string? wholeFileCacheFolder = null;
+                    try
+                    {
+                        wholeFileCacheFolder = WholeFileCacheManager.GetCacheFolderForFile(filename, ContainerName);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Debug($"[{ContainerName}] No whole-file cache folder available ({ex.Message}).");
+                    }
+
+                    container = new RawImage(filename, partitionsToLoad, ContainerName, willPerformRandomSeeking, processTrailingNulls, wholeFileCacheFolder);
                 }
                 else
                 {

@@ -1,4 +1,5 @@
 ﻿using lib7Zip;
+using libClonezilla.Cache;
 using libClonezilla.Decompressors;
 using libClonezilla.Partitions;
 using libCommon;
@@ -15,13 +16,13 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class RawDriveImage : PartitionContainer
     {
-        public RawDriveImage(string containerName, List<string> partitionsToLoad, Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles, bool processTrailingNulls)
+        public RawDriveImage(string containerName, List<string> partitionsToLoad, Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles, bool processTrailingNulls, string? wholeFileCacheFolder)
         {
             ContainerName = containerName;
-            SetupFromStream(rawDriveStream, partitionImageFiles, partitionsToLoad, processTrailingNulls);
+            SetupFromStream(rawDriveStream, partitionImageFiles, partitionsToLoad, processTrailingNulls, wholeFileCacheFolder);
         }
 
-        void SetupFromStream(Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles, List<string> partitionsToLoad, bool processTrailingNulls)
+        void SetupFromStream(Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles, List<string> partitionsToLoad, bool processTrailingNulls, string? wholeFileCacheFolder)
         {
             if (partitionImageFiles.Count == 0)
             {
@@ -90,14 +91,23 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
                                 //stream = new CachingStream(stream, null, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
 
+                                //partitions inside a bare image file have no clonezilla-style cache
+                                //folder; the image's whole-file identity folder stands in, so they
+                                //still get cached file lists and serving decisions (TEST_ANALYSIS.md #5)
+                                IPartitionCache? partitionCache = null;
+                                if (wholeFileCacheFolder != null)
+                                {
+                                    partitionCache = new PartitionCache(wholeFileCacheFolder, partitionInfo.PartitionName);
+                                }
+
                                 Partition partition = new ImageFilePartition(
-                                    partitionInfo.PartitionFilename.Path, 
-                                    this, 
-                                    partitionInfo.PartitionName, 
-                                    partitionStream, 
-                                    partitionInfo.PartitionLength, 
-                                    Compression.None, 
-                                    null, 
+                                    partitionInfo.PartitionFilename.Path,
+                                    this,
+                                    partitionInfo.PartitionName,
+                                    partitionStream,
+                                    partitionInfo.PartitionLength,
+                                    Compression.None,
+                                    partitionCache,
                                     true,
                                     processTrailingNulls);
                                 return partition;

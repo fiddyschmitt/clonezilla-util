@@ -12,7 +12,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 2 | ListContents.LargeClonezillaPartitions.Gz | 10.9 min | 1.1 min | 2026-07-21 | **FIXED ×3**: serving-decision cache; STJ file lists (also killed the cold GC storm). Warm 40→20 s; listing phase → 18 s |
 | 3 | ListContents.LargeClonezillaPartitions.Xz | 27 min | 3.1 min | 2026-07-21 | **FIXED (L4)**: listing skips extractor opens on cache hit — warm 102→14 s (7×) |
 | 4 | ListContents.LargeClonezillaPartitions.Zst | 5.2 min | 1.3 min | 2026-07-21 | **Clean — no action.** Cold 304 s IO-bound (59.5% raw file reads); warm 78→7 s (11×) from the accumulated #1–#3 fixes, no zst-specific work needed |
-| 5 | ListContents.LargeDriveImages.Bzip2 | 14.5 min | 2.2 min | 2026-07-21 | Cold clean (Release 900 s ≈ suite 870 s; Debug-config artifact explained the scare). Warm 75 s still decodes bzip2 — **Lead L6**: drive-image partitions get null PartitionCache |
+| 5 | ListContents.LargeDriveImages.Bzip2 | 14.5 min | 2.2 min | 2026-07-21 | Cold clean (Release 900 s ≈ suite 870 s; Debug-config artifact explained the scare). **FIXED (L6)**: drive-image partitions get real caches — warm 75→21 s (3.6×) |
 | 6 | ListContents.LargeDriveImages.Gz | 58.3 min | 1 min | | |
 | 7 | ListContents.LargeDriveImages.Raw | 41.2 sec | 39.3 sec | | |
 | 8 | ListContents.LargeDriveImages.Xz | 3.9 min | 4 min | | |
@@ -218,3 +218,16 @@ from `DecompressorSelector`, thread it through `CompressedImage` → `RawImage` 
 File lists, serving decisions and L4 then apply to all four compressed drive-image formats.
 Same umbrella: `RawImage.EnumerateTopLevel` re-scans the partition table via native 7z on every
 construction — cacheable in the same folder.
+
+**L6 RESOLVED (2026-07-24): warm 75 s → 21 s (3.6×), Out-Null harness both sides.** Implementation
+as designed, plus: `ImageFile` derives an identity folder for bare uncompressed images too (raw
+drive/partition tests get the same treatment), `EnumerateTopLevel` caches its scan as
+`toplevel.json`, and `GetWholeFileCacheFolder` is memoized — pre-L6 the decision lookup and the
+synthesized index cache each hashed 50 MB per open, and each partition hashed another 50 MB
+through the decompressor just to locate its decision file in a per-partition synthesized folder
+(those folders are now orphans; a cache clear removes them). Validation: miss-path run repopulated
+everything (probes + native scans, 222 s), hit-path run listed the identical 829,920 lines with
+zero probes/extractor opens; warm trace shows only parked threads, output flushing, and the one
+remaining 50 MB whole-image identity hash (~6% incl). Remaining warm floor: Dokan Z: mount wait
+(~8 s bucket incl. that hash), 24 MB bzip2-index JSON load (~2 s), 276 MB Files.json STJ parse +
+print. Cold pays the same one-off population the partition tests do.

@@ -4,6 +4,7 @@ using libCommon;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
 using libPartclone;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -20,6 +21,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             ContainerName = Path.GetFileNameWithoutExtension(filename);
 
             var currentFilename = filename;
+            string? wholeFileCacheFolder = null;
 
             while (true)
             {
@@ -43,11 +45,26 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 if (isPartcloneStream)
                 {
                     decompressedStream = new PartcloneStream("", "", streamToInspect);
+                    wholeFileCacheFolder = null;
                 }
                 else
                 {
                     var decompressorSelector = new DecompressorSelector(filename, ContainerName, streamToInspect, null, compression, null, processTrailingNulls);
                     decompressedStream = decompressorSelector.GetSeekableStream();
+
+                    //identity folder of this decompressed content - it lets the partitions inside
+                    //the image have real caches (file lists, serving decisions) even though a bare
+                    //image file has no clonezilla-style cache folder. Memoized by the selector, so
+                    //this is free when GetSeekableStream already computed it.
+                    try
+                    {
+                        wholeFileCacheFolder = decompressorSelector.GetWholeFileCacheFolder();
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Debug($"[{ContainerName}] No whole-file cache folder available ({ex.Message}).");
+                        wholeFileCacheFolder = null;
+                    }
                 }
 
                 var tempName = Path.GetFileNameWithoutExtension(Path.GetFileName(TempUtility.GetTempFilename(false)));
@@ -56,7 +73,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 currentFilename = virtualDecompressedFile.FullPath;
             }
 
-            var container = new RawImage(currentFilename, partitionsToLoad, ContainerName, willPerformRandomSeeking, processTrailingNulls);
+            var container = new RawImage(currentFilename, partitionsToLoad, ContainerName, willPerformRandomSeeking, processTrailingNulls, wholeFileCacheFolder);
 
             Partitions = container.Partitions;
             AvailablePartitionNames = container.AvailablePartitionNames;
