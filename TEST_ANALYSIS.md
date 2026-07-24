@@ -64,13 +64,13 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 54 | Mount.AsFiles.SmallPartitionImages.Raw | 6.2 sec | 8.2 sec | 2026-07-25 | **Clean** — 3/1 s |
 | 55 | Mount.AsFiles.SmallPartitionImages.xz | 51.2 sec | 26.4 sec | 2026-07-25 | Warm 26→14 s (L6 + xz L9 residual) |
 | 56 | Mount.AsFiles.SmallPartitionImages.zst | 31.1 sec | 4.2 sec | 2026-07-25 | **Clean** — 5/2 s |
-| 57 | Mount.AsFiles.UbuntuFileSystems.ext4 | 4.7 min | 2 min | | |
-| 58 | Mount.AsFiles.UbuntuFileSystems.ext4_lvm | 5.2 min | 2.3 min | | |
-| 59 | Mount.AsImageFiles.ImageFileTests.Gz | 19.2 sec | 14.5 sec | | |
-| 60 | Mount.AsImageFiles.ImageFileTests.LuksNtfs6GB | 51 sec | 51.1 sec | | |
-| 61 | Mount.AsImageFiles.ImageFileTests.Partclone | 9.9 sec | 10.8 sec | | |
-| 62 | Mount.AsImageFiles.ImageFileTests.UncompressedPartitionImage_and_gzClonezillaImage | 16.9 sec | 17.3 sec | | |
-| 63 | Mount.AsImageFiles.ImageFileTests.Zst | 11.9 sec | 6.1 sec | | |
+| 57 | Mount.AsFiles.UbuntuFileSystems.ext4 | 4.7 min | 2 min | 2026-07-25 | Warm 120→86 s; residual = eager ext4 extractor scans (L9 family) |
+| 58 | Mount.AsFiles.UbuntuFileSystems.ext4_lvm | 5.2 min | 2.3 min | 2026-07-25 | Warm 138→91 s — same shape through LVM |
+| 59 | Mount.AsImageFiles.ImageFileTests.Gz | 19.2 sec | 14.5 sec | 2026-07-25 | **Clean** — 12/10 s; serving-dominated (whole .img copied through gz) |
+| 60 | Mount.AsImageFiles.ImageFileTests.LuksNtfs6GB | 51 sec | 51.1 sec | 2026-07-25 | **Clean** — 45/40 s; honest LUKS+zst decode of the whole partition image |
+| 61 | Mount.AsImageFiles.ImageFileTests.Partclone | 9.9 sec | 10.8 sec | 2026-07-25 | **Clean** — 8/7 s (1 GiB partial hash, per test definition) |
+| 62 | Mount.AsImageFiles.ImageFileTests.UncompressedPartitionImage_and_gzClonezillaImage | 16.9 sec | 17.3 sec | 2026-07-25 | **Clean** — 16/12 s |
+| 63 | Mount.AsImageFiles.ImageFileTests.Zst | 11.9 sec | 6.1 sec | 2026-07-25 | **Clean** — 10/6 s |
 | 64 | Partclone.PartcloneContentMapTests.EdgePatterns | 813 ms | 856 ms | | |
 | 65 | Partclone.PartcloneContentMapTests.V1_Typical | 78 ms | 35 ms | | |
 | 66 | Partclone.PartcloneContentMapTests.V2_DeviceLargerThanBitmap | 1.2 sec | 940 ms | | |
