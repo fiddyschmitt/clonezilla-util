@@ -48,10 +48,10 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 38 | Mount.AsFiles.LuksParcloneImages.luks_ntfs_6GB | 10.2 sec | 35.9 sec | 2026-07-25 | **Clean** — 10/3 s (suite's 35.9 warm was an environmental outlier) |
 | 39 | Mount.AsFiles.Misc.LastestClonezilla_2022_06_29 | 3.1 sec | 3.2 sec | 2026-07-25 | **Clean** — 1 s / 1 s |
 | 40 | Mount.AsFiles.Misc.MultipleContainers_MultiplePartitions | 40 sec | 15.4 sec | 2026-07-25 | **Clean** — 8/3 s; mixed gz clonezilla + zst partition image, all fixes compound |
-| 41 | Mount.AsFiles.Partclone.dd | 112.4 min | 1.7 min | | |
-| 42 | Mount.AsFiles.Partclone.gz | 1.4 min | 18.7 sec | | |
-| 43 | Mount.AsFiles.Partclone.MixedPartcloneFormats | 7 sec | 2.2 sec | | |
-| 44 | Mount.AsFiles.Partclone.PartcloneImage | 6.2 sec | 4.2 sec | | |
+| 41 | Mount.AsFiles.Partclone.dd | 112.4 min | 1.7 min | 2026-07-25 | **Clean** — cold 88.8 min beat the suite's best-ever; warm 102→35 s. MD5s verified |
+| 42 | Mount.AsFiles.Partclone.gz | 1.4 min | 18.7 sec | 2026-07-25 | **Clean** — 12/3 s; bare-partclone at small scale benefits fully |
+| 43 | Mount.AsFiles.Partclone.MixedPartcloneFormats | 7 sec | 2.2 sec | 2026-07-25 | **Clean** — 2/1 s |
+| 44 | Mount.AsFiles.Partclone.PartcloneImage | 6.2 sec | 4.2 sec | 2026-07-25 | **Clean** — 2/1 s |
 | 45 | Mount.AsFiles.SmallClonezillaPartitions.Bzip2 | 37.2 sec | 35.2 sec | | |
 | 46 | Mount.AsFiles.SmallClonezillaPartitions.gz | 10 sec | 3.2 sec | | |
 | 47 | Mount.AsFiles.SmallClonezillaPartitions.LZ4 | 4.2 sec | 3.1 sec | | |
