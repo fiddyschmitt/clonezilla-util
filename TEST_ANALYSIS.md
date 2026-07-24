@@ -28,7 +28,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 18 | ListContents.SmallPartitionImages.xz | 48.3 sec | 24.7 sec | 2026-07-24 | **FIXED (L6)**: warm 25→4 s |
 | 19 | ListContents.SmallPartitionImages.zst | 8.1 sec | 8.5 sec | 2026-07-24 | **FIXED (L6)**: warm 8.5→2 s |
 | 20 | Mount.AsFiles.Ext4.ext4 | 15.4 sec | 14.1 sec | 2026-07-24 | **Clean** — warm 14→4 s (L6 tree-from-cache); cold ≈ suite |
-| 21 | Mount.AsFiles.Ext4.ext4_zst | 54.3 sec | 54.5 sec | 2026-07-24 | Warm 54.5→37 s (L6). Residual diagnosed: 24 s = full 33 GB decode to discover the virtual file's length (**Lead L7**: persist uncompressed length); 11 s = eager ext4 extractor scan through the restart stream |
+| 21 | Mount.AsFiles.Ext4.ext4_zst | 54.3 sec | 54.5 sec | 2026-07-24 | **FIXED (L6+L7+L9)**: warm 54.5→31 s; the 24 s decode-to-discover-length is gone (cached `uncompressed_length.txt`), residual = single ext4 pool scan |
 | 22 | Mount.AsFiles.LargeClonezillaImages.bzip2 | 8.4 min | 5.2 min | 2026-07-24 | **FIXED (L9)**: parallel pool opens — warm 267→84 s (3.2×); sda2 pool 226→57 s |
 | 23 | Mount.AsFiles.LargeClonezillaImages.gz | 1.1 min | 1.1 min | 2026-07-24 | **Clean** — warm 66→26 s; pool opens through gz cost ~2 s/worker vs bzip2's ~17 (L9 is decode-bound). Cold 407 s = true index build |
 | 24 | Mount.AsFiles.LargeClonezillaImages.xz | 6.9 min | 7.1 min | 2026-07-24 | **FIXED (L9)**: warm 309→110 s (2.8×); sda2 pool ~280→87 s. Cold 1458 s = true LZMA2 checkpoint build |
@@ -359,6 +359,15 @@ the length is discovered. Kills the 24 s for every "sequential"-decision compres
 need the serving-decision heuristic to prefer an index for huge-decompressed images (L8,
 riskier — the 10 s probe measures sequential throughput, not random access) — parked unless L7
 proves insufficient.
+
+**L7 RESOLVED (2026-07-25): warm ext4_zst mount 37 → 31 s; the length-discovery decode is gone.**
+As designed: `SeekableStreamUsingRestarts` gained an `OnLengthDiscovered` callback (fires only on
+the read-to-EOF branch); `DecompressorSelector` resolves a cached `uncompressed_length.txt`
+(partition cache or identity folder, same placement as the serving decision) before constructing
+any restarts stream, and persists on first discovery. All three restarts construction sites now
+share one factory. Verified: run 1 wrote 34,359,738,368 (= the 32 GiB image) to the identity
+folder; run 2 logged "Using cached uncompressed length" and the whole-image setup gap fell
+24 → 11 s. Applies to every sequential-decision compressed image and the no-index fallback path.
 
 ### 22. Mount.AsFiles.LargeClonezillaImages.bzip2  (cold 1252 s + warm 267 s, private cache)
 

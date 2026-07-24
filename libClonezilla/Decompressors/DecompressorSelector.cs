@@ -124,14 +124,7 @@ namespace libClonezilla.Decompressors
                 }
 
                 //Still have to make it seekable though
-                var seekableStreamUsingRestarts = new SeekableStreamUsingRestarts(() =>
-                {
-                    Log.Debug($"{StreamName} Creating new seekable stream.");
-                    var sequentialStream = Decompressor.GetSequentialStream();
-                    return sequentialStream;
-                }, UncompressedLength);
-
-                uncompressedStream = seekableStreamUsingRestarts;
+                uncompressedStream = CreateRestartsStream();
             }
             else
             {
@@ -168,11 +161,7 @@ namespace libClonezilla.Decompressors
                     //the extraction subsystem and libTrainCompress are gone.)
                     Log.Warning($"{StreamName} uses {CompressionInUse} compression, which has no random-access index. Serving via restart-based seeking; this can be slow for large images.");
 
-                    uncompressedStream = new SeekableStreamUsingRestarts(() =>
-                    {
-                        var sequentialStream = Decompressor.GetSequentialStream();
-                        return sequentialStream;
-                    }, UncompressedLength);
+                    uncompressedStream = CreateRestartsStream();
 
                     addCacheLayer = true;
                 }
@@ -291,13 +280,85 @@ namespace libClonezilla.Decompressors
         public override Stream GetSequentialStream()
         {
             //Still have to make it seekable though
-            var seekableStreamUsingRestarts = new SeekableStreamUsingRestarts(() =>
+            return CreateRestartsStream();
+        }
+
+        /// <summary>Restart-based seekable stream over the sequential decompressor. When no length
+        /// was provided, a length persisted by an earlier open is used - discovering it otherwise
+        /// requires decoding the ENTIRE stream to EOF, on every open (24 s for a 33 GB near-empty
+        /// zstd image; TEST_ANALYSIS.md #21, Lead L7). First discovery persists it.</summary>
+        SeekableStreamUsingRestarts CreateRestartsStream()
+        {
+            var resolvedLength = UncompressedLength ?? ReadCachedUncompressedLength();
+
+            var result = new SeekableStreamUsingRestarts(() =>
             {
+                Log.Debug($"{StreamName} Creating new seekable stream.");
                 var sequentialStream = Decompressor.GetSequentialStream();
                 return sequentialStream;
-            }, UncompressedLength);
+            }, resolvedLength);
 
-            return seekableStreamUsingRestarts;
+            if (resolvedLength == null)
+            {
+                result.OnLengthDiscovered = WriteCachedUncompressedLength;
+            }
+
+            return result;
+        }
+
+        /// <summary>Where this stream's persisted uncompressed length lives; same placement rules
+        /// as the serving decision. Null when no cache location is resolvable.</summary>
+        string? GetUncompressedLengthFilename()
+        {
+            try
+            {
+                if (PartitionCache != null)
+                {
+                    return PartitionCache.GetUncompressedLengthFilename();
+                }
+                return Path.Combine(GetWholeFileCacheFolder(), "uncompressed_length.txt");
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"{StreamName} No uncompressed-length cache available ({ex.Message}).");
+                return null;
+            }
+        }
+
+        long? ReadCachedUncompressedLength()
+        {
+            var filename = GetUncompressedLengthFilename();
+            if (filename == null || !File.Exists(filename))
+            {
+                return null;
+            }
+            try
+            {
+                if (long.TryParse(File.ReadAllText(filename).Trim(), out var result) && result >= 0)
+                {
+                    Log.Information($"{StreamName} Using cached uncompressed length: {result:N0} bytes.");
+                    return result;
+                }
+            }
+            catch { }
+            return null;    //unreadable or malformed: rediscover (and rewrite) it
+        }
+
+        void WriteCachedUncompressedLength(long value)
+        {
+            var filename = GetUncompressedLengthFilename();
+            if (filename == null)
+            {
+                return;
+            }
+            try
+            {
+                File.WriteAllText(filename, value.ToString());
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"Non-fatal: could not persist the uncompressed length to {filename} ({ex.Message}).");
+            }
         }
     }
 }

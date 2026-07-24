@@ -25,6 +25,12 @@ namespace libCommon.Streams.Seekable
         public override bool CanWrite => false;
 
         long? length = null;
+
+        /// <summary>Invoked once if the length had to be discovered by reading the whole stream to
+        /// EOF (the expensive branch below) - lets the owner persist it so later opens can pass it
+        /// to the constructor and skip the full read (TEST_ANALYSIS.md #21, Lead L7).</summary>
+        public Action<long>? OnLengthDiscovered { get; set; }
+
         public override long Length
         {
             get
@@ -42,6 +48,8 @@ namespace libCommon.Streams.Seekable
                         length = Position;
                         //We are now at the end of the stream. Let's go back to the original position
                         Seek(originalPosition, SeekOrigin.Begin);
+
+                        OnLengthDiscovered?.Invoke(length.Value);
                     }
                 }
 

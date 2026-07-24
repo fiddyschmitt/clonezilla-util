@@ -79,6 +79,12 @@ namespace libClonezilla.Cache
             return result;
         }
 
+        public string GetUncompressedLengthFilename()
+        {
+            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.uncompressed_length.txt");
+            return result;
+        }
+
         public List<ArchiveEntry>? GetFileList()
         {
             List<ArchiveEntry>? result = null;
