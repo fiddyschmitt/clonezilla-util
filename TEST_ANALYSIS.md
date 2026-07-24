@@ -17,11 +17,11 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 7 | ListContents.LargeDriveImages.Raw | 41.2 sec | 39.3 sec | 2026-07-24 | **FIXED (L6, raw path)**: warm 39→12 s (3.3×); pre-L6 this test had no caching at all. Cold 48 s = one-off population |
 | 8 | ListContents.LargeDriveImages.Xz | 3.9 min | 4 min | 2026-07-24 | **FIXED (L6): warm 240→17 s (14×)** — the biggest L6 win; pre-L6 warm re-listed NTFS through xz 32 MiB spans every open. Cold ≈ suite |
 | 9 | ListContents.LargeDriveImages.Zst | 15.5 min | 1.2 min | 2026-07-24 | **FIXED (L6)**: warm 72→15 s at the floor (41 s first-warm = paging the 879 MB `.zsi` back in). Cold = index build, ≈ suite + variance |
-| 10 | ListContents.Partclone.MixedPartcloneFormats | 4.5 sec | 3.1 sec | | |
-| 11 | ListContents.SmallClonezillaPartitions.Bzip2 | 34.2 sec | 33 sec | | |
-| 12 | ListContents.SmallClonezillaPartitions.gz | 10.5 sec | 5.8 sec | | |
-| 13 | ListContents.SmallClonezillaPartitions.xz | 27.9 sec | 25.9 sec | | |
-| 14 | ListContents.SmallClonezillaPartitions.zst | 10.4 sec | 7.5 sec | | |
+| 10 | ListContents.Partclone.MixedPartcloneFormats | 4.5 sec | 3.1 sec | 2026-07-24 | **Clean** — 2 s / 1 s measured; trivial |
+| 11 | ListContents.SmallClonezillaPartitions.Bzip2 | 34.2 sec | 33 sec | 2026-07-24 | **Clean** — warm 33→3 s (11×) from the #1–#4 fix set; cold = honest 2-partition index build |
+| 12 | ListContents.SmallClonezillaPartitions.gz | 10.5 sec | 5.8 sec | 2026-07-24 | **Clean** — 8 s / 1 s |
+| 13 | ListContents.SmallClonezillaPartitions.xz | 27.9 sec | 25.9 sec | 2026-07-24 | **Clean** — warm 26→3 s (L4 at small scale); cold ≈ suite |
+| 14 | ListContents.SmallClonezillaPartitions.zst | 10.4 sec | 7.5 sec | 2026-07-24 | **Clean** — 8 s / 1 s |
 | 15 | ListContents.SmallPartitionImages.Bzip2 | 43.2 sec | 32.3 sec | | |
 | 16 | ListContents.SmallPartitionImages.gz | 15.9 sec | 15.8 sec | | |
 | 17 | ListContents.SmallPartitionImages.raw | 4.5 sec | 6.2 sec | | |
@@ -284,3 +284,11 @@ Parked observation (all drive images): on a warm LISTING the whole-image seekabl
 fully constructed (index load + identity hash) even though a cached Files.json means nothing will
 ever read from it. Lazy construction would shave a few seconds; only worth revisiting if the
 listing floor ever matters more than the Dokan mount wait (~8 s), which is now the biggest chunk.
+
+### 10–14. Partclone + SmallClonezillaPartitions  (batch, 2026-07-24)
+
+All five clean — no new findings, quick paired runs only (no traces; nothing to chase). These
+images have real clonezilla cache folders, so the #1–#4 fix set (serving-decision cache, STJ
+lists, lazy extractor) was already active: every warm leg sits at 1–3 s, cold ≈ suite within
+variance. Cold vs warm listing hashes verified identical per test; all four small-partition
+formats list the same 882 lines.
