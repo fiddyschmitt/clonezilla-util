@@ -14,7 +14,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 4 | ListContents.LargeClonezillaPartitions.Zst | 5.2 min | 1.3 min | 2026-07-21 | **Clean — no action.** Cold 304 s IO-bound (59.5% raw file reads); warm 78→7 s (11×) from the accumulated #1–#3 fixes, no zst-specific work needed |
 | 5 | ListContents.LargeDriveImages.Bzip2 | 14.5 min | 2.2 min | 2026-07-21 | Cold clean (Release 900 s ≈ suite 870 s; Debug-config artifact explained the scare). **FIXED (L6)**: drive-image partitions get real caches — warm 75→21 s (3.6×) |
 | 6 | ListContents.LargeDriveImages.Gz | 58.3 min | 1 min | 2026-07-24 | **Clean — no action.** Cold 68.3 min = gzip index build (66.4 min, within machine variance of the suite's good-night 58.3). Warm 60→18 s from L6, no gz-specific work |
-| 7 | ListContents.LargeDriveImages.Raw | 41.2 sec | 39.3 sec | | |
+| 7 | ListContents.LargeDriveImages.Raw | 41.2 sec | 39.3 sec | 2026-07-24 | **FIXED (L6, raw path)**: warm 39→12 s (3.3×); pre-L6 this test had no caching at all. Cold 48 s = one-off population |
 | 8 | ListContents.LargeDriveImages.Xz | 3.9 min | 4 min | | |
 | 9 | ListContents.LargeDriveImages.Zst | 15.5 min | 1.2 min | | |
 | 10 | ListContents.Partclone.MixedPartcloneFormats | 4.5 sec | 3.1 sec | | |
@@ -246,3 +246,15 @@ account for the last ~2 min. Nothing actionable.
 than #5's 21 s because the whole-image identity hash decodes 50 MB through gz rather than bzip2,
 and the binary `.gzsi` index loads without a JSON parse. Listing content verified byte-identical
 to #5's (same underlying image, 829,904 lines, matching MD5 after stripping log lines).
+
+### 7. ListContents.LargeDriveImages.Raw  (cold 48 s + warm 12 s, private cache)
+
+First test through L6's uncompressed-image path (`ImageFile` derives the identity folder from the
+raw file itself). Pre-L6 this test had no caching of any kind — cold ≈ warm ≈ 40 s, native 7z
+re-scanning the partition table and both filesystems on every open.
+
+**Warm 39.3 → 12 s (3.3×):** toplevel.json + Files.json + serving decisions all hit; no native
+opens. Remaining floor is the usual suspects (Dokan mount wait, 276 MB Files.json parse, output).
+**Cold 48 s (suite 41.2):** the +7 s is the one-off cache population plus the new 50 MB identity
+hash of the raw file (~0.2 s). Listing content verified identical to #5/#6 after stripping the
+container-name prefix (raw strips `.img`, compressed strips `.bz2` — cosmetic). No action.
