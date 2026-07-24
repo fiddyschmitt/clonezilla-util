@@ -46,8 +46,8 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 36 | Mount.AsFiles.LuksParcloneImages.luks_ext4_500GB_zst | 3.1 min | 2.8 min | 2026-07-25 | Warm 168→124 s — same L10 shape via zst |
 | 37 | Mount.AsFiles.LuksParcloneImages.luks_ntfs_20GB | 12.2 sec | 12.2 sec | 2026-07-25 | **Clean** — warm 12→1 s |
 | 38 | Mount.AsFiles.LuksParcloneImages.luks_ntfs_6GB | 10.2 sec | 35.9 sec | 2026-07-25 | **Clean** — 10/3 s (suite's 35.9 warm was an environmental outlier) |
-| 39 | Mount.AsFiles.Misc.LastestClonezilla_2022_06_29 | 3.1 sec | 3.2 sec | | |
-| 40 | Mount.AsFiles.Misc.MultipleContainers_MultiplePartitions | 40 sec | 15.4 sec | | |
+| 39 | Mount.AsFiles.Misc.LastestClonezilla_2022_06_29 | 3.1 sec | 3.2 sec | 2026-07-25 | **Clean** — 1 s / 1 s |
+| 40 | Mount.AsFiles.Misc.MultipleContainers_MultiplePartitions | 40 sec | 15.4 sec | 2026-07-25 | **Clean** — 8/3 s; mixed gz clonezilla + zst partition image, all fixes compound |
 | 41 | Mount.AsFiles.Partclone.dd | 112.4 min | 1.7 min | | |
 | 42 | Mount.AsFiles.Partclone.gz | 1.4 min | 18.7 sec | | |
 | 43 | Mount.AsFiles.Partclone.MixedPartcloneFormats | 7 sec | 2.2 sec | | |
