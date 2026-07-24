@@ -16,7 +16,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 6 | ListContents.LargeDriveImages.Gz | 58.3 min | 1 min | 2026-07-24 | **Clean — no action.** Cold 68.3 min = gzip index build (66.4 min, within machine variance of the suite's good-night 58.3). Warm 60→18 s from L6, no gz-specific work |
 | 7 | ListContents.LargeDriveImages.Raw | 41.2 sec | 39.3 sec | 2026-07-24 | **FIXED (L6, raw path)**: warm 39→12 s (3.3×); pre-L6 this test had no caching at all. Cold 48 s = one-off population |
 | 8 | ListContents.LargeDriveImages.Xz | 3.9 min | 4 min | 2026-07-24 | **FIXED (L6): warm 240→17 s (14×)** — the biggest L6 win; pre-L6 warm re-listed NTFS through xz 32 MiB spans every open. Cold ≈ suite |
-| 9 | ListContents.LargeDriveImages.Zst | 15.5 min | 1.2 min | | |
+| 9 | ListContents.LargeDriveImages.Zst | 15.5 min | 1.2 min | 2026-07-24 | **FIXED (L6)**: warm 72→15 s at the floor (41 s first-warm = paging the 879 MB `.zsi` back in). Cold = index build, ≈ suite + variance |
 | 10 | ListContents.Partclone.MixedPartcloneFormats | 4.5 sec | 3.1 sec | | |
 | 11 | ListContents.SmallClonezillaPartitions.Bzip2 | 34.2 sec | 33 sec | | |
 | 12 | ListContents.SmallClonezillaPartitions.gz | 10.5 sec | 5.8 sec | | |
@@ -270,3 +270,17 @@ never touches the decoder.
 from its native block index (32,768 blocks, ~20 s to open) — no checkpoint build at all. The bulk
 is the one-off native-7z listing through the expensive spans. Content hash identical to #5-#7.
 No action.
+
+### 9. ListContents.LargeDriveImages.Zst  (cold 1102 s + warm 41/15 s, private cache)
+
+**Warm: FIXED via L6** — suite 72 s → 15 s once the OS file cache holds the artifacts (native
+stdout redirection; same floor as the other formats). The first post-cold warm read 41 s because
+the 2.2 TB index build evicts the page cache, and this format has 879 MB of `.zsi` to page back
+in (32,768 exact-state points for 2.2 TB; verified the loader skip-parses it lazily — blobs are
+seeked past, not read). **Cold (1102 s; suite 930):** 16.2 min ZstdSeekable exact-state index
+build + variance. Content hash identical to #5-#8. No zst-specific action.
+
+Parked observation (all drive images): on a warm LISTING the whole-image seekable stream is still
+fully constructed (index load + identity hash) even though a cached Files.json means nothing will
+ever read from it. Lazy construction would shave a few seconds; only worth revisiting if the
+listing floor ever matters more than the Dokan mount wait (~8 s), which is now the biggest chunk.
