@@ -52,18 +52,18 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 42 | Mount.AsFiles.Partclone.gz | 1.4 min | 18.7 sec | 2026-07-25 | **Clean** — 12/3 s; bare-partclone at small scale benefits fully |
 | 43 | Mount.AsFiles.Partclone.MixedPartcloneFormats | 7 sec | 2.2 sec | 2026-07-25 | **Clean** — 2/1 s |
 | 44 | Mount.AsFiles.Partclone.PartcloneImage | 6.2 sec | 4.2 sec | 2026-07-25 | **Clean** — 2/1 s |
-| 45 | Mount.AsFiles.SmallClonezillaPartitions.Bzip2 | 37.2 sec | 35.2 sec | | |
-| 46 | Mount.AsFiles.SmallClonezillaPartitions.gz | 10 sec | 3.2 sec | | |
-| 47 | Mount.AsFiles.SmallClonezillaPartitions.LZ4 | 4.2 sec | 3.1 sec | | |
-| 48 | Mount.AsFiles.SmallClonezillaPartitions.LZIP | 5.2 sec | 3.2 sec | | |
-| 49 | Mount.AsFiles.SmallClonezillaPartitions.Uncompressed | 2.1 sec | 2.1 sec | | |
-| 50 | Mount.AsFiles.SmallClonezillaPartitions.xz | 29 sec | 24 sec | | |
-| 51 | Mount.AsFiles.SmallClonezillaPartitions.zst | 8.6 sec | 8.3 sec | | |
-| 52 | Mount.AsFiles.SmallPartitionImages.Bzip2 | 32.6 sec | 33.6 sec | | |
-| 53 | Mount.AsFiles.SmallPartitionImages.gz | 37.4 sec | 38.3 sec | | |
-| 54 | Mount.AsFiles.SmallPartitionImages.Raw | 6.2 sec | 8.2 sec | | |
-| 55 | Mount.AsFiles.SmallPartitionImages.xz | 51.2 sec | 26.4 sec | | |
-| 56 | Mount.AsFiles.SmallPartitionImages.zst | 31.1 sec | 4.2 sec | | |
+| 45 | Mount.AsFiles.SmallClonezillaPartitions.Bzip2 | 37.2 sec | 35.2 sec | 2026-07-25 | Warm 35→12 s; residual = small-scale L9 through bzip2 |
+| 46 | Mount.AsFiles.SmallClonezillaPartitions.gz | 10 sec | 3.2 sec | 2026-07-25 | **Clean** — 5/2 s |
+| 47 | Mount.AsFiles.SmallClonezillaPartitions.LZ4 | 4.2 sec | 3.1 sec | 2026-07-25 | **Clean** — 2/1 s |
+| 48 | Mount.AsFiles.SmallClonezillaPartitions.LZIP | 5.2 sec | 3.2 sec | 2026-07-25 | **Clean** — 1/1 s |
+| 49 | Mount.AsFiles.SmallClonezillaPartitions.Uncompressed | 2.1 sec | 2.1 sec | 2026-07-25 | **Clean** — 1/1 s |
+| 50 | Mount.AsFiles.SmallClonezillaPartitions.xz | 29 sec | 24 sec | 2026-07-25 | Warm 24→8 s; residual = small-scale L9 through xz |
+| 51 | Mount.AsFiles.SmallClonezillaPartitions.zst | 8.6 sec | 8.3 sec | 2026-07-25 | **Clean** — 4/1 s |
+| 52 | Mount.AsFiles.SmallPartitionImages.Bzip2 | 32.6 sec | 33.6 sec | 2026-07-25 | **FIXED (L6)**: warm 34→9 s |
+| 53 | Mount.AsFiles.SmallPartitionImages.gz | 37.4 sec | 38.3 sec | 2026-07-25 | **FIXED (L6)**: warm 38→3 s — starkest small-image before/after |
+| 54 | Mount.AsFiles.SmallPartitionImages.Raw | 6.2 sec | 8.2 sec | 2026-07-25 | **Clean** — 3/1 s |
+| 55 | Mount.AsFiles.SmallPartitionImages.xz | 51.2 sec | 26.4 sec | 2026-07-25 | Warm 26→14 s (L6 + xz L9 residual) |
+| 56 | Mount.AsFiles.SmallPartitionImages.zst | 31.1 sec | 4.2 sec | 2026-07-25 | **Clean** — 5/2 s |
 | 57 | Mount.AsFiles.UbuntuFileSystems.ext4 | 4.7 min | 2 min | | |
 | 58 | Mount.AsFiles.UbuntuFileSystems.ext4_lvm | 5.2 min | 2.3 min | | |
 | 59 | Mount.AsImageFiles.ImageFileTests.Gz | 19.2 sec | 14.5 sec | | |
