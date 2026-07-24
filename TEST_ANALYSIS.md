@@ -15,7 +15,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 5 | ListContents.LargeDriveImages.Bzip2 | 14.5 min | 2.2 min | 2026-07-21 | Cold clean (Release 900 s ≈ suite 870 s; Debug-config artifact explained the scare). **FIXED (L6)**: drive-image partitions get real caches — warm 75→21 s (3.6×) |
 | 6 | ListContents.LargeDriveImages.Gz | 58.3 min | 1 min | 2026-07-24 | **Clean — no action.** Cold 68.3 min = gzip index build (66.4 min, within machine variance of the suite's good-night 58.3). Warm 60→18 s from L6, no gz-specific work |
 | 7 | ListContents.LargeDriveImages.Raw | 41.2 sec | 39.3 sec | 2026-07-24 | **FIXED (L6, raw path)**: warm 39→12 s (3.3×); pre-L6 this test had no caching at all. Cold 48 s = one-off population |
-| 8 | ListContents.LargeDriveImages.Xz | 3.9 min | 4 min | | |
+| 8 | ListContents.LargeDriveImages.Xz | 3.9 min | 4 min | 2026-07-24 | **FIXED (L6): warm 240→17 s (14×)** — the biggest L6 win; pre-L6 warm re-listed NTFS through xz 32 MiB spans every open. Cold ≈ suite |
 | 9 | ListContents.LargeDriveImages.Zst | 15.5 min | 1.2 min | | |
 | 10 | ListContents.Partclone.MixedPartcloneFormats | 4.5 sec | 3.1 sec | | |
 | 11 | ListContents.SmallClonezillaPartitions.Bzip2 | 34.2 sec | 33 sec | | |
@@ -258,3 +258,15 @@ opens. Remaining floor is the usual suspects (Dokan mount wait, 276 MB Files.jso
 **Cold 48 s (suite 41.2):** the +7 s is the one-off cache population plus the new 50 MB identity
 hash of the raw file (~0.2 s). Listing content verified identical to #5/#6 after stripping the
 container-name prefix (raw strips `.img`, compressed strips `.bz2` — cosmetic). No action.
+
+### 8. ListContents.LargeDriveImages.Xz  (cold 258 s + warm 17 s, private cache)
+
+**The biggest L6 win: warm 240 s → 17 s (14×).** Pre-L6 warm equalled cold — with no partition
+caches, every open re-listed the NTFS through xz's 32 MiB spans (~16 MiB average decode per
+scattered read), the same pathology L4 fixed for partition images. With Files.json cached, warm
+never touches the decoder.
+
+**Cold (258 s incl. ~38 s capture overhead; suite 234 s):** multi-block xz serves random access
+from its native block index (32,768 blocks, ~20 s to open) — no checkpoint build at all. The bulk
+is the one-off native-7z listing through the expensive spans. Content hash identical to #5-#7.
+No action.
