@@ -38,10 +38,10 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 28 | Mount.AsFiles.LargeDriveImages.Raw | 39.4 sec | 37.9 sec | 2026-07-24 | **Clean** — warm 38→18 s (L6 raw path + tree build for 830k files) |
 | 29 | Mount.AsFiles.LargeDriveImages.xz | 4 min | 4.5 min | 2026-07-24 | Warm 270→124 s — L9 residual through 32 MiB spans |
 | 30 | Mount.AsFiles.LargeDriveImages.zst | 1.3 min | 1.3 min | 2026-07-24 | **Clean** — warm 78→29 s, near floor |
-| 31 | Mount.AsFiles.LuksClonezillaImages.luks_ext4_500GB_gz | 34 sec | 29.9 sec | | |
-| 32 | Mount.AsFiles.LuksClonezillaImages.luks_ext4_500GB_zst | 21 sec | 21 sec | | |
-| 33 | Mount.AsFiles.LuksClonezillaImages.luks_ntfs_20GB | 3.1 sec | 2.2 sec | | |
-| 34 | Mount.AsFiles.LuksClonezillaImages.luks_ntfs_6GB | 2.2 sec | 3.2 sec | | |
+| 31 | Mount.AsFiles.LuksClonezillaImages.luks_ext4_500GB_gz | 34 sec | 29.9 sec | 2026-07-24 | Warm 30→25 s; diagnosed: 23 s = L9 pool opens through LUKS+gz (5-file list). No new lead |
+| 32 | Mount.AsFiles.LuksClonezillaImages.luks_ext4_500GB_zst | 21 sec | 21 sec | 2026-07-24 | Warm 21→15 s — same L9 shape via zst |
+| 33 | Mount.AsFiles.LuksClonezillaImages.luks_ntfs_20GB | 3.1 sec | 2.2 sec | 2026-07-24 | **Clean** — 1 s / 1 s |
+| 34 | Mount.AsFiles.LuksClonezillaImages.luks_ntfs_6GB | 2.2 sec | 3.2 sec | 2026-07-24 | **Clean** — 2 s / 1 s |
 | 35 | Mount.AsFiles.LuksParcloneImages.luks_ext4_500GB_gz | 3 min | 2.6 min | | |
 | 36 | Mount.AsFiles.LuksParcloneImages.luks_ext4_500GB_zst | 3.1 min | 2.8 min | | |
 | 37 | Mount.AsFiles.LuksParcloneImages.luks_ntfs_20GB | 12.2 sec | 12.2 sec | | |
