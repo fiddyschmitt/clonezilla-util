@@ -1,10 +1,14 @@
 using lib7Zip;
 using lib7Zip.Native;
+using Serilog;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
+using System.Threading.Tasks;
 
 namespace libClonezilla.Extractors
 {
@@ -39,16 +43,28 @@ namespace libClonezilla.Extractors
             IReadOnlyList<NativeArchiveEntry> entries;
             try
             {
-                // Open every worker up front. Sequentially, so the first worker warms the shared decompression
-                // cache (the expensive $MFT read) and the rest open against the warm cache.
-                foreach (var worker in workers)
+                // Open every worker up front, in PARALLEL. CachingStream serves each miss under its
+                // cache lock, so concurrent opens proceed in natural lockstep: one worker decodes a
+                // missed range while the rest block briefly, then hit it while still fresh. The old
+                // sequential opens relied on the first worker's scan fitting in the cache budget -
+                // on a large partition the scan cycles the LRU, and every later worker re-decodes
+                // every range (measured on the 42 GB NTFS through bzip2: opens of 61+55+55+54 s;
+                // in parallel the pool costs ~one scan). TEST_ANALYSIS.md #22 (Lead L9).
+                var sw = Stopwatch.StartNew();
+                try
                 {
-                    worker.EnsureOpen();
+                    Parallel.ForEach(workers, worker => worker.EnsureOpen());
+                }
+                catch (AggregateException ae)
+                {
+                    //callers distinguish NotAnArchiveException, so surface the real failure
+                    ExceptionDispatchInfo.Capture(ae.InnerExceptions[0]).Throw();
                 }
 
                 // The path->index mapping is identical across workers (same content, same enumeration order),
                 // so build it once from the first worker and share it.
                 entries = workers[0].GetEntries();
+                Log.Information($"Opened {workers.Count} native 7z worker(s) in {sw.Elapsed.TotalSeconds:N1}s.");
             }
             catch
             {

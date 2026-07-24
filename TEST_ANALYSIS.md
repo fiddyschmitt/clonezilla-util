@@ -29,9 +29,9 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 19 | ListContents.SmallPartitionImages.zst | 8.1 sec | 8.5 sec | 2026-07-24 | **FIXED (L6)**: warm 8.5→2 s |
 | 20 | Mount.AsFiles.Ext4.ext4 | 15.4 sec | 14.1 sec | 2026-07-24 | **Clean** — warm 14→4 s (L6 tree-from-cache); cold ≈ suite |
 | 21 | Mount.AsFiles.Ext4.ext4_zst | 54.3 sec | 54.5 sec | 2026-07-24 | Warm 54.5→37 s (L6). Residual diagnosed: 24 s = full 33 GB decode to discover the virtual file's length (**Lead L7**: persist uncompressed length); 11 s = eager ext4 extractor scan through the restart stream |
-| 22 | Mount.AsFiles.LargeClonezillaImages.bzip2 | 8.4 min | 5.2 min | 2026-07-24 | Warm 312→267 s. Diagnosed: 202 s = eager native-7z pool opens for sda2 in the mount flow (file copies 0–2 s each; serving is fine). **Lead L9** |
+| 22 | Mount.AsFiles.LargeClonezillaImages.bzip2 | 8.4 min | 5.2 min | 2026-07-24 | **FIXED (L9)**: parallel pool opens — warm 267→84 s (3.2×); sda2 pool 226→57 s |
 | 23 | Mount.AsFiles.LargeClonezillaImages.gz | 1.1 min | 1.1 min | 2026-07-24 | **Clean** — warm 66→26 s; pool opens through gz cost ~2 s/worker vs bzip2's ~17 (L9 is decode-bound). Cold 407 s = true index build |
-| 24 | Mount.AsFiles.LargeClonezillaImages.xz | 6.9 min | 7.1 min | 2026-07-24 | Warm 426→309 s — L9's worst absolute case (~280 s of pool opens through 32 MiB spans). Cold 1458 s = true LZMA2 checkpoint build |
+| 24 | Mount.AsFiles.LargeClonezillaImages.xz | 6.9 min | 7.1 min | 2026-07-24 | **FIXED (L9)**: warm 309→110 s (2.8×); sda2 pool ~280→87 s. Cold 1458 s = true LZMA2 checkpoint build |
 | 25 | Mount.AsFiles.LargeClonezillaImages.zst | 1.6 min | 1.7 min | 2026-07-24 | Warm 102→53 s — L9 middling case (~45 s pool opens, ~4 s/worker). L9 evidence complete: xz 280 / bz2 202 / zst 45 / gz 8 s |
 | 26 | Mount.AsFiles.LargeDriveImages.bzip2 | 2.3 min | 2.4 min | 2026-07-24 | Warm 144→126 s — L9 residual (pool opens through bzip2). MD5s verified |
 | 27 | Mount.AsFiles.LargeDriveImages.gz | 1 min | 1.1 min | 2026-07-24 | **Clean** — warm 66→26 s, near floor |
@@ -380,3 +380,15 @@ Candidates: open ONE worker before mount completes and grow the rest on backgrou
 Dokan callbacks); or serialize the first open so its NTFS-metadata decodes land in CachingStream
 before the remaining workers open (turning 12 cold scans into 1 cold + 11 cached). Requires
 reading NativeExtractorPool + CODE_REVIEW_PLAN's DokanVFS notes first.
+
+**L9 RESOLVED (2026-07-25): parallel worker opens — warm bzip2 mount 267→84 s (3.2×), xz
+309→110 s (2.8×).** Instrumentation overturned the design assumption: the pool already opened
+workers sequentially expecting worker 1 to warm the shared CachingStream, but on the 42 GB sda2
+the scan cycles the LRU (split ¼-RAM budget), so every later worker re-decoded every range —
+measured opens of 61+55+55+54 s (bzip2). Small partitions ([1.4, 0, 0, 0]) masked this. The fix
+opens all workers in parallel: CachingStream serves each miss under its cache lock, so concurrent
+opens run in natural lockstep — one worker decodes a missed range while the rest block briefly,
+then hit it fresh; the pool now costs ~one scan (sda2: 57 s bzip2, 87 s xz). Exceptions unwrap
+from AggregateException so callers still see NotAnArchiveException; the D3 invariant (open before
+mount completes) is untouched. Remaining warm floor for these mounts is that single scan — a
+persistent metadata-region cache could attack it later, noted but not planned.
