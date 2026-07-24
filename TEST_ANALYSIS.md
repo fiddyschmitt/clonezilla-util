@@ -31,7 +31,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 21 | Mount.AsFiles.Ext4.ext4_zst | 54.3 sec | 54.5 sec | 2026-07-24 | Warm 54.5→37 s (L6). Residual diagnosed: 24 s = full 33 GB decode to discover the virtual file's length (**Lead L7**: persist uncompressed length); 11 s = eager ext4 extractor scan through the restart stream |
 | 22 | Mount.AsFiles.LargeClonezillaImages.bzip2 | 8.4 min | 5.2 min | 2026-07-24 | Warm 312→267 s. Diagnosed: 202 s = eager native-7z pool opens for sda2 in the mount flow (file copies 0–2 s each; serving is fine). **Lead L9** |
 | 23 | Mount.AsFiles.LargeClonezillaImages.gz | 1.1 min | 1.1 min | 2026-07-24 | **Clean** — warm 66→26 s; pool opens through gz cost ~2 s/worker vs bzip2's ~17 (L9 is decode-bound). Cold 407 s = true index build |
-| 24 | Mount.AsFiles.LargeClonezillaImages.xz | 6.9 min | 7.1 min | | |
+| 24 | Mount.AsFiles.LargeClonezillaImages.xz | 6.9 min | 7.1 min | 2026-07-24 | Warm 426→309 s — L9's worst absolute case (~280 s of pool opens through 32 MiB spans). Cold 1458 s = true LZMA2 checkpoint build |
 | 25 | Mount.AsFiles.LargeClonezillaImages.zst | 1.6 min | 1.7 min | | |
 | 26 | Mount.AsFiles.LargeDriveImages.bzip2 | 2.3 min | 2.4 min | | |
 | 27 | Mount.AsFiles.LargeDriveImages.gz | 1 min | 1.1 min | | |
