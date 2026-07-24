@@ -13,7 +13,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 3 | ListContents.LargeClonezillaPartitions.Xz | 27 min | 3.1 min | 2026-07-21 | **FIXED (L4)**: listing skips extractor opens on cache hit — warm 102→14 s (7×) |
 | 4 | ListContents.LargeClonezillaPartitions.Zst | 5.2 min | 1.3 min | 2026-07-21 | **Clean — no action.** Cold 304 s IO-bound (59.5% raw file reads); warm 78→7 s (11×) from the accumulated #1–#3 fixes, no zst-specific work needed |
 | 5 | ListContents.LargeDriveImages.Bzip2 | 14.5 min | 2.2 min | 2026-07-21 | Cold clean (Release 900 s ≈ suite 870 s; Debug-config artifact explained the scare). **FIXED (L6)**: drive-image partitions get real caches — warm 75→21 s (3.6×) |
-| 6 | ListContents.LargeDriveImages.Gz | 58.3 min | 1 min | | |
+| 6 | ListContents.LargeDriveImages.Gz | 58.3 min | 1 min | 2026-07-24 | **Clean — no action.** Cold 68.3 min = gzip index build (66.4 min, within machine variance of the suite's good-night 58.3). Warm 60→18 s from L6, no gz-specific work |
 | 7 | ListContents.LargeDriveImages.Raw | 41.2 sec | 39.3 sec | | |
 | 8 | ListContents.LargeDriveImages.Xz | 3.9 min | 4 min | | |
 | 9 | ListContents.LargeDriveImages.Zst | 15.5 min | 1.2 min | | |
@@ -231,3 +231,18 @@ zero probes/extractor opens; warm trace shows only parked threads, output flushi
 remaining 50 MB whole-image identity hash (~6% incl). Remaining warm floor: Dokan Z: mount wait
 (~8 s bucket incl. that hash), 24 MB bzip2-index JSON load (~2 s), 276 MB Files.json STJ parse +
 print. Cold pays the same one-off population the partition tests do.
+
+### 6. ListContents.LargeDriveImages.Gz  (cold 4097 s + warm 18 s, private cache)
+
+Clean confirmation that L6 generalizes to gz — no new findings.
+
+**Cold (4097 s; suite 3498 on its best-ever night):** 66.4 min of it is the GzipSeekable index
+build (27.6 GB compressed → 2.199 TB uncompressed, 521,229 resume points, 142 fill spans) — the
+path exhaustively optimized in the gztool-decommission work (62.7 min measured then; the delta is
+the documented environmental swing, daytime vs overnight). Probes + listing + L6 cache population
+account for the last ~2 min. Nothing actionable.
+
+**Warm (18 s; suite 60 — 3.3×):** first gz drive-image listing with real partition caches. Faster
+than #5's 21 s because the whole-image identity hash decodes 50 MB through gz rather than bzip2,
+and the binary `.gzsi` index loads without a JSON parse. Listing content verified byte-identical
+to #5's (same underlying image, 829,904 lines, matching MD5 after stripping log lines).
