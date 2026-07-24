@@ -29,7 +29,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 19 | ListContents.SmallPartitionImages.zst | 8.1 sec | 8.5 sec | 2026-07-24 | **FIXED (L6)**: warm 8.5→2 s |
 | 20 | Mount.AsFiles.Ext4.ext4 | 15.4 sec | 14.1 sec | 2026-07-24 | **Clean** — warm 14→4 s (L6 tree-from-cache); cold ≈ suite |
 | 21 | Mount.AsFiles.Ext4.ext4_zst | 54.3 sec | 54.5 sec | 2026-07-24 | Warm 54.5→37 s (L6). Residual diagnosed: 24 s = full 33 GB decode to discover the virtual file's length (**Lead L7**: persist uncompressed length); 11 s = eager ext4 extractor scan through the restart stream |
-| 22 | Mount.AsFiles.LargeClonezillaImages.bzip2 | 8.4 min | 5.2 min | | |
+| 22 | Mount.AsFiles.LargeClonezillaImages.bzip2 | 8.4 min | 5.2 min | 2026-07-24 | Warm 312→267 s. Diagnosed: 202 s = eager native-7z pool opens for sda2 in the mount flow (file copies 0–2 s each; serving is fine). **Lead L9** |
 | 23 | Mount.AsFiles.LargeClonezillaImages.gz | 1.1 min | 1.1 min | | |
 | 24 | Mount.AsFiles.LargeClonezillaImages.xz | 6.9 min | 7.1 min | | |
 | 25 | Mount.AsFiles.LargeClonezillaImages.zst | 1.6 min | 1.7 min | | |
@@ -328,3 +328,24 @@ the length is discovered. Kills the 24 s for every "sequential"-decision compres
 need the serving-decision heuristic to prefer an index for huge-decompressed images (L8,
 riskier — the 10 s probe measures sequential throughput, not random access) — parked unless L7
 proves insufficient.
+
+### 22. Mount.AsFiles.LargeClonezillaImages.bzip2  (cold 1252 s + warm 267 s, private cache)
+
+Note: the suite's "cold" 8.4 min is index-warm — suite test #1 (ListContents, same image) has
+already built the three bzip2 indexes and file lists. The private-cache cold here is a true
+from-scratch build (matches #1's index-build time). Honest comparison is warm: 312 → 267 s.
+
+**Warm decomposition (diagnostic run, per-file copy timing):** mount-ready 216 s, then the three
+file copies took 0 s, 2 s, 1 s — the Dokan serving stack (CachingStream + bzip2 index reads) is
+NOT the problem. 202 of the 216 s is sda2's "Retrieving a list of files" (721,234 files) in
+`MountedPartitionImage.GetTree` — with a warm Files.json. That phase is the eager
+`DetermineExtractor.FindExtractor` native-7z worker pool construction (`MountedPartitionImage.cs:88`),
+which runs BEFORE the cache check (:126): every worker open re-scans NTFS structures through the
+bzip2 decoder. L4 fixed exactly this for ListContents but deliberately left the mount flow eager
+(D3: never open an archive inside a Dokan callback).
+
+**Lead L9 (to investigate): make mount-time pool population cheap without violating D3.**
+Candidates: open ONE worker before mount completes and grow the rest on background threads (not
+Dokan callbacks); or serialize the first open so its NTFS-metadata decodes land in CachingStream
+before the remaining workers open (turning 12 cold scans into 1 cold + 11 cached). Requires
+reading NativeExtractorPool + CODE_REVIEW_PLAN's DokanVFS notes first.
