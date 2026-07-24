@@ -45,7 +45,10 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 if (isPartcloneStream)
                 {
                     decompressedStream = new PartcloneStream("", "", streamToInspect);
-                    wholeFileCacheFolder = null;
+                    //keep the previous compression layer's identity folder: the partclone-decoded
+                    //content is a pure function of that layer's content, so the key stays stable
+                    //and unique - and nulling it here cost bare-partclone mounts their toplevel and
+                    //partition caches on every open (TEST_ANALYSIS.md #35, Lead L10)
                 }
                 else
                 {

@@ -42,7 +42,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 32 | Mount.AsFiles.LuksClonezillaImages.luks_ext4_500GB_zst | 21 sec | 21 sec | 2026-07-24 | Warm 21→15 s — same L9 shape via zst |
 | 33 | Mount.AsFiles.LuksClonezillaImages.luks_ntfs_20GB | 3.1 sec | 2.2 sec | 2026-07-24 | **Clean** — 1 s / 1 s |
 | 34 | Mount.AsFiles.LuksClonezillaImages.luks_ntfs_6GB | 2.2 sec | 3.2 sec | 2026-07-24 | **Clean** — 2 s / 1 s |
-| 35 | Mount.AsFiles.LuksParcloneImages.luks_ext4_500GB_gz | 3 min | 2.6 min | 2026-07-25 | Warm 156→139 s. **Lead L10**: bare-partclone flow — 41 s partclone-layer build (map not cached) + 94 s L9 opens through restart-gz (no index; decision "sequential"). Same image via clonezilla flow (#31) = 25 s |
+| 35 | Mount.AsFiles.LuksParcloneImages.luks_ext4_500GB_gz | 3 min | 2.6 min | 2026-07-25 | **FIXED (L10+L7)**: warm 139→110 s; the 41 s partclone-layer rebuild is now 1 s. Residual 107 s = pool scan through restart-gz (the parked L8 case) |
 | 36 | Mount.AsFiles.LuksParcloneImages.luks_ext4_500GB_zst | 3.1 min | 2.8 min | 2026-07-25 | Warm 168→124 s — same L10 shape via zst |
 | 37 | Mount.AsFiles.LuksParcloneImages.luks_ntfs_20GB | 12.2 sec | 12.2 sec | 2026-07-25 | **Clean** — warm 12→1 s |
 | 38 | Mount.AsFiles.LuksParcloneImages.luks_ntfs_6GB | 10.2 sec | 35.9 sec | 2026-07-25 | **Clean** — 10/3 s (suite's 35.9 warm was an environmental outlier) |
@@ -368,6 +368,19 @@ any restarts stream, and persists on first discovery. All three restarts constru
 share one factory. Verified: run 1 wrote 34,359,738,368 (= the 32 GiB image) to the identity
 folder; run 2 logged "Using cached uncompressed length" and the whole-image setup gap fell
 24 → 11 s. Applies to every sequential-decision compressed image and the no-index fallback path.
+
+**L10 RESOLVED (2026-07-25): warm bare-partclone mount 139 → 110 s; the 41 s layer rebuild is
+now 1 s.** Root cause was L6's own defensiveness: `CompressedImage` nulled the identity folder on
+the partclone iteration, costing bare-partclone containers their toplevel and partition caches
+every open. The partclone-decoded content is a pure function of the compression layer's content,
+so keeping that layer's folder is stable and unique — one deleted assignment. Verified: run 2
+shows whole-image setup 41 → 1 s (cached toplevel + partition decision + L7 length, all hitting).
+
+**Note on the residual (both #21 and #35): parallel pool opens mildly regress restart-backed
+streams** (#21 pool 11→18 s, #35 94→107 s — drifting concurrent scanners occasionally force full
+gz restarts), while winning 3× on index-backed streams (bzip2 226→57, xz 280→87). Net across the
+suite is strongly positive; the true fix for the restart-backed cases is L8 (prefer an index for
+huge-decompressed images regardless of sequential throughput), still parked.
 
 ### 22. Mount.AsFiles.LargeClonezillaImages.bzip2  (cold 1252 s + warm 267 s, private cache)
 
