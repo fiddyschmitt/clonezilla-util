@@ -27,8 +27,8 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 17 | ListContents.SmallPartitionImages.raw | 4.5 sec | 6.2 sec | 2026-07-24 | **FIXED (L6)**: warm 6→1 s |
 | 18 | ListContents.SmallPartitionImages.xz | 48.3 sec | 24.7 sec | 2026-07-24 | **FIXED (L6)**: warm 25→4 s |
 | 19 | ListContents.SmallPartitionImages.zst | 8.1 sec | 8.5 sec | 2026-07-24 | **FIXED (L6)**: warm 8.5→2 s |
-| 20 | Mount.AsFiles.Ext4.ext4 | 15.4 sec | 14.1 sec | | |
-| 21 | Mount.AsFiles.Ext4.ext4_zst | 54.3 sec | 54.5 sec | | |
+| 20 | Mount.AsFiles.Ext4.ext4 | 15.4 sec | 14.1 sec | 2026-07-24 | **Clean** — warm 14→4 s (L6 tree-from-cache); cold ≈ suite |
+| 21 | Mount.AsFiles.Ext4.ext4_zst | 54.3 sec | 54.5 sec | 2026-07-24 | Warm 54.5→37 s (L6). Residual diagnosed: 24 s = full 33 GB decode to discover the virtual file's length (**Lead L7**: persist uncompressed length); 11 s = eager ext4 extractor scan through the restart stream |
 | 22 | Mount.AsFiles.LargeClonezillaImages.bzip2 | 8.4 min | 5.2 min | | |
 | 23 | Mount.AsFiles.LargeClonezillaImages.gz | 1.1 min | 1.1 min | | |
 | 24 | Mount.AsFiles.LargeClonezillaImages.xz | 6.9 min | 7.1 min | | |
@@ -307,3 +307,24 @@ caching, serving-decision persistence, STJ file lists, lazy extractor (L4), driv
 caches (L6). Next: the Mount namespace (#20+), which exercises the Dokan serving stack the
 listings never touch — first candidates for the parked `Utilities.GetMemoryPressure()` polling
 observation from #1.
+
+### 20–21. Mount.AsFiles.Ext4  (2026-07-24; harness = suite-faithful mount+poll+MD5 protocol)
+
+**#20 ext4 (raw): clean.** Cold 17 s ≈ suite 15.4; warm 14 → 4 s (L6: tree from cached file list).
+
+**#21 ext4_zst: first real Mount-namespace finding — warm 54.5 → 37 s, improved but not
+collapsed.** Warm timeline (redirected diagnostic run): the whole-image serving decision is
+"sequential" (the .zst is ~1 MB holding 33 GB of near-zeros), and `CompressedImage` passes a null
+uncompressed length, so `SeekableStreamUsingRestarts` discovers the virtual decompressed file's
+length by decoding the entire 33 GB — **24 s on every open, cold and warm**. The remaining 11 s
+is the eager (D3-mandated) ext4 extractor open, whose backward seeks re-decode through the
+restart-based stream. Both expected-file MD5s verified through the mount in all legs.
+
+**Lead L7 (proposed, not implemented): persist the uncompressed length in the whole-file identity
+folder.** When `DecompressorSelector` serves a null-length stream, read a cached
+`uncompressed_length.txt` and hand it to `SeekableStreamUsingRestarts`; write it the first time
+the length is discovered. Kills the 24 s for every "sequential"-decision compressed image
+(hits exactly the small-compressed/huge-decompressed case). The 11 s extractor residual would
+need the serving-decision heuristic to prefer an index for huge-decompressed images (L8,
+riskier — the 10 s probe measures sequential throughput, not random access) — parked unless L7
+proves insufficient.
