@@ -22,11 +22,11 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 12 | ListContents.SmallClonezillaPartitions.gz | 10.5 sec | 5.8 sec | 2026-07-24 | **Clean** — 8 s / 1 s |
 | 13 | ListContents.SmallClonezillaPartitions.xz | 27.9 sec | 25.9 sec | 2026-07-24 | **Clean** — warm 26→3 s (L4 at small scale); cold ≈ suite |
 | 14 | ListContents.SmallClonezillaPartitions.zst | 10.4 sec | 7.5 sec | 2026-07-24 | **Clean** — 8 s / 1 s |
-| 15 | ListContents.SmallPartitionImages.Bzip2 | 43.2 sec | 32.3 sec | | |
-| 16 | ListContents.SmallPartitionImages.gz | 15.9 sec | 15.8 sec | | |
-| 17 | ListContents.SmallPartitionImages.raw | 4.5 sec | 6.2 sec | | |
-| 18 | ListContents.SmallPartitionImages.xz | 48.3 sec | 24.7 sec | | |
-| 19 | ListContents.SmallPartitionImages.zst | 8.1 sec | 8.5 sec | | |
+| 15 | ListContents.SmallPartitionImages.Bzip2 | 43.2 sec | 32.3 sec | 2026-07-24 | **FIXED (L6)**: warm 32→11 s; residual = 50 MB identity hash through bzip2 |
+| 16 | ListContents.SmallPartitionImages.gz | 15.9 sec | 15.8 sec | 2026-07-24 | **FIXED (L6)**: warm 16→2 s |
+| 17 | ListContents.SmallPartitionImages.raw | 4.5 sec | 6.2 sec | 2026-07-24 | **FIXED (L6)**: warm 6→1 s |
+| 18 | ListContents.SmallPartitionImages.xz | 48.3 sec | 24.7 sec | 2026-07-24 | **FIXED (L6)**: warm 25→4 s |
+| 19 | ListContents.SmallPartitionImages.zst | 8.1 sec | 8.5 sec | 2026-07-24 | **FIXED (L6)**: warm 8.5→2 s |
 | 20 | Mount.AsFiles.Ext4.ext4 | 15.4 sec | 14.1 sec | | |
 | 21 | Mount.AsFiles.Ext4.ext4_zst | 54.3 sec | 54.5 sec | | |
 | 22 | Mount.AsFiles.LargeClonezillaImages.bzip2 | 8.4 min | 5.2 min | | |
@@ -292,3 +292,18 @@ images have real clonezilla cache folders, so the #1–#4 fix set (serving-decis
 lists, lazy extractor) was already active: every warm leg sits at 1–3 s, cold ≈ suite within
 variance. Cold vs warm listing hashes verified identical per test; all four small-partition
 formats list the same 882 lines.
+
+### 15–19. SmallPartitionImages  (batch, 2026-07-24)
+
+L6 at small scale — pre-L6 these partition images had null caches, so every warm open re-paid
+the 10 s serving-decision probe plus a native NTFS re-scan. All five warm legs collapsed
+(bz2 32→11, gz 16→2, raw 6→1, xz 25→4, zst 8.5→2 s); colds ≈ suite within variance (bz2's 55 s
+is its index build). The bz2 warm residual is the 50 MB whole-file identity hash decoding
+through sequential bzip2 — same shape as #5, inherent to the identity key. Parity: all five
+formats, cold and warm, produce the byte-identical 170-line listing (container prefix stripped).
+
+**ListContents namespace (#1–#19) complete.** Fixes shipped during the sweep: SharedStream length
+caching, serving-decision persistence, STJ file lists, lazy extractor (L4), drive-image partition
+caches (L6). Next: the Mount namespace (#20+), which exercises the Dokan serving stack the
+listings never touch — first candidates for the parked `Utilities.GetMemoryPressure()` polling
+observation from #1.
