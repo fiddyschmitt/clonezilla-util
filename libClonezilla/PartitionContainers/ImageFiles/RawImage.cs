@@ -25,11 +25,6 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             SetupFromStream(rawImageStream, archiveEntries, willPerformRandomSeeking, processTrailingNulls);
         }
 
-        static readonly System.Text.Json.JsonSerializerOptions TopLevelJsonOptions = new()
-        {
-            IncludeFields = true,
-        };
-
         // Lists the top level of the image via the native 7-Zip engine, NON-recursively: for a drive
         // image this yields the partition table (each partition with its byte Offset); for a single
         // partition image it yields the filesystem's files. SetupFromStream uses the first entry to
@@ -46,7 +41,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 try
                 {
                     using var fs = File.OpenRead(cacheFilename);
-                    var cached = System.Text.Json.JsonSerializer.Deserialize<List<ArchiveEntry>>(fs, TopLevelJsonOptions);
+                    var cached = System.Text.Json.JsonSerializer.Deserialize(fs, Cache.ArchiveEntryJsonContext.Default.ListArchiveEntry);
                     if (cached != null)
                     {
                         return cached;
@@ -85,7 +80,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 try
                 {
                     using var fs = File.Create(cacheFilename);
-                    System.Text.Json.JsonSerializer.Serialize(fs, entries, TopLevelJsonOptions);
+                    System.Text.Json.JsonSerializer.Serialize(fs, entries, Cache.ArchiveEntryJsonContext.Default.ListArchiveEntry);
                 }
                 catch (Exception ex)
                 {
