@@ -73,12 +73,6 @@ namespace libClonezilla.Cache
             IncludeFields = true,
         };
 
-        public string GetServingDecisionFilename()
-        {
-            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.serving_decision.txt");
-            return result;
-        }
-
         public string GetUncompressedLengthFilename()
         {
             var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.uncompressed_length.txt");

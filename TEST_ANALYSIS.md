@@ -28,7 +28,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 18 | ListContents.SmallPartitionImages.xz | 48.3 sec | 24.7 sec | 2026-07-24 | **FIXED (L6)**: warm 25→4 s |
 | 19 | ListContents.SmallPartitionImages.zst | 8.1 sec | 8.5 sec | 2026-07-24 | **FIXED (L6)**: warm 8.5→2 s |
 | 20 | Mount.AsFiles.Ext4.ext4 | 15.4 sec | 14.1 sec | 2026-07-24 | **Clean** — warm 14→4 s (L6 tree-from-cache); cold ≈ suite |
-| 21 | Mount.AsFiles.Ext4.ext4_zst | 54.3 sec | 54.5 sec | 2026-07-24 | **FIXED (L6+L7+L9)**: warm 54.5→31 s; the 24 s decode-to-discover-length is gone (cached `uncompressed_length.txt`), residual = single ext4 pool scan |
+| 21 | Mount.AsFiles.Ext4.ext4_zst | 54.3 sec | 54.5 sec | 2026-07-24 | **FIXED (L6+L7+L9+L8)**: warm 54.5→5 s after probe removal — the zstd fill-span index makes the ext4 scan nearly free; one-off 24 s index build |
 | 22 | Mount.AsFiles.LargeClonezillaImages.bzip2 | 8.4 min | 5.2 min | 2026-07-24 | **FIXED (L9)**: parallel pool opens — warm 267→84 s (3.2×); sda2 pool 226→57 s |
 | 23 | Mount.AsFiles.LargeClonezillaImages.gz | 1.1 min | 1.1 min | 2026-07-24 | **Clean** — warm 66→26 s; pool opens through gz cost ~2 s/worker vs bzip2's ~17 (L9 is decode-bound). Cold 407 s = true index build |
 | 24 | Mount.AsFiles.LargeClonezillaImages.xz | 6.9 min | 7.1 min | 2026-07-24 | **FIXED (L9)**: warm 309→110 s (2.8×); sda2 pool ~280→87 s. Cold 1458 s = true LZMA2 checkpoint build |
@@ -42,7 +42,7 @@ the environmental swing is documented in PERFORMANCE_PLAN.md.
 | 32 | Mount.AsFiles.LuksClonezillaImages.luks_ext4_500GB_zst | 21 sec | 21 sec | 2026-07-24 | Warm 21→15 s — same L9 shape via zst |
 | 33 | Mount.AsFiles.LuksClonezillaImages.luks_ntfs_20GB | 3.1 sec | 2.2 sec | 2026-07-24 | **Clean** — 1 s / 1 s |
 | 34 | Mount.AsFiles.LuksClonezillaImages.luks_ntfs_6GB | 2.2 sec | 3.2 sec | 2026-07-24 | **Clean** — 2 s / 1 s |
-| 35 | Mount.AsFiles.LuksParcloneImages.luks_ext4_500GB_gz | 3 min | 2.6 min | 2026-07-25 | **FIXED (L10+L7)**: warm 139→110 s; the 41 s partclone-layer rebuild is now 1 s. Residual 107 s = pool scan through restart-gz (the parked L8 case) |
+| 35 | Mount.AsFiles.LuksParcloneImages.luks_ext4_500GB_gz | 3 min | 2.6 min | 2026-07-25 | **FIXED (L10+L7+L8)**: warm 139→91 s (probe removal: pool scan via gz-zran index instead of restarts). Residual = honest ext4 metadata decode through LUKS+partclone+gz |
 | 36 | Mount.AsFiles.LuksParcloneImages.luks_ext4_500GB_zst | 3.1 min | 2.8 min | 2026-07-25 | Warm 168→124 s — same L10 shape via zst |
 | 37 | Mount.AsFiles.LuksParcloneImages.luks_ntfs_20GB | 12.2 sec | 12.2 sec | 2026-07-25 | **Clean** — warm 12→1 s |
 | 38 | Mount.AsFiles.LuksParcloneImages.luks_ntfs_6GB | 10.2 sec | 35.9 sec | 2026-07-25 | **Clean** — 10/3 s (suite's 35.9 warm was an environmental outlier) |
@@ -381,6 +381,19 @@ streams** (#21 pool 11→18 s, #35 94→107 s — drifting concurrent scanners o
 gz restarts), while winning 3× on index-backed streams (bzip2 226→57, xz 280→87). Net across the
 suite is strongly positive; the true fix for the restart-backed cases is L8 (prefer an index for
 huge-decompressed images regardless of sequential throughput), still parked.
+
+**L8 RESOLVED by removing the probe entirely (2026-07-25).** The 10-second serving-decision
+benchmark dated from the gztool/extraction era; with cached in-process indexes for every
+mainstream format its only distinctive behavior was choosing "sequential" for
+small-compressed/huge-decompressed images — the exact remaining pathology. `GetSeekableStream`
+now always serves index-backed; formats without an index (lz4/lzip) fall back to restart-based
+seeking exactly as the old "sequential" verdict did, raw FileStreams still serve directly, and
+the decision-persistence plumbing (probe, `serving_decision.txt` read/write, the L2 fix it
+existed for) is deleted — stale decision files in existing caches are ignored. Verified:
+ext4_zst warm mount 31→5 s (one-off 24 s index build), partclone-gz warm 110→91 s (pool scan via
+gz-zran; the residual is honest scattered ext4-metadata decode), bzip2 clonezilla mount 85 s ≈
+unchanged (index-backed streams unaffected). Cold cost shifts from a 10 s probe to a one-off
+cached index build per stream.
 
 ### 22. Mount.AsFiles.LargeClonezillaImages.bzip2  (cold 1252 s + warm 267 s, private cache)
 
