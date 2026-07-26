@@ -680,6 +680,18 @@ not code, drives run-to-run variance), bzip2 drive 27.4→14.5, Ubuntu 18.2→10
 the one elevated outlier (daytime tail). The Defender-exclusion/power-plan experiment remains the
 open environmental lead.
 
+**CONFIRMED by the 07-26 suite pair (2.9.0 RC: full test-analysis campaign — L4/L6 caches,
+L7 length persistence, L9 parallel pool opens, L10 partclone caches, L8 probe removal, plus the
+source-gen STJ trimming fix): cold 71/71 = 268 min (−20%, best ever) and warm 71/71 =
+28.1 min (−68%, 3.2×).** Warm highlights vs 07-21: drive-image listings collapsed (xz 4 min→26 s,
+bzip2 2.2 min→22 s), large mounts via L9 (clonezilla bzip2 5.2→1.5 min, xz 7.1→2.2 min),
+probe-removal wins (ext4_zst mount 54.5→7.2 s, dd mount 1.7 min→29 s, Ubuntu halved), and Sparse
+warm 23.1→4.8 min — now equal to cold, confirming the old warm number was environmental. Cold
+dropped 69 min while absorbing the new one-off index builds; its remaining giants are honest
+work (gz drive index build 57.9 min, dd 104.5 min). Per-test detail and the campaign record live
+in TEST_ANALYSIS.md. Minor watch item: MultipleContainers_MultiplePartitions warm 26.5 s vs cold
+3.3 s (inverted, small — revisit only if it repeats).
+
 **Implemented option 1: in-process zran reads using gztool's existing index.** gztool remains the
 index *builder* (unchanged, reliable); the per-read `gztool.exe` subprocess is gone. Design:
 
