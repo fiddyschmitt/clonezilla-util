@@ -427,3 +427,32 @@ then hit it fresh; the pool now costs ~one scan (sda2: 57 s bzip2, 87 s xz). Exc
 from AggregateException so callers still see NotAnArchiveException; the D3 invariant (open before
 mount completes) is untouched. Remaining warm floor for these mounts is that single scan — a
 persistent metadata-region cache could attack it later, noted but not planned.
+
+---
+
+## Golden-reference quartet test (2026-07-28)
+
+New test `Mount/AsFiles/GoldenReferenceQuartet` verifies the PB-DEVOPS1 quartet mounts against
+golden MD5 lists produced entirely without clonezilla-util (7-Zip decompress → patched
+partclone-for-Windows restore → 7-Zip NTFS extract → md5sum; lists + provenance README live in
+`E:\clonezilla-util-test resources\golden reference`, outside git).
+
+**Run 1 (zst, DOP 8, default 4 KB reads, 9 h 56 m): all 558,893 hashable files matched their
+independent golden MD5 — zero content errors.** The 342 reported failures were fully accounted
+for and are now encoded as test expectations: 321 desktop.ini entries (deliberately filtered out
+of the mount by `MountedPartitionImage` so Explorer doesn't hammer it) and 21 colon-named NTFS
+alternate-data-stream items (`[SYSTEM]\$Secure:$SDS` etc. plus one DFSR `ContentSet{…}:…` ADS)
+that 7-Zip could never extract into the golden lists (':' is illegal in filenames).
+
+**Lead L11 (to investigate): concurrent-read serving corruption under load.** Run 2 (same image,
+same exe, but DOP 16 with 1 MB `SequentialScan` FileStreams; 13 h 46 m) produced 32,226 MD5
+mismatches + 944 read errors ("A device attached to the system is not functioning") on files that
+run 1 hashed cleanly — including two different files returning IDENTICAL wrong content
+(cross-file data bleed). The test side cannot corrupt (per-thread FileStreams), so the mount
+served wrong bytes under the heavier request pattern. Note the native worker-pool concurrency
+ceiling is 4 in both runs — the variable is the Dokan-side pattern (16 pending large reads vs 8
+small). Suspects: DokanVFS ReadFile buffer/offset handling for large reads, or the shared
+partition-stream path under interleaved large seeks (cf. CODE_REVIEW_PLAN C1). A user doing a
+heavy parallel copy (e.g. robocopy /MT) could plausibly hit this. Full failure list preserved at
+`%TEMP%\GoldenReferenceQuartet-2022-07-16-22-img_pb-devops1_zst-failures.txt`. The test now pins
+DOP 8 + File.OpenRead (the proven-clean pattern).
