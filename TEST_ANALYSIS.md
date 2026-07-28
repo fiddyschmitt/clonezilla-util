@@ -456,3 +456,14 @@ partition-stream path under interleaved large seeks (cf. CODE_REVIEW_PLAN C1). A
 heavy parallel copy (e.g. robocopy /MT) could plausibly hit this. Full failure list preserved at
 `%TEMP%\GoldenReferenceQuartet-2022-07-16-22-img_pb-devops1_zst-failures.txt`. The test now pins
 DOP 8 + File.OpenRead (the proven-clean pattern).
+
+**Run 3 (2026-07-29): PASSED — 11 h 22 m, zero failures.** Same zst image, reverted read
+pattern (DOP 8, `File.OpenRead`), with the desktop.ini/ADS expectations from 3356d4c. All
+558,893 hashable files matched their independent golden MD5s, the 321 desktop.ini golden
+entries were confirmed absent (the deliberate mount filter), and the extras sweep passed with
+colon-named ADS entries skipped. This is the end-to-end proof: clonezilla-util's listing AND
+content for the PB-DEVOPS1 zst image are byte-identical to a pipeline that never touches
+clonezilla-util code. Runtime (~10-11.5 h per codec) means the quartet belongs in its own
+long-running category, not the standard suite; the other three codecs (bzip2/gz/xz) share the
+proven-identical compressed payload, so running them adds codec-path coverage rather than
+content coverage.
