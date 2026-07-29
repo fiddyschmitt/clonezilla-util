@@ -653,3 +653,39 @@ Next experiment to pin it: on the S3 branch, serialize the paging path against t
 (one lock per file for both `ReadForMemoryMap` and normal reads) and re-run the mount verify. If clean,
 the paging/handle interleaving is the cause; fixing it would also unblock S3 (whose decode/cache is
 already proven correct) and remove L11 from today's product.
+
+#### L11 further narrowed: every managed layer exonerated (2026-07-29)
+
+Continued the bisection past the Dokan boundary. Each layer the mount uses that `poolverify` does
+not was audited/decompiled:
+
+- **DokanNet 2.3.0.3 buffer pool / adapter** (`DokanOperationsAdapter.ReadFile` → `BufferPool`,
+  decompiled): the adapter rents an exact-size `byte[]` from a process-wide `ConcurrentBag` pool,
+  passes it to our `ReadFile`, then `CopyTo`s it to the native buffer. `ReturnBuffer` does
+  `Array.Clear` before re-pooling, and `RentBuffer` hands out distinct buffers — so no stale data and
+  no shared buffer across concurrent reads. **Not the cause.**
+- **The path lookup on the paging path** (`RootFolder.GetEntryFromPath` → `Folder.GetChild`): the
+  normal read path uses `info.Context` and never looks up by name, but the memory-mapped/paging path
+  (`DokanVFS.ReadFile` with `info.Context == null`, which the OS cache manager drives) resolves the
+  file by path. `GetChild` is a lock-guarded dictionary lookup, so it returns the correct entry under
+  concurrency. **Not the cause.**
+- **`FileEntry.ReadForMemoryMap`**: serves the paging path from a per-file reusable stream, correctly
+  bound to that file. **Not the cause.**
+
+With the 7z/decode/cache stack, the DokanNet managed layer, and the VFS lookup all proven correct
+under concurrency, L11 sits in the **Dokan driver / Windows cache-manager coherency under concurrent
+fast reads** — below our managed code. S3 exposes it by making decodes fast and parallel (so the cache
+manager drives many concurrent paging reads); the serialized-decode S2 build spaces reads out enough
+to (nearly) never hit it. This is consistent with L11 being pre-existing and with the golden test
+avoiding it via DOP 8 + `File.OpenRead`.
+
+**Options for the user to weigh (each a trade-off, none free):**
+- Disable OS caching for the mount (serve every read directly, no cache-manager paging). Would likely
+  sidestep the driver race, but removes OS caching of hot pages (e.g. the `$MFT`) - a real throughput
+  cost that must be measured.
+- Implement `IDokanOperationsUnsafe` (read straight into the native buffer, bypassing the managed
+  adapter). Clean and slightly faster, but the adapter was shown correct, so this alone is unlikely to
+  fix the driver-level race.
+- Investigate/curate the Dokan driver version (the race is in unmanaged Dokan/cache-manager code).
+
+Net: S3's decode/cache is correct and ready; shipping it needs the Dokan-layer race resolved first.
