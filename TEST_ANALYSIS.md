@@ -467,3 +467,92 @@ clonezilla-util code. Runtime (~10-11.5 h per codec) means the quartet belongs i
 long-running category, not the standard suite; the other three codecs (bzip2/gz/xz) share the
 proven-identical compressed payload, so running them adds codec-path coverage rather than
 content coverage.
+
+## Why MD5-through-the-mount is slow (profiled 2026-07-29) — Lead L12
+
+Question: run 3 hashed 57.1 GiB in 11 h 22 m (~1.4 MB/s effective at DOP 8), while the
+independent pipeline extracted the very same content in under 3 h total (zstd decompress
+24.7 MB/s, partclone restore 16 min, 7z extract of all 558k files ≤ 63 min). Where do the
+extra ~8.5 hours go?
+
+Method: a scratch console harness reproduced the mount's exact serving stack WITHOUT Dokan
+(PartitionContainer.FromPath → SharedStream → NativeExtractorPool) and timed each layer;
+client-side benchmarks ran identical workloads against the Dokan mount and against the
+extracted tree on native NTFS; dotnet-trace captured 90 s of the mount under golden-style
+load (20k files, DOP 8, 4 KB reads); Win32_Process.ReadTransferCount before/after a cold
+2,000-file slice measured physical read amplification directly.
+
+### Exonerated (measured, not guessed)
+
+- **Dokan itself**: ~0.2 ms per ReadFile round trip (0.203 ms cold-sequential through the
+  mount vs 0.135 ms same pattern in-process), ~2.9 ms per open/close. Across the full run's
+  ~14 M reads + 560k opens at DOP 8 that is minutes, not hours.
+- **The per-read item reopen** (PooledNativeItemStream opens the 7z item on every Read):
+  7 µs per open. Invisible.
+- **MD5**: 420 MB/s per core in-memory.
+- **Disk**: the mount read the .zst at ~4 MB/s while "busy" — the SSD was idle.
+- **The stack when warm**: 4 KB reads through pool.Extract at >1 GB/s; whole-stack
+  sequential cold single-stream: 19–29 MB/s; raw partition stream sequential 1 MB reads:
+  156 MB/s.
+
+### Convicted: cold-miss economics of the shared decompression stream
+
+The zstd random-access index has resume points every ~64 MB of decompressed output
+(ZstdSeekable TargetSpanBytes); CachingStream misses fetch 32 MB-aligned sub-spans
+(SeekableZstdStream.GetRecommendation). Serving a cold 4 KB read therefore costs: resume at
+the previous point, decode-and-discard up to 32 MB (ZstdFrameHelpers.Skip), then decode the
+32 MB sub-span — **measured 292 ms per cold random 4 KB read** (C2). And every miss runs
+under CachingStream's single cacheLock, so concurrent misses fully serialize.
+
+The golden workload is the worst case for this design: 8 threads reading 558k files in
+golden-list (name) order, 4 KB at a time, over a 139 GB decompressed space with an effective
+RAM cache of only ~3.3 GB (¼ RAM ÷ 3 mounted partitions on the 40 GB machine ≈ 104 cache
+entries of 32 MB). Files adjacent by name are scattered by cluster, so sub-spans get evicted
+and re-decoded over and over.
+
+Key measurements:
+
+| measurement | result |
+|---|---|
+| 8 files, 4 KB reads, DOP 4, cold, NO Dokan | **1.26 MB/s** (the golden run's rate, reproduced without Dokan) |
+| same stack, single stream, cold, sequential 4 KB | 29 MB/s |
+| same ranges re-read warm, DOP 8 | 990 MB/s |
+| cold random 4 KB at partition level | 292 ms/read |
+| cold small file (one scattered read each) | 18–27 files/s (~40–55 ms each) |
+| 20k-file golden-order macro, DOP 8: mount vs native NTFS | 939.8 s vs 198.3 s (3.2 vs 15.3 MB/s) |
+| physical reads to serve a cold 43 MB slice | 292 MB compressed = **6.7× physical, ~46× decode amplification** |
+
+dotnet-trace under load (1,609 thread-seconds sampled in 90 s wall): 25.7% of thread-time
+blocked in Monitor.Enter (cacheLock + Serilog sink lock), 23.1% waiting for one of the 4
+native workers (themselves queued behind the lock), 23.8% in the 7z input callback (the
+partition stream), but only **~2.6% actually decompressing** — roughly half a core of
+productive decode while everything else waits. The pipeline is a queue, not a pipeline.
+
+Secondary finding: the exe logs at MinimumLevel.Debug with a WriteTo.Debug sink, so every
+Dokan operation formats a message and calls OutputDebugString under the global sink lock —
+**~22% of thread-time under load** (Serilog FilteringSink.Emit 14.9% + DebugProvider.WriteCore
+6.7%). Millions of ops pay it.
+
+Why "just copying the files out of the image" is fast: extraction decodes each compressed
+byte exactly once, in order, with no per-4 KB locking — the same reason C1 (sequential 1 MB)
+runs at 156 MB/s. The golden pipeline's 7z-from-raw-image reads in extent order at SSD speed.
+
+### Cheap wins available (not yet implemented)
+
+1. **Raise the log level / drop the Debug sink for mounts** — recovers most of the ~22%
+   logging thread-time and removes a contended global lock from every operation.
+2. **Bigger client reads help enormously**: through the mount, 64 KB reads ran 304 MB/s vs
+   19 MB/s for 4 KB (warm). The golden test's File.OpenRead uses a 4 KB FileStream buffer;
+   a 1 MB buffer at DOP 8 would cut mount-side request count ~256× for large files (note:
+   DOP 16 + 1 MB triggered L11 corruption; DOP 8 + large buffer is untested against L11).
+3. **Decode outside the lock**: CachingStream serializes the whole miss (seek+decode) under
+   cacheLock. Decoding into the entry outside the lock (per-span in-flight registry) would
+   let the 4 workers actually run in parallel.
+4. **Persist decoded spans to disk** (the whole-file identity cache folder already exists):
+   139 GB decoded once at ~156 MB/s is 15 min; the golden run effectively decoded the image
+   ~30–45× over.
+5. **Per-handle read-ahead** for the overwhelmingly-sequential per-file pattern would turn
+   interleaved 4 KB misses back into sequential span decodes.
+
+Harness/bench sources and the 90 s .nettrace live in the session job folder (scratch, not
+committed); all numbers above are recorded here so nothing depends on those files surviving.
