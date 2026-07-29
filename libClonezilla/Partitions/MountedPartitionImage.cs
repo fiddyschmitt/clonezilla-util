@@ -73,10 +73,25 @@ namespace libClonezilla.Partitions
 
             // Feed the native engine the partition's in-process decompressed stream directly (NOT the
             // Dokan path) - reading our own mount in-process risks a Dokan callback-thread deadlock.
-            // Each reader gets its own view (independent position) over the shared FullPartitionImage.
             var partitionStream = Partition.FullPartitionImage
                 ?? throw new Exception($"[{container.ContainerName}] [{partitionName}] {nameof(Partition.FullPartitionImage)} is not initialised.");
-            var sharedPartitionStream = new SharedStream(partitionStream);
+
+            // Each native 7z worker gets its own independent cursor over the partition's decompressed
+            // stream. When that stream is positional (the compressed serving path: PartcloneStream over a
+            // CachingStream), the workers read via lock-free ReadAt - no SharedStream gate held across the
+            // whole decode, no PartcloneStream.streamLock on the serving path, so the workers finally
+            // decode in parallel (the CachingStream cache lock still serializes misses until S3). A
+            // non-positional stream (e.g. a raw uncompressed image file) keeps the gated shared-view feeder.
+            Func<Stream> partitionStreamFactory;
+            if (partitionStream is IPositionalReader positionalPartition)
+            {
+                partitionStreamFactory = () => new PositionalCursorStream(positionalPartition);
+            }
+            else
+            {
+                var sharedPartitionStream = new SharedStream(partitionStream);
+                partitionStreamFactory = sharedPartitionStream.CreateView;
+            }
 
             IExtractor extractor;
             List<ArchiveEntry> filesInArchive;
@@ -85,7 +100,7 @@ namespace libClonezilla.Partitions
             {
                 // Building the extractor opens (and pre-warms) the partition - one unreadable partition
                 // must not bring down the whole mount, so this is inside the try.
-                extractor = DetermineExtractor.FindExtractor(sharedPartitionStream.CreateView);
+                extractor = DetermineExtractor.FindExtractor(partitionStreamFactory);
 
                 if (extractor is IFileListProvider fileListProvider)
                 {
