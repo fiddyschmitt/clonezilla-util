@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 
 namespace libPartclone
 {
-    public class PartcloneStream : Stream, ISparseAwareReader
+    public class PartcloneStream : Stream, ISparseAwareReader, IPositionalReader
     {
         public PartcloneImageInfo? PartcloneImageInfo { get; }
         long position = 0;
@@ -113,6 +113,42 @@ namespace libPartclone
                 position += bytesRead;
 
                 return bytesRead;
+            }
+        }
+
+        //Absolute positional read: translates the logical partition offset to a content offset via the
+        //immutable content map and reads that region from the (shared) decompressed stream. Touches no
+        //instance state - not this.position, not streamLock, and NOT the ISparseAwareReader fields
+        //(those belong to the single-threaded extract-to-sparse-file path, on Read). So many workers may
+        //call this concurrently over one PartcloneStream, provided the inner stream is itself positional.
+        public int ReadAt(long readPosition, byte[] buffer, int offset, int count)
+        {
+            var readStream = PartcloneImageInfo?.ReadStream;
+            if (readStream == null) return 0;
+            if (readPosition >= Length || count <= 0) return 0;
+
+            var location = contentMap.Locate(readPosition, count);
+            if (location.Length <= 0) return 0;
+
+            if (!location.IsPopulated)
+            {
+                //a hole (sparse region): the content map guarantees these bytes are zero
+                Array.Clear(buffer, offset, location.Length);
+                return location.Length;
+            }
+
+            if (readStream is IPositionalReader positional)
+            {
+                return positional.ReadAt(location.ContentOffset, buffer, offset, location.Length);
+            }
+
+            //Fallback: the inner stream has no positional API (e.g. a raw uncompressed FileStream, served
+            //with no cache layer). Serialize a stateful seek+read - correct, just not concurrent. Such
+            //partitions never reach the parallel-decode path anyway.
+            lock (streamLock)
+            {
+                readStream.Seek(location.ContentOffset, SeekOrigin.Begin);
+                return readStream.Read(buffer, offset, location.Length);
             }
         }
 

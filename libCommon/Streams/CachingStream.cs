@@ -8,7 +8,7 @@ using Serilog;
 
 namespace libCommon.Streams
 {
-    public class CachingStream(Stream baseStream, IReadSuggestor? readSuggestor, EnumCacheType cacheType, int cacheLimitValue, List<CacheEntry>? precapturedCache) : Stream
+    public class CachingStream(Stream baseStream, IReadSuggestor? readSuggestor, EnumCacheType cacheType, int cacheLimitValue, List<CacheEntry>? precapturedCache) : Stream, IPositionalReader
     {
         public override bool CanRead => true;
 
@@ -63,21 +63,33 @@ namespace libCommon.Streams
 
         public override int Read(byte[] buffer, int offset, int count)
         {
+            //Stream.Read owns the single mutable cursor; the actual work is positional (ReadAt), so
+            //parallel readers of the same cache go through ReadAt directly and never touch this position.
+            var n = ReadAt(position, buffer, offset, count);
+            position += n;
+            return n;
+        }
+
+        //Absolute positional read: carries its own position, touches no shared cursor.
+        //(S1: still serialized on cacheLock across the decode; S3 narrows the lock so misses on
+        //different spans decode in parallel.)
+        public int ReadAt(long readPosition, byte[] buffer, int offset, int count)
+        {
             //the cache list is not safe to mutate concurrently; callers may serve multiple readers
             lock (cacheLock)
             {
-                return ReadInternal(buffer, offset, count);
+                return ReadInternal(readPosition, buffer, offset, count);
             }
         }
 
-        int ReadInternal(byte[] buffer, int offset, int count)
+        int ReadInternal(long readPosition, byte[] buffer, int offset, int count)
         {
             CacheEntry? servedEntryToReturn = null;
 
             //linear scan rather than FirstOrDefault, to avoid allocating a this-capturing
             //closure on every read. The cache is LRU-ordered (newest first), so a hot entry
             //is found near the front.
-            var pos = Position;
+            var pos = readPosition;
             CacheEntry? cacheEntry = null;
             for (int i = 0; i < cache.Count; i++)
             {
@@ -94,18 +106,18 @@ namespace libCommon.Streams
                 (long Start, long End) recommendedRead;
                 if (ReadSuggestor == null)
                 {
-                    var to = Math.Max(Position + count, Position + 1024 * 1024);
+                    var to = Math.Max(readPosition + count, readPosition + 1024 * 1024);
                     to = Math.Min(to, Length);
-                    recommendedRead = (Position, to);
+                    recommendedRead = (readPosition, to);
                 }
                 else
                 {
-                    recommendedRead = ReadSuggestor.GetRecommendation(Position);
+                    recommendedRead = ReadSuggestor.GetRecommendation(readPosition);
                 }
 
                 if (recommendedRead.Start == -1 || recommendedRead.End == -1)
                 {
-                    throw new Exception($"Could not get recommendation for reading {count:N0} bytes from position {Position:N0}");
+                    throw new Exception($"Could not get recommendation for reading {count:N0} bytes from position {readPosition:N0}");
                 }
 
                 var maxReadSize = Math.Min(int.MaxValue, Array.MaxLength);
@@ -114,22 +126,22 @@ namespace libCommon.Streams
                 var toReadLong = recommendedRead.End - recommendedRead.Start;
                 if (toReadLong > maxReadSize)
                 {
-                    if (Position < (recommendedRead.Start + maxReadSize))
+                    if (readPosition < (recommendedRead.Start + maxReadSize))
                     {
                         //Let's bring down the recommend end
                         recommendedRead.End = recommendedRead.Start + maxReadSize;
                     }
                     else
                     {
-                        if (Position > (recommendedRead.End - maxReadSize))
+                        if (readPosition > (recommendedRead.End - maxReadSize))
                         {
                             //Let's bring up the recommended start
                             recommendedRead.Start = recommendedRead.End - maxReadSize;
                         }
                         else
                         {
-                            recommendedRead.Start = Position;
-                            recommendedRead.End = Position + Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER;
+                            recommendedRead.Start = readPosition;
+                            recommendedRead.End = readPosition + Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER;
                         }
                     }
                 }
@@ -236,7 +248,7 @@ namespace libCommon.Streams
                 cache.Insert(0, cacheEntry);
             }
 
-            var bytesLeftInThisRange = cacheEntry.End - Position;
+            var bytesLeftInThisRange = cacheEntry.End - readPosition;
 
             var bytesToRead = (int)Math.Min(count, bytesLeftInThisRange);
 
@@ -245,7 +257,7 @@ namespace libCommon.Streams
                 throw new Exception($"Doing a zero-byte read");
             }
 
-            var deltaFromBeginningOfRange = Position - cacheEntry.Start;
+            var deltaFromBeginningOfRange = readPosition - cacheEntry.Start;
             if (deltaFromBeginningOfRange < 0)
             {
                 throw new Exception("deltaFromBeginningOfRange < 0");
@@ -253,7 +265,7 @@ namespace libCommon.Streams
 
             Array.Copy(cacheEntry.Content, deltaFromBeginningOfRange, buffer, offset, bytesToRead);
 
-            Position += bytesToRead;
+            //no shared Position to advance - ReadAt is positional; Stream.Read advances its own cursor.
 
             if (servedEntryToReturn != null)
             {

@@ -14,9 +14,27 @@ namespace libClonezilla.Decompressors
     /// CachingStream falls back to ~1 MB segments and every cold segment would pay a resume plus
     /// up-to-a-span of decode-and-discard - a 30-60x decode amplification on cold scans.
     /// </summary>
-    public class SeekableZstdStream(ZstdIndexedStream inner, ZstdIndex index) : Stream, IReadSuggestor
+    public class SeekableZstdStream(ZstdIndexedStream inner, ZstdIndex index) : Stream, IReadSuggestor, IPositionalReader
     {
         const long RecommendationSubSpanBytes = 32L * 1024 * 1024;
+
+        //Absolute positional read. Each call takes its own independent cursor (own position, own
+        //ephemeral decoder), sharing only the immutable index and the compressed source, so concurrent
+        //ReadAt calls decode in parallel - this is what lets CachingStream (S3) decode misses on
+        //different spans at the same time. Loops because the view returns short at span/fill boundaries.
+        public int ReadAt(long readPosition, byte[] buffer, int offset, int count)
+        {
+            using var view = inner.CreateView();
+            view.Position = readPosition;
+            var total = 0;
+            while (total < count)
+            {
+                var n = view.Read(buffer, offset + total, count - total);
+                if (n == 0) break;
+                total += n;
+            }
+            return total;
+        }
 
         public (long Start, long End) GetRecommendation(long start)
         {
