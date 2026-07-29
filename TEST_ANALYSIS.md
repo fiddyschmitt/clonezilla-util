@@ -689,3 +689,41 @@ avoiding it via DOP 8 + `File.OpenRead`.
 - Investigate/curate the Dokan driver version (the race is in unmanaged Dokan/cache-manager code).
 
 Net: S3's decode/cache is correct and ready; shipping it needs the Dokan-layer race resolved first.
+
+### L11 ROOT CAUSE FOUND: S3 single-flight starved the worker pool (2026-07-29)
+
+The earlier "S3 corrupts the mount" was chased to ground. It is **not** the Dokan driver and
+**not** the decode/cache correctness (every isolation test is byte-perfect). It is a flaw in the
+S3 single-flight design, triggered by a client dying mid-read.
+
+**How it was found.** A Dokan-free harness driving the exact 7z + decode + cache path at DOP 16
+was clean; so was one exercising `FileEntry.ReadForMemoryMap`; the DokanNet buffer pool (decompiled)
+clears buffers and hands out distinct ones. A fresh S3 mount was clean, and macro-load + verify was
+clean. The one run that ever bled (verify4, 13/400) had followed a **force-killed** client. Replaying
+that exactly reproduced it: **S3 + kill = 20 mismatches + 22 "Insufficient system resources" errors**;
+**S2 + kill = clean**; **S3 without a kill = clean**. Reverse-mapping the wrong hashes showed genuine
+cross-file bleed (files served other files' content, in chains).
+
+**Mechanism.** S3's single-flight coalescing made a reader that found a span already being decoded
+block in `slot.Ready.Wait()` **while holding its native 7z worker** (the wait sits deep inside the 7z
+read, under the pool borrow). Under same-span contention - and especially the burst when a client is
+killed mid-read - waiters pin all 4 workers, so other reads can't get one and hit the Dokan timeout
+(0x800705AA). A timed-out `ReadFile` then completes and writes its bytes **late**, into a buffer Dokan
+had already reclaimed and reissued for a different file - cross-file bleed. S2 has no
+waiters-holding-workers, so no starvation, no timeouts, no late write. That the resource errors and
+the bleed appear together (and only in S3+kill) is the signature.
+
+**Why this invalidated the earlier attribution.** The original "S2 clean vs S3 corrupt" comparison was
+not apples-to-apples: the S3 test happened to run right after a client kill, the S2 test did not. The
+differentiator was the kill interacting with S3's worker-holding wait, not S3's decode.
+
+**Fix** (branch `wip/s3-parallel-decode`, commit after this note): remove the in-flight registry and
+the blocking wait; each miss decodes its span independently (a worker is held only during productive
+decode, never across a block) and publishes unless another reader cached it first. Bounded redundant
+decode instead of a blocking coalesce. Buffer lifetime unchanged (still copy-under-lock, return only
+under mapLock after map removal).
+
+**Validation still owed** (this session's machine degraded to ~15 min sda2 mount times, so it must run
+fresh): S3-fixed + kill must go clean, then a full golden-quartet zst run. Also worth noting
+independently: `ReleaseContext` disposes a per-handle stream without the read lock - a disposal-vs-read
+race that is benign today but should be tightened.
