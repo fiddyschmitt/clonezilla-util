@@ -48,6 +48,34 @@ namespace libCommon.Streams
             && System.Threading.Interlocked.Increment(ref liveRamLimitedCaches) > 0;
         bool closed;
 
+        //The concurrent single-flight path is used only when the base stream can be read positionally (so
+        //misses decode in parallel via independent cursors) and a read suggestor supplies deterministic,
+        //aligned spans to key and coalesce on - i.e. exactly the zstd serving path. Every other codec
+        //(whose seekable stream is not IPositionalReader) keeps the legacy single-lock path unchanged.
+        readonly bool concurrent = baseStream is IPositionalReader && readSuggestor != null
+            && cacheType == EnumCacheType.LimitByRAMUsage;
+
+        //Concurrent cache (used when `concurrent`). The map doubles as the in-flight registry: a key
+        //present with Content==null is a decode in progress. mapLock guards map + lru + currentCacheSizeBytes
+        //+ the copy-out, and is NEVER held across a decode - that is what lets misses on different spans
+        //decode in parallel.
+        readonly object mapLock = new();
+        readonly Dictionary<long, SpanSlot> spanMap = [];
+        readonly LinkedList<SpanSlot> lru = new();
+
+        //One span in the concurrent cache. In the map with Content==null it means "a decode is in flight";
+        //with Content!=null it means "cached and ready". Only the reader that first inserts the slot decodes
+        //it; others wait on Ready and then serve from the cache (single-flight).
+        sealed class SpanSlot(long start, long end)
+        {
+            public readonly long Start = start;
+            public long End = end;                    //set to Start + bytesDecoded on completion
+            public byte[]? Content;                   //null while in flight; the decoded buffer once ready
+            public bool Pooled;                       //Content came from Buffers.BufferPool - return on eviction
+            public LinkedListNode<SpanSlot>? Node;    //LRU node (null while in flight - in-flight slots aren't evictable)
+            public readonly System.Threading.ManualResetEventSlim Ready = new(false);
+        }
+
         public IList<CacheEntry> GetCacheContents()
         {
             var result = cache.AsReadOnly();
@@ -71,14 +99,144 @@ namespace libCommon.Streams
         }
 
         //Absolute positional read: carries its own position, touches no shared cursor.
-        //(S1: still serialized on cacheLock across the decode; S3 narrows the lock so misses on
-        //different spans decode in parallel.)
         public int ReadAt(long readPosition, byte[] buffer, int offset, int count)
         {
-            //the cache list is not safe to mutate concurrently; callers may serve multiple readers
+            if (concurrent)
+            {
+                return ReadAtConcurrent(readPosition, buffer, offset, count);
+            }
+
+            //Legacy path: the whole miss (including the decode) is serialized on cacheLock. Used when the
+            //base stream has no positional API (non-zstd codecs) or for non-RAM cache types.
             lock (cacheLock)
             {
                 return ReadInternal(readPosition, buffer, offset, count);
+            }
+        }
+
+        //Concurrent single-flight read. A hit is a brief locked memcpy; a miss decodes its span with NO
+        //lock held (so different spans decode in parallel) and coalesces concurrent readers of the same
+        //span onto one decode. mapLock only ever guards the map/LRU bookkeeping and the copy-out.
+        int ReadAtConcurrent(long readPosition, byte[] buffer, int offset, int count)
+        {
+            if (count <= 0 || readPosition >= Length) return 0;
+
+            var (spanStart, spanEnd) = ReadSuggestor!.GetRecommendation(readPosition);
+            if (spanEnd <= spanStart) return 0;   //at/after EOF
+
+            while (true)
+            {
+                SpanSlot slot;
+                bool iOwn = false;
+                lock (mapLock)
+                {
+                    if (spanMap.TryGetValue(spanStart, out var existing))
+                    {
+                        if (existing.Content != null)
+                        {
+                            //HIT - copy out under the lock so eviction can't return this buffer mid-copy
+                            TouchLru(existing);
+                            return CopyOut(existing, readPosition, buffer, offset, count);
+                        }
+                        slot = existing;   //present but not ready: a decode is in flight; wait below
+                    }
+                    else
+                    {
+                        //MISS we own: publish an in-flight slot so concurrent readers of this span coalesce
+                        slot = new SpanSlot(spanStart, spanEnd);
+                        spanMap[spanStart] = slot;
+                        iOwn = true;
+                    }
+                }
+
+                if (!iOwn)
+                {
+                    //Someone else is decoding this span. Wait for THAT span (not a global lock), then
+                    //re-loop to re-lookup under the lock and copy - never copy from a reference held across
+                    //the wait (the span may have been evicted meanwhile).
+                    slot.Ready.Wait();
+                    continue;
+                }
+
+                //We own the decode. Run it with NO lock held, so other spans decode in parallel.
+                byte[]? buff = null;
+                try
+                {
+                    int spanLen = (int)(spanEnd - spanStart);
+                    buff = Buffers.BufferPool.Rent(spanLen);
+                    int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, buff, 0, spanLen);
+                    if (got <= 0) throw new Exception($"No bytes decoded for span {spanStart:N0}-{spanEnd:N0}");
+
+                    int n;
+                    lock (mapLock)
+                    {
+                        slot.Content = buff;
+                        slot.Pooled = true;
+                        slot.End = spanStart + got;
+                        buff = null;   //ownership transferred to the slot; the finally/catch must not return it
+                        InsertAndEvict(slot);
+                        n = CopyOut(slot, readPosition, buffer, offset, count);
+                    }
+                    slot.Ready.Set();   //publish complete: wake any waiters (after the slot is in the cache)
+                    return n;
+                }
+                catch
+                {
+                    //Decode failed (or teardown). Drop the slot so a later read retries, wake waiters (they
+                    //re-loop and one re-decodes), and return the rented buffer if it never reached the slot.
+                    lock (mapLock) { spanMap.Remove(spanStart); }
+                    slot.Ready.Set();
+                    if (buff != null) Buffers.BufferPool.Return(buff);
+                    throw;
+                }
+            }
+        }
+
+        //Copies from a ready slot into the caller's buffer. MUST be called under mapLock: eviction (also
+        //under mapLock) may return slot.Content to the pool, so copying here - and only after a fresh
+        //lookup, never from a reference held across a wait - is what prevents cross-reader data bleed.
+        int CopyOut(SpanSlot slot, long readPosition, byte[] buffer, int offset, int count)
+        {
+            long bytesLeft = slot.End - readPosition;
+            if (bytesLeft <= 0) return 0;
+            int toCopy = (int)Math.Min(count, bytesLeft);
+            long delta = readPosition - slot.Start;
+            Array.Copy(slot.Content!, delta, buffer, offset, toCopy);
+            return toCopy;
+        }
+
+        //Publishes a freshly-decoded slot into the LRU and evicts to the RAM budget. Under mapLock.
+        void InsertAndEvict(SpanSlot slot)
+        {
+            slot.Node = lru.AddFirst(slot);
+            currentCacheSizeBytes += slot.End - slot.Start;
+
+            //Evict LRU-tail until within this instance's share of the budget. Never evict the slot just
+            //inserted (LRU-head): if a single span exceeds the budget (e.g. a deliberately tiny stress
+            //budget), the cache holds just that one, temporarily over budget, until the next span pushes it
+            //out. In-flight slots aren't in the LRU, so are never evicted.
+            long budgetBytes = (long)(CacheLimitValue / Math.Max(1, liveRamLimitedCaches)) * 1024 * 1024;
+            while (currentCacheSizeBytes > budgetBytes
+                   && lru.Last is { } tailNode && !ReferenceEquals(tailNode.Value, slot))
+            {
+                var victim = tailNode.Value;
+                lru.RemoveLast();
+                spanMap.Remove(victim.Start);                 //R1: remove from the map BEFORE returning the buffer
+                currentCacheSizeBytes -= victim.End - victim.Start;
+                var content = victim.Content;
+                victim.Content = null;
+                victim.Node = null;
+                if (victim.Pooled && content != null) Buffers.BufferPool.Return(content);
+            }
+        }
+
+        //Moves a hit slot to the LRU front. Under mapLock.
+        void TouchLru(SpanSlot slot)
+        {
+            if (slot.Node != null && !ReferenceEquals(lru.First, slot.Node))
+            {
+                lru.Remove(slot.Node);
+                slot.Node = lru.AddFirst(slot);
             }
         }
 
@@ -315,20 +473,39 @@ namespace libCommon.Streams
 
         public override void Close()
         {
-            lock (cacheLock)
+            if (concurrent)
             {
-                foreach (var entry in cache)
+                lock (mapLock)
                 {
-                    ReturnToPoolIfPooled(entry);
+                    //Drain the ready (cached) slots; in-flight slots aren't in the LRU - their owning read
+                    //returns their buffer when it finishes or faults.
+                    foreach (var slot in lru)
+                    {
+                        if (slot.Pooled && slot.Content != null) Buffers.BufferPool.Return(slot.Content);
+                        slot.Content = null;
+                    }
+                    lru.Clear();
+                    spanMap.Clear();
+                    currentCacheSizeBytes = 0;
                 }
-                cache.Clear();
-                currentCacheSizeBytes = 0;
+            }
+            else
+            {
+                lock (cacheLock)
+                {
+                    foreach (var entry in cache)
+                    {
+                        ReturnToPoolIfPooled(entry);
+                    }
+                    cache.Clear();
+                    currentCacheSizeBytes = 0;
+                }
+            }
 
-                if (countedAsRamLimited && !closed)
-                {
-                    closed = true;
-                    System.Threading.Interlocked.Decrement(ref liveRamLimitedCaches);
-                }
+            if (countedAsRamLimited && !closed)
+            {
+                closed = true;
+                System.Threading.Interlocked.Decrement(ref liveRamLimitedCaches);
             }
         }
     }
