@@ -264,7 +264,22 @@ namespace libDokan
         static readonly TimeSpan TimeoutWatchdogInterval = TimeSpan.FromSeconds(5);    //tick well inside the 20s timeout
         static readonly long TimeoutWatchdogMaxMs = (long)TimeSpan.FromMinutes(10).TotalMilliseconds;
 
-        static readonly ConcurrentDictionary<long, (IDokanFileInfo Info, long StartedTick)> InFlightReads = new();
+        //An in-flight read the watchdog may extend. `Completed` (guarded by lock(this)) closes a
+        //use-after-free: an IDokanFileInfo's native handle is valid ONLY while its ReadFile callback is on
+        //the stack. The read's Dispose runs inside ReadFile (before it returns) and sets Completed under the
+        //lock; the timer takes the same lock and only calls TryResetTimeout when Completed is false - i.e.
+        //while the callback is provably still running. Without this, once the serving path actually runs in
+        //parallel (many slow reads registered at once), a tick racing a completing read calls
+        //DokanResetTimeout on a freed handle and crashes the process with 0xC0000005 (a native access
+        //violation that the try/catch cannot catch).
+        sealed class InFlightRead(IDokanFileInfo info, long startedTick)
+        {
+            public readonly IDokanFileInfo Info = info;
+            public readonly long StartedTick = startedTick;
+            public bool Completed;   //guarded by lock(this)
+        }
+
+        static readonly ConcurrentDictionary<long, InFlightRead> InFlightReads = new();
         static long inFlightReadIdSeq;
 
         static readonly Timer TimeoutWatchdog = new(_ =>
@@ -275,7 +290,11 @@ namespace libDokan
             {
                 var elapsed = now - read.StartedTick;
                 if (elapsed > TimeoutWatchdogMaxMs) continue;   //runaway op - stop extending so it finally fails
-                try { read.Info.TryResetTimeout(TimeoutWatchdogExtensionMs); } catch { }
+                lock (read)
+                {
+                    if (read.Completed) continue;   //callback has returned; its native handle may be freed
+                    try { read.Info.TryResetTimeout(TimeoutWatchdogExtensionMs); } catch { }
+                }
             }
         }, null, TimeoutWatchdogInterval, TimeoutWatchdogInterval);
 
@@ -284,13 +303,21 @@ namespace libDokan
         static WatchdogRegistration StartTimeoutWatchdog(IDokanFileInfo info)
         {
             var id = Interlocked.Increment(ref inFlightReadIdSeq);
-            InFlightReads[id] = (info, Environment.TickCount64);
+            InFlightReads[id] = new InFlightRead(info, Environment.TickCount64);
             return new WatchdogRegistration(id);
         }
 
         readonly struct WatchdogRegistration(long id) : IDisposable
         {
-            public void Dispose() => InFlightReads.TryRemove(id, out _);
+            public void Dispose()
+            {
+                if (InFlightReads.TryRemove(id, out var read))
+                {
+                    //Mark completed under the same lock the timer uses, so a concurrent tick can't call
+                    //TryResetTimeout on this read once ReadFile returns and the native handle is freed.
+                    lock (read) { read.Completed = true; }
+                }
+            }
         }
 
         public NtStatus ReadFile(string fileName, byte[] buffer, out int bytesRead, long offset, IDokanFileInfo info)
