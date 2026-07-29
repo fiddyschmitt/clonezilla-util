@@ -626,3 +626,30 @@ the cache, below).
    running two decodes at once. Safe (no concurrent decode → no L11 trigger) and captures part of the
    win; needs its own golden re-verification.
 3. Larger client read buffers (L12 cheap-win #2) remain available and orthogonal.
+
+### L11 narrowed to the Dokan boundary (2026-07-29)
+
+Follow-up to the S3 blocker above. A Dokan-free harness (`poolverify`) was built to drive the *exact*
+mount read path minus Dokan: `PartitionContainer.FromPath` → the same 4-worker `NativeExtractorPool`
+fed by `PositionalCursorStream` over the S3 `CachingStream` → `extractor.Extract(path)` →
+`PooledNativeItemStream`, reading 600 scattered files at DOP 16 and MD5-checking against golden.
+
+**Result: 0 mismatches.** The full 7z + decode + single-flight-cache stack, at the same concurrency
+that corrupts the live mount, is byte-perfect. Combined with the earlier isolation results, this
+**exonerates everything below Dokan** and places L11 in the **Dokan layer** — matching its original
+suspicion ("DokanVFS ReadFile buffer/offset handling"). It is a pre-existing bug (independent of S3),
+which S3 merely exposes by making partition decodes fast and concurrent.
+
+Prime suspects, in order:
+1. **The memory-mapped / paging read path** (`DokanVFS.ReadFile` with `info.Context == null` →
+   `FileEntry.ReadForMemoryMap`, libDokan/VFS/Files/FileEntry.cs:35). The Windows cache manager issues
+   paging reads (no handle context) for read-ahead even under normal `File.OpenRead`, so a mount serves
+   a *mix* of per-handle reads and paging reads for the same file, on different streams/locks. This is
+   the one shared-state serving path `poolverify` does not exercise.
+2. A **DokanNet / Dokan-driver buffer-handling race** under concurrent fast reads — plausible because
+   the bug is timing-sensitive (appears only once decode is concurrent/fast, not when serialized).
+
+Next experiment to pin it: on the S3 branch, serialize the paging path against the per-handle path
+(one lock per file for both `ReadForMemoryMap` and normal reads) and re-run the mount verify. If clean,
+the paging/handle interleaving is the cause; fixing it would also unblock S3 (whose decode/cache is
+already proven correct) and remove L11 from today's product.
