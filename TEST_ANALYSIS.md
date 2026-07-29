@@ -556,3 +556,73 @@ runs at 156 MB/s. The golden pipeline's 7z-from-raw-image reads in extent order 
 
 Harness/bench sources and the 90 s .nettrace live in the session job folder (scratch, not
 committed); all numbers above are recorded here so nothing depends on those files surviving.
+
+## Lock-removal work on the serving path (2026-07-29) — acting on L12
+
+Goal: remove/narrow the locks that serialize the mount serving path (L12), so the 4-worker pool
+can actually decode in parallel. Landed as independent, individually-verified steps.
+
+**Shipped to master (all verified byte-correct against the golden lists through a live mount):**
+
+- **S0 — logging.** Default `MinimumLevel.Information` + a `--verbose` flag (Program.cs, BaseVerb).
+  The exe ran at Debug with a `WriteTo.Debug`/OutputDebugString sink under a global sink lock -
+  ~22% of thread-time under load (L12). Console/File sinks already filtered at Information, so
+  nothing visible changes.
+- **S1 — `IPositionalReader`.** A positional `ReadAt(pos,buf,off,len)` API (libCommon) implemented on
+  CachingStream, PartcloneStream, and SeekableZstdStream; each `Stream.Read` becomes a thin wrapper
+  that owns the one mutable cursor and delegates to `ReadAt`. Pure refactor, behaviour identical.
+- **S2 — lock-free worker feed.** Each 7z worker now reads the partition through its own
+  `PositionalCursorStream` (positional `ReadAt`), so the `SharedStream.gate` (held across the whole
+  decode - the "illusion of parallelism") and `PartcloneStream.streamLock` are gone from the serving
+  path. Throughput is unchanged at this step - the CachingStream lock still serializes every miss.
+- **S2b — watchdog use-after-free (a real crash bug this work surfaced).** The slow-read watchdog
+  called `IDokanFileInfo.TryResetTimeout` on entries whose ReadFile callback had already returned; a
+  DokanFileInfo's native handle is valid only while its callback is on the stack, so a tick racing a
+  completing read called `DokanResetTimeout` on a freed handle - a native access violation
+  (0xC0000005) the try/catch cannot catch, killing the process. The old SharedStream gate serialized
+  the serving path so at most one slow read was ever registered; removing it (S2) made concurrent slow
+  reads the norm and the crash reliable under load. Fixed with a per-entry `Completed` flag set (under
+  a lock) by the read's Dispose - which runs *inside* ReadFile, while the handle is still valid - and
+  checked under the same lock in the timer. This is very likely a contributor to L11's read errors
+  ("a device attached to the system is not functioning") and to any heavily-loaded mount's instability.
+
+**NOT shipped — S3 (parallel decode), blocked by L11.** The concurrent single-flight cache (decode a
+32 MB span outside the lock; coalesce concurrent readers of one span; copy-under-lock + re-lookup
+buffer lifetime so an evicted ArrayPool buffer can't be reused mid-copy) works and gives ~1.5x on the
+golden-order macro (612 s vs 939.8 s). But it corrupts ~3% of files in the live mount (cross-file
+bleed - two files returning identical wrong content, one file served another's bytes). Preserved on
+branch `wip/s3-parallel-decode`.
+
+Extensive isolation proved the corruption is **not** in the new cache/decode code:
+
+| test | result |
+|---|---|
+| package `ZstdSeekable.Tests.ConcurrentViews` (4 views, MemoryStream) | clean |
+| full S3 stack, synthetic 256 MB, DOP 16, tiny budget | clean |
+| full S3 stack, **real 19.9 GB stream + real exact-state index**, 42.3 GiB uncompressed, DOP 16 | clean (0/400) |
+| maximal collision + sub-span (24 MB < 32 MB) eviction stress, DOP 32, 28,800 reads | clean (0 mismatch) |
+| **S2 build (serialized decode)** under the exact stress that bled S3 (400 scattered, DOP 16) | **clean (0/400)** |
+| **S3 build in the live mount**, same 400 scattered DOP 16 | **13 mismatches (bleed)** |
+
+So: S2 (decode serialized by the cache lock) is clean; S3 (decode concurrent) corrupts - but only in
+the live mount, never in isolation even at real scale and heavier concurrency. The distinguishing
+factor is the native 7z worker path above the cache. **Conclusion: concurrent partition *decode*
+driven through the native 7z workers triggers a latent race == Lead L11.** The ZstdSeekable decode
+path was audited and holds no shared mutable state (per-decode DCtx / window / exact-state / input
+buffer / cursor; immutable index; gate-serialized compressed reads), and `Multistream` here wraps a
+single 19.9 GB file so it isn't the culprit. The remaining suspect is the native lib7zNative / 7z.dll
+behaviour when multiple archive workers decode concurrently - the exclusive per-worker borrow model
+*looks* safe by inspection, so this needs a native-level investigation (or a decode serialized behind
+the cache, below).
+
+### Recommended next steps
+
+1. **Root-cause L11** (the native 7z concurrent-read race) - it blocks S3 and is a latent
+   correctness/stability risk for any heavily-parallel client (e.g. robocopy /MT) even today.
+   A cheap first probe: run the S3 branch with `MountWorkerCount = 1` - if clean, it confirms the
+   race is between concurrent 7z workers.
+2. **S3-safe interim**: keep the single-flight cache but serialize the decode (one at a time behind a
+   dedicated decode lock) so *hits and waiters no longer block behind a cold decode*, without ever
+   running two decodes at once. Safe (no concurrent decode → no L11 trigger) and captures part of the
+   win; needs its own golden re-verification.
+3. Larger client read buffers (L12 cheap-win #2) remain available and orthogonal.
