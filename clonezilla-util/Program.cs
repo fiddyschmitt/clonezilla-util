@@ -11,6 +11,7 @@ using libCommon.Logging;
 using libCommon.Streams;
 using libPartclone;
 using Serilog;
+using Serilog.Core;
 using Serilog.Events;
 using System;
 using System.Buffers;
@@ -28,6 +29,12 @@ namespace clonezilla_util
     {
         const string PROGRAM_NAME = "clonezilla-util";
         const string PROGRAM_VERSION = "2.9.0";
+
+        // Runtime-adjustable log level. Default Information: the mount hot paths then never format or
+        // emit the per-operation Debug traces, whose WriteTo.Debug (OutputDebugString) sink and its
+        // global lock cost ~22% of thread-time under load (TEST_ANALYSIS.md Lead L12). --verbose flips
+        // this to Debug once the verb is parsed, restoring the old firehose for troubleshooting.
+        static readonly LoggingLevelSwitch LogLevelSwitch = new(LogEventLevel.Information);
 
         private enum ReturnCode
         {
@@ -75,7 +82,7 @@ namespace clonezilla_util
             };
 
             Log.Logger = new LoggerConfiguration()
-                            .MinimumLevel.Debug()
+                            .MinimumLevel.ControlledBy(LogLevelSwitch)
                             .Filter.With(new SuppressConsecutiveDuplicateFilter())
                             .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Information)
                             .WriteTo.Debug(restrictedToMinimumLevel: LogEventLevel.Debug)
@@ -126,6 +133,12 @@ namespace clonezilla_util
         {
             if (obj is BaseVerb baseVerb)
             {
+                if (baseVerb.Verbose)
+                {
+                    LogLevelSwitch.MinimumLevel = LogEventLevel.Debug;
+                    Log.Debug("Verbose logging enabled.");
+                }
+
                 if (baseVerb.TempFolder != null)
                 {
                     TempUtility.TempRoot = baseVerb.TempFolder;

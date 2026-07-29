@@ -18,5 +18,8 @@ namespace clonezilla_util.CL.Verbs
 
         [Option("process-trailing-nulls", HelpText = "By default, the program skips trailing nulls to speed up processing of large files. Use this switch to force them to be processed.", Required = false)]
         public bool ProcessTrailingNulls { get; set; } = false;
+
+        [Option("verbose", HelpText = "Enable verbose (Debug-level) logging. Off by default: the per-operation debug trace is suppressed because emitting it (OutputDebugString, under a global lock) costs a large share of thread-time while a mount is under load.", Required = false)]
+        public bool Verbose { get; set; } = false;
     }
 }
