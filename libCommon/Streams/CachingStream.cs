@@ -55,25 +55,34 @@ namespace libCommon.Streams
         readonly bool concurrent = baseStream is IPositionalReader && readSuggestor != null
             && cacheType == EnumCacheType.LimitByRAMUsage;
 
-        //Concurrent cache (used when `concurrent`). A slot is only ever in the map once fully decoded, so
-        //a lookup either hits a ready buffer or misses. mapLock guards map + lru + currentCacheSizeBytes +
-        //the copy-out, and is NEVER held across a decode - misses on different spans decode in parallel.
-        //There is deliberately no in-flight/wait coordination: the caller holds a scarce native 7z worker
-        //across ReadAt, so blocking here (as an earlier single-flight design did) starves the worker pool
-        //under same-span contention, which surfaced as Dokan read timeouts and cross-file corruption when a
-        //client died mid-read (TEST_ANALYSIS.md). Two readers may briefly decode the same span; the loser
-        //discards its buffer - a bounded, correct waste instead of a blocking wait.
+        //Concurrent cache (used when `concurrent`). The map keys a span-start to a slot; an in-flight slot
+        //has Content==null. mapLock guards map + lru + currentCacheSizeBytes + copy-out, and is NEVER held
+        //across a decode - misses on different spans decode in parallel.
+        //
+        //Coalescing (a second reader of an in-flight span waiting on the first) is gated by
+        //SuppressCoalesceWait. When a reader holds a scarce native 7z worker (the pool serving path), it
+        //MUST NOT block waiting here: waiters would pin workers and starve the pool, which surfaced as Dokan
+        //read timeouts and cross-file corruption when a client died mid-read (TEST_ANALYSIS.md). Such readers
+        //instead decode their own copy and drop it. The mount-time parallel worker-open holds no pool worker,
+        //leaves the flag false, and keeps the lockstep coalescing the parallel open relies on (Lead L9) -
+        //without it, 4 workers each re-decode the whole ~1 GB $MFT.
         readonly object mapLock = new();
         readonly Dictionary<long, SpanSlot> spanMap = [];
         readonly LinkedList<SpanSlot> lru = new();
 
-        //One decoded span in the concurrent cache. Only ever inserted once its buffer is filled.
-        sealed class SpanSlot(long start, long end, byte[] content)
+        //Set by a caller that holds a scarce native worker across the read (see PooledNativeItemStream), so
+        //the coalescing wait below won't pin that worker. Thread-static: the read runs synchronously on one thread.
+        [ThreadStatic] static bool tSuppressCoalesceWait;
+        public static bool SuppressCoalesceWait { get => tSuppressCoalesceWait; set => tSuppressCoalesceWait = value; }
+
+        //One span in the concurrent cache. Content==null while a decode is in flight; set once ready.
+        sealed class SpanSlot(long start, long end)
         {
             public readonly long Start = start;
-            public readonly long End = end;
-            public byte[]? Content = content;         //the decoded buffer; nulled and returned to the pool on eviction
-            public LinkedListNode<SpanSlot>? Node;    //its LRU node
+            public long End = end;                    //set to Start + bytesDecoded on publish
+            public byte[]? Content;                   //null while in flight; the decoded buffer once ready
+            public LinkedListNode<SpanSlot>? Node;    //LRU node (null while in flight)
+            public readonly System.Threading.ManualResetEventSlim Ready = new(false);
         }
 
         public IList<CacheEntry> GetCacheContents()
@@ -114,11 +123,10 @@ namespace libCommon.Streams
             }
         }
 
-        //Concurrent read. A hit is a brief locked memcpy; a miss decodes its span with NO lock held (so
-        //different spans decode in parallel), then publishes it. There is deliberately NO single-flight
-        //wait: the caller holds a scarce native 7z worker across this call, so blocking to coalesce onto
-        //another reader's decode starves the worker pool. Two readers racing the same span both decode it;
-        //the loser drops its buffer.
+        //Concurrent read. A hit is a brief locked memcpy. A clean miss becomes the span's owner: it decodes
+        //with no lock held, then publishes (caches) it. A second reader that finds the span already in flight
+        //either waits for the owner (coalesce - mount-time, no worker held) or, if it holds a scarce worker
+        //(serving path, SuppressCoalesceWait), decodes its own copy and drops it rather than block.
         int ReadAtConcurrent(long readPosition, byte[] buffer, int offset, int count)
         {
             if (count <= 0 || readPosition >= Length) return 0;
@@ -126,45 +134,100 @@ namespace libCommon.Streams
             var (spanStart, spanEnd) = ReadSuggestor!.GetRecommendation(readPosition);
             if (spanEnd <= spanStart) return 0;   //at/after EOF
 
-            lock (mapLock)
+            while (true)
             {
-                if (spanMap.TryGetValue(spanStart, out var hit))
-                {
-                    //HIT - copy out under the lock so eviction can't return this buffer mid-copy
-                    TouchLru(hit);
-                    return CopyOut(hit, readPosition, buffer, offset, count);
-                }
-            }
-
-            //MISS - decode this span with NO lock held (and, crucially, never blocking while a worker is
-            //borrowed). Then publish, unless another reader beat us to it, in which case we serve theirs and
-            //drop ours.
-            int spanLen = (int)(spanEnd - spanStart);
-            byte[]? buff = Buffers.BufferPool.Rent(spanLen);
-            try
-            {
-                int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, buff, 0, spanLen);
-                if (got <= 0) throw new Exception($"No bytes decoded for span {spanStart:N0}-{spanEnd:N0}");
-
+                SpanSlot slot;
+                bool iOwn = false;
                 lock (mapLock)
                 {
                     if (spanMap.TryGetValue(spanStart, out var existing))
                     {
-                        //another reader cached this span while we were decoding: serve theirs, drop ours
-                        TouchLru(existing);
-                        return CopyOut(existing, readPosition, buffer, offset, count);
+                        if (existing.Content != null)
+                        {
+                            //HIT - copy out under the lock so eviction can't return this buffer mid-copy
+                            TouchLru(existing);
+                            return CopyOut(existing, readPosition, buffer, offset, count);
+                        }
+                        slot = existing;   //in flight
                     }
-                    var slot = new SpanSlot(spanStart, spanStart + got, buff);
-                    buff = null;   //ownership transferred to the slot; the finally must not return it
-                    InsertAndEvict(slot);
-                    return CopyOut(slot, readPosition, buffer, offset, count);
+                    else
+                    {
+                        //clean miss: we own the decode. Publish an in-flight slot so others can coalesce.
+                        slot = new SpanSlot(spanStart, spanEnd);
+                        spanMap[spanStart] = slot;
+                        iOwn = true;
+                    }
+                }
+
+                if (!iOwn)
+                {
+                    if (tSuppressCoalesceWait)
+                    {
+                        //Serving path (holding a pool worker): NEVER block here. Decode our own copy, serve
+                        //it, drop it - the owner will cache it. Bounded redundant decode instead of pinning
+                        //a worker on a wait (which starves the pool and corrupts under a client-kill burst).
+                        return DecodeServeAndDrop(spanStart, spanEnd, readPosition, buffer, offset, count);
+                    }
+                    //Mount-time parallel open (no pool worker): coalesce onto the owner's decode (L9 lockstep).
+                    slot.Ready.Wait();
+                    continue;
+                }
+
+                //Owner: decode with NO lock held, then publish under the lock.
+                byte[]? buff = null;
+                try
+                {
+                    int spanLen = (int)(spanEnd - spanStart);
+                    buff = Buffers.BufferPool.Rent(spanLen);
+                    int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, buff, 0, spanLen);
+                    if (got <= 0) throw new Exception($"No bytes decoded for span {spanStart:N0}-{spanEnd:N0}");
+
+                    int n;
+                    lock (mapLock)
+                    {
+                        slot.Content = buff;
+                        slot.End = spanStart + got;
+                        buff = null;   //ownership transferred to the slot; the finally/catch must not return it
+                        InsertAndEvict(slot);
+                        n = CopyOut(slot, readPosition, buffer, offset, count);
+                    }
+                    slot.Ready.Set();   //publish complete: wake any coalescing waiters
+                    return n;
+                }
+                catch
+                {
+                    //Decode failed: drop the slot so a later read retries, wake waiters (they re-loop), and
+                    //return the rented buffer if it never reached the slot.
+                    lock (mapLock) { spanMap.Remove(spanStart); }
+                    slot.Ready.Set();
+                    if (buff != null) Buffers.BufferPool.Return(buff);
+                    throw;
                 }
             }
-            finally
-            {
-                if (buff != null) Buffers.BufferPool.Return(buff);   //redundant decode or a fault: return our buffer
-            }
         }
+
+        //Decode a span into a private buffer, serve the requested bytes from it, and return it to the pool -
+        //no caching, no lock, no blocking. Used by the serving path when the span is already being decoded by
+        //another reader (so we must not wait while holding a worker).
+        int DecodeServeAndDrop(long spanStart, long spanEnd, long readPosition, byte[] buffer, int offset, int count)
+        {
+            int spanLen = (int)(spanEnd - spanStart);
+            byte[] buff = Buffers.BufferPool.Rent(spanLen);
+            try
+            {
+                int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, buff, 0, spanLen);
+                long bytesLeft = (spanStart + got) - readPosition;
+                if (bytesLeft <= 0) return 0;
+                int toCopy = (int)Math.Min(count, bytesLeft);
+                Array.Copy(buff, readPosition - spanStart, buffer, offset, toCopy);   //private buffer - no lock needed
+                return toCopy;
+            }
+            finally { Buffers.BufferPool.Return(buff); }
+        }
+
+        //Copies from a ready slot into the caller's buffer. MUST be called under mapLock: eviction (also
+        //under mapLock) may return slot.Content to the pool, so copying here - never from a reference held
+        //outside the lock - is what prevents cross-reader data bleed.
 
         //Copies from a ready slot into the caller's buffer. MUST be called under mapLock: eviction (also
         //under mapLock) may return slot.Content to the pool, so copying here - never from a reference held
