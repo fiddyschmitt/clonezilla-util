@@ -213,11 +213,18 @@ namespace libDokan
                 //only dispose streams the handle owns; shared streams (eg. mounted partition images) live for the lifetime of the VFS
                 if (fileEntryStream.FileEntry.CreatesNewStreamPerCall)
                 {
-                    try
+                    //Dispose under the SAME per-handle lock ReadFile takes (DokanVFS.cs ReadFile). Dokan can
+                    //call Cleanup/CloseFile while a slow ReadFile is still running on this handle (e.g. a
+                    //force-closed handle), so disposing without the lock could tear the stream out from under
+                    //an in-flight read.
+                    lock (fileEntryStream.ReadLock)
                     {
-                        fileEntryStream.Stream.Dispose();
+                        try
+                        {
+                            fileEntryStream.Stream.Dispose();
+                        }
+                        catch { }
                     }
-                    catch { }
                 }
 
                 info.Context = null;
