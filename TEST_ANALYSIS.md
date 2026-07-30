@@ -727,3 +727,27 @@ under mapLock after map removal).
 fresh): S3-fixed + kill must go clean, then a full golden-quartet zst run. Also worth noting
 independently: `ReleaseContext` disposes a per-handle stream without the read lock - a disposal-vs-read
 race that is benign today but should be tightened.
+
+### S3 fix validated (2026-07-30, VMs stopped to free the host)
+
+The fix landed in two steps on `wip/s3-parallel-decode`:
+- dd4283e (naive): removed coalescing entirely. Stopped the bleed but **regressed mount time
+  catastrophically** - the parallel worker-open (L9) needs 4 workers to coalesce on the shared ~1 GB
+  $MFT decode; without it each re-decoded the whole $MFT, pushing sda2 mount from ~50 s to 15+ min.
+- 1ece201 (fix): gate the coalesce-wait on `CachingStream.SuppressCoalesceWait`, a thread-static flag
+  `PooledNativeItemStream` sets for its worker borrow. A coalescing wait only starves the pool when the
+  waiter holds a scarce worker (the serving path) - so the serving path decodes its own copy and drops
+  it instead of waiting, while the mount-time open (holds no pool worker) still waits and coalesces.
+
+**Validated (fresh-ish host, 24 GB free):**
+- Mount ~51 s (sda2 workers 32.7 s = one coalesced scan) - regression gone.
+- The kill sequence that reliably corrupted the old S3 (20 mismatches + 22 "Insufficient system
+  resources" errors, 1257 s) now runs **clean, twice**: 798/798 and 600/600, 0 mismatches, 0 errors,
+  normal speed (~350 s).
+- Macro throughput 890 s vs the 940 s S0 baseline - no regression (serving-side independent decode
+  gives back some of the unsafe-coalescing 612 s, so the net win over baseline is small on this
+  localized workload; scattered access should benefit more; clean numbers need a non-degraded host).
+
+**Still owed before merge to master:** a full golden-quartet zst run (~11 h) as the definitive
+correctness gate. Also worth tightening independently: `ReleaseContext` disposes a per-handle stream
+without the read lock.
