@@ -1213,3 +1213,58 @@ Researched 2026-06-24; xz has since moved to Batch 9 (above). Summary so the res
   chunk boundaries with 4 MB dict snapshots → needs a checkpoint-capable managed LZMA2 decoder. High effort.
 - **lzip** — same shape: **plzip/`-z6p` (multi-member)** → cheap member index; **plain `lzip` (single
   member)** → LZMA dict snapshots, high effort.
+
+## Batch 10 — Parallel-decode bridge for bzip2 / xz / gz (extend `IPositionalReader` beyond zst)  (flagged 2026-07-31, NOT started — gated on the in-flight golden validation)
+
+**Follow-on to the S0–S3 serving-responsiveness / lock-removal campaign** (Leads L11/L12 and the
+"S3 fix validated" write-up in `TEST_ANALYSIS.md`; plan
+`~/.claude/plans/oof-all-the-unit-temporal-emerson.md`, the "Codec fallback" note). That campaign made
+the mount serving path positional and lock-narrow — `IPositionalReader.ReadAt`, per-worker
+`PositionalCursorStream`, stateless `PartcloneStream.ReadAt`, and a concurrent single-flight
+`CachingStream` (decode **outside** the lock; `mapLock` only over map/LRU/copy-out) — so that **many
+Dokan readers decode different 32 MB spans genuinely in parallel** instead of serialising on
+`SharedStream.gate` + `PartcloneStream.streamLock` + the wide `cacheLock`. **Only `SeekableZstdStream`
+implements `IPositionalReader`, so only zst mounts take the concurrent path today;** bzip2/xz/gz still
+fall back to the legacy serialised `SharedStream` + wide-`cacheLock` decode — correct and unchanged,
+just one-decode-at-a-time across readers.
+
+**This batch:** implement `IPositionalReader` on the remaining codecs' seekable bridges so their
+partitions get the same inter-reader concurrency + narrowed cache lock. The core machinery is
+codec-agnostic and already validated (`MountedPartitionImage`'s feeder auto-selects
+`PositionalCursorStream` for any `IPositionalReader` partition; the `SuppressCoalesceWait`
+serving-vs-mount gate; the single-flight cache), so per-codec work is "just" a cheap positional-view
+primitive over that codec's immutable index + wiring `ReadAt`.
+
+- **Distinct from Batch 8** (`parallel bzip2 serving`, above), which added *intra-span* parallelism —
+  one `Bzip2StreamSeekable.Read` splits a ~32 MB entry-group across cores via `Parallel.For` +
+  per-worker `CreateView()`, speeding a **single** reader's span decode. **This batch adds *inter-reader*
+  parallelism** (N readers, different spans, no shared-lock serialisation) and removes the
+  `SharedStream.gate`/`streamLock` from those codecs' serving path. They **compose**: an
+  `IPositionalReader` bzip2 bridge can still fan a group across cores inside its `ReadAt`.
+
+- **Priority by payoff: bzip2 > xz > gz.**
+  - **bzip2** benefits most — the golden run measured **17 h 14 m** cold vs zst's **1 h 54 m**, because
+    its slow BWT decode is serialised **across readers** on the legacy path (only Batch 8's intra-span
+    split helps today). Its ≤900 KB blocks are independent (`pbzip2` proves it parallelises cleanly).
+    Enabler: `Bzip2StreamSeekable` (SharpCompress-backed) needs a cheap "independent decoder positioned
+    at group N sharing the immutable `*.bzip2_index_v2.json`" primitive — may need upstream SharpCompress
+    work.
+  - **xz** second — LZMA2 decode is heavier than DEFLATE (golden **~in progress**, tracking above gz);
+    `XzIndexedStream` / `XzBlockIndexedStream` (Batch 9) already exist and can mint positioned cursors
+    over the resume-point index.
+  - **gz** last / marginal — DEFLATE decode is fast enough that one core already saturates the workload
+    (golden **2 h 7 m**), so the inter-reader win is small. `GzipSeekable` would need positional views
+    with 32 KB inflate-window priming per cursor.
+
+- **Reuses (no new core work):** `CachingStream` single-flight, `PositionalCursorStream`,
+  `PartcloneStream.ReadAt`, the `SuppressCoalesceWait` gate — all proven by the zst golden pass. Per-codec
+  change is the bridge + its `IPositionalReader` impl only.
+
+- **Validation gate (per codec):** that codec's `GoldenReferenceQuartet` method (bzip2 is the ~17 h one)
+  **plus** the L11 cross-file-bleed stress at DOP ≥ 16 — exactly as zst was gated. Land one codec per
+  batch with a full suite run between, per this file's workflow. **Risk: high** (touches the
+  corruption-sensitive concurrent decode core for a new codec each time).
+
+- **Status:** flagged 2026-07-31. **Do not start until the in-flight bzip2/gz/xz *legacy-path* golden
+  validation finishes green** (bzip2 ✓ 17 h 14 m, gz ✓ 2 h 7 m, xz in progress) — that run is the
+  pre-change safety baseline for these three codecs.

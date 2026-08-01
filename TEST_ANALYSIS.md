@@ -751,3 +751,36 @@ The fix landed in two steps on `wip/s3-parallel-decode`:
 **Still owed before merge to master:** a full golden-quartet zst run (~11 h) as the definitive
 correctness gate. Also worth tightening independently: `ReleaseContext` disposes a per-handle stream
 without the read lock.
+
+### Full quartet golden validation GREEN — branch merged (2026-08-01)
+
+Both debts above are paid: the `ReleaseContext` tidy-up landed (0135637, dispose under the
+per-handle read lock), and the definitive gate ran — **all four codecs, full golden MD5 sweep,
+zero failures**. `wip/s3-parallel-decode` merged to master 2026-08-01.
+
+| Codec | Serving path exercised | Wall time | Verified (sda1/sda2/sdb1) | Failures |
+|---|---|---|---|---|
+| zst (2026-07-30) | **S3 concurrent single-flight** (`IPositionalReader`) | **1 h 54 m** | 559,214 total | 0 |
+| bzip2 | legacy serialized (`SharedStream` + wide cacheLock) | 17 h 14 m | 112 / 558,554 / 548 | 0 |
+| gz | legacy serialized | 2 h 7 m | 112 / 558,554 / 548 | 0 |
+| xz | legacy serialized | **21 h 24 m** | 112 / 558,554 / 548 | 0 |
+
+1,677,642 golden comparisons in the bzip2+gz+xz run alone (plus zst's earlier pass) —
+byte-identical throughout, `EXIT=0`, clean teardown. All runs fully cold (fresh exe per codec,
+separate source image + cache folder per codec, ~139 GB decompressed content vs a few-GB RAM
+budget ⇒ constant eviction — i.e. exactly the cold-miss + eviction regime L11 lived in).
+
+**Finding — xz is the slowest codec through the mount, worse than bzip2** (21.4 h vs 17.2 h),
+despite LZMA2 decoding ~5-10× faster than BWT per byte. Per-byte decode speed doesn't explain it;
+the plausible driver is resume overhead × amplification: each cold span reinstates a 4 MiB dict
+window + probability model from the `.xzi` snapshot index before decoding forward
+(`XzIndexedStream`), and the L12 re-decode amplification multiplies that per-resume cost, on a
+machine whose asymmetric RAM config already penalizes LZMA2 (~1.16×, measured 2026-07-09). Not
+profiled to a split yet — worth a measurement pass when Batch 10 reaches xz. Consequence
+recorded in PERFORMANCE_PLAN Batch 10: xz's parallel-decode payoff is larger than the naive
+"bzip2 > xz > gz" decode-rate ordering suggested (bzip2 still first — it also gains, and its
+bridge unblocks the same machinery).
+
+**Net position:** the serving stack is validated end-to-end on all four codecs; zst additionally
+validates the concurrent path under the harshest regime. Follow-on queued as
+**PERFORMANCE_PLAN Batch 10** (extend `IPositionalReader` to bzip2/xz/gz bridges).
