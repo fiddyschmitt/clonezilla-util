@@ -1292,4 +1292,12 @@ primitive over that codec's immutable index + wiring `ReadAt`.
   covered by the xz mount/list smokes + suite. **Pending: xz mount smokes after the next republish
   (held until the in-flight bzip2 golden finishes — republishing would swap the exe under it),
   then xz golden + suite.**
-- [ ] **10c — gz** (last; marginal win expected).
+- [x] **10c — gz (implemented + harness-validated 2026-08-01; mount smokes + heavy gates pending).**
+  Identical shape to 10b: `SeekableGzipStream : IPositionalReader` with a `createView` factory,
+  wired at GzDecompressor's single call site; GzipSeekable 0.1.0 already ships concurrent-safe
+  `CreateView()` (repo verified at the v0.1.0 tag) — no package change. Validated by **gz10verify**
+  (BCL `GZipStream` reference — independent of the package's vendored SharpZipLib inflater):
+  10,694 reads / 1.66 GB, 0 failures, full-MD5 match. All three codec harnesses produced the same
+  content MD5 (`d4559685…`) via three independent reference decoders. **Batch 10 implementation
+  sweep complete** — remaining gates: republish + xz/gz mount smokes (held until the in-flight
+  bzip2 golden finishes), bzip2/xz/gz golden reruns on the new path, DOP≥16 bleed stress, full suite.
