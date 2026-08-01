@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using libCommon.Streams;
 
 namespace libClonezilla.Extractors
 {
@@ -51,6 +52,13 @@ namespace libClonezilla.Extractors
             var readFrom = position;
 
             var worker = pool.TakeWorker();   //held only for this read
+
+            //We hold a scarce pool worker for this whole read, so the decompression cache below MUST NOT
+            //block us on another reader's in-flight decode (that would pin the worker and starve the pool).
+            //Tell it to decode independently instead of coalescing-and-waiting. (Restored on exit; the
+            //mount-time worker-open path leaves this false and still gets lockstep coalescing.)
+            var prevSuppress = CachingStream.SuppressCoalesceWait;
+            CachingStream.SuppressCoalesceWait = true;
             var total = 0;
             try
             {
@@ -68,6 +76,7 @@ namespace libClonezilla.Extractors
             }
             finally
             {
+                CachingStream.SuppressCoalesceWait = prevSuppress;
                 pool.ReturnWorker(worker);
             }
 
