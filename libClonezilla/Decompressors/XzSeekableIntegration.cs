@@ -29,12 +29,33 @@ namespace libClonezilla.Decompressors
     /// the native block index, or <c>XzIndexedStream</c> for single-block xz via a checkpoint index)
     /// into this codebase: implements <see cref="IReadSuggestor"/> as 32 MB-aligned sub-spans within
     /// the containing block/point span, so the CachingStream layer reads pooled-buffer-sized segments.
-    /// The <paramref name="spanOf"/> delegate returns that containing span for a position. Mirrors
-    /// <see cref="SeekableZstdStream"/>.
+    /// The <paramref name="spanOf"/> delegate returns that containing span for a position, and
+    /// <paramref name="createView"/> mints an independent cursor over the same source/index (both
+    /// XzSeekable stream types expose <c>CreateView()</c>; views are documented concurrent-safe -
+    /// own position, shared compressed source behind a gate, per-resume decoder, thread-safe lazy
+    /// window loads). Mirrors <see cref="SeekableZstdStream"/>.
     /// </summary>
-    public class SeekableXzStream(Stream inner, Func<long, (long Start, long End)> spanOf) : Stream, IReadSuggestor
+    public class SeekableXzStream(Stream inner, Func<long, (long Start, long End)> spanOf, Func<Stream> createView) : Stream, IReadSuggestor, IPositionalReader
     {
         const long RecommendationSubSpanBytes = 32L * 1024 * 1024;
+
+        //Absolute positional read (IPositionalReader): each call takes its own independent view, so
+        //concurrent ReadAt calls decode in parallel - this is what routes xz onto CachingStream's
+        //concurrent single-flight path (Batch 10). Loops because views return short at point-span
+        //and fill-span boundaries.
+        public int ReadAt(long readPosition, byte[] buffer, int offset, int count)
+        {
+            using var view = createView();
+            view.Position = readPosition;
+            var total = 0;
+            while (total < count)
+            {
+                var n = view.Read(buffer, offset + total, count - total);
+                if (n == 0) break;
+                total += n;
+            }
+            return total;
+        }
 
         public (long Start, long End) GetRecommendation(long start)
         {

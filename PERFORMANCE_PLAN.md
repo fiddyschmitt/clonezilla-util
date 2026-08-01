@@ -1280,5 +1280,16 @@ primitive over that codec's immutable index + wiring `ReadAt`.
   Harness note for reuse: consume `ReadAt` with a fill loop — CachingStream returns short at span
   boundaries by contract. **Still owed before merge: bzip2 golden rerun (also measures the
   parallel-decode payoff vs the 17 h 14 m baseline) + DOP≥16 bleed stress + full suite.**
-- [ ] **10b — xz** (next; measure first — see the 21 h 24 m finding above).
+- [x] **10b — xz (implemented + harness-validated 2026-08-01; mount smokes + heavy gates pending).**
+  `SeekableXzStream : IPositionalReader` with a required `createView` factory param, wired at both
+  `xzDecompressor` call sites (multi-block native-index and single-block checkpoint-index).
+  **No package change needed:** XzSeekable 0.2.0 already ships concurrent-safe views — both stream
+  types expose `CreateView()` (own position, shared source behind a gate, per-resume decoder,
+  thread-safe per-call lazy window loads); local repo verified at the published v0.2.0 tag.
+  Validated by **xz10verify** (job tmp; same five phases as bz10verify, single-block regime,
+  SharpCompress `XZStream` reference): 9,814 reads / 1.66 GB, 0 failures, full-MD5 match — run
+  while the bzip2 golden was loading the machine. Multi-block regime is the same adapter code;
+  covered by the xz mount/list smokes + suite. **Pending: xz mount smokes after the next republish
+  (held until the in-flight bzip2 golden finishes — republishing would swap the exe under it),
+  then xz golden + suite.**
 - [ ] **10c — gz** (last; marginal win expected).
