@@ -228,10 +228,6 @@ namespace libCommon.Streams
         //Copies from a ready slot into the caller's buffer. MUST be called under mapLock: eviction (also
         //under mapLock) may return slot.Content to the pool, so copying here - never from a reference held
         //outside the lock - is what prevents cross-reader data bleed.
-
-        //Copies from a ready slot into the caller's buffer. MUST be called under mapLock: eviction (also
-        //under mapLock) may return slot.Content to the pool, so copying here - never from a reference held
-        //outside the lock - is what prevents cross-reader data bleed.
         int CopyOut(SpanSlot slot, long readPosition, byte[] buffer, int offset, int count)
         {
             long bytesLeft = slot.End - readPosition;

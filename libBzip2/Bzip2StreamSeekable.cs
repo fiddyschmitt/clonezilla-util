@@ -10,7 +10,7 @@ using libCommon.Streams.Sparse;
 
 namespace libBzip2
 {
-    public class Bzip2StreamSeekable : SeekableDecompressingStream
+    public class Bzip2StreamSeekable : SeekableDecompressingStream, IPositionalReader
     {
         readonly LazyList<Mapping> blocks;
         public override IList<Mapping> Blocks => blocks;
@@ -116,7 +116,32 @@ namespace libBzip2
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            var pos = Position;
+            //Stream.Read owns the single mutable cursor; the work itself is positional.
+            var n = ReadAtCore(Position, buffer, offset, count);
+            Position += n;
+            return n;
+        }
+
+        //Absolute positional read (IPositionalReader). Stateless: touches no instance cursor, so
+        //concurrent callers decode in parallel - every serve already uses its own SharedStream view
+        //and its own in-memory standalone image (see DecodeBlock), sharing only the immutable index.
+        //This is what routes bzip2 onto CachingStream's concurrent single-flight path (Batch 10):
+        //inter-reader parallelism on top of the existing intra-span Parallel.For (Batch 8).
+        //Loops because the core returns the contiguous prefix if a block decode comes up short.
+        public int ReadAt(long readPosition, byte[] buffer, int offset, int count)
+        {
+            var total = 0;
+            while (total < count)
+            {
+                var n = ReadAtCore(readPosition + total, buffer, offset + total, count - total);
+                if (n == 0) break;
+                total += n;
+            }
+            return total;
+        }
+
+        int ReadAtCore(long pos, byte[] buffer, int offset, int count)
+        {
             var bytesLeftInFile = Length - pos;
             if (bytesLeftInFile <= 0 || count <= 0) return 0;
             var toRead = (int)Math.Min(count, bytesLeftInFile);
@@ -160,7 +185,6 @@ namespace libBzip2
                 }
             }
 
-            Position = pos + totalRead;
             return totalRead;
         }
 
