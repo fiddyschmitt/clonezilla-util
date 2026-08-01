@@ -1265,6 +1265,20 @@ primitive over that codec's immutable index + wiring `ReadAt`.
   batch with a full suite run between, per this file's workflow. **Risk: high** (touches the
   corruption-sensitive concurrent decode core for a new codec each time).
 
-- **Status:** flagged 2026-07-31. **Do not start until the in-flight bzip2/gz/xz *legacy-path* golden
-  validation finishes green** (bzip2 ✓ 17 h 14 m, gz ✓ 2 h 7 m, xz in progress) — that run is the
-  pre-change safety baseline for these three codecs.
+- **Status:** flagged 2026-07-31, gate cleared 2026-08-01 (legacy-path golden green: bzip2 17 h 14 m,
+  gz 2 h 7 m, xz 21 h 24 m — all 0 failures; that run is the pre-change safety baseline).
+- [x] **10a — bzip2 (implemented + smoke-validated 2026-08-01, branch `wip/b10-bzip2-positional`,
+  `57b487a`; heavy gates pending).** `Bzip2StreamSeekable : IPositionalReader` — `Read` refactored
+  into a stateless `ReadAtCore`, `ReadAt` on top; `DecodeBlock` was already per-call thread-safe
+  (Batch 8) and the index immutable, so this was the whole change. Verified the activation chain:
+  DecompressorSelector's CachingStream flips `concurrent`, ReadAtConcurrent clamps EOF before
+  bzip2's throwing `GetRecommendation`. Validated: **bz10verify harness** (16-thread random ReadAt
+  bare + through 64/48 MB eviction-thrashing concurrent caches with SuppressCoalesceWait mix,
+  hot-spot races, all group-boundary straddles, full MD5 — 9,742 reads / 1.66 GB, 0 failures) and
+  **both bzip2 mount MD5 smokes** (SmallPartitionImages.Bzip2 raw chain +
+  LargeClonezillaImages.bzip2 partclone chain — 2/2 in 2 m 33 s against the published branch exe).
+  Harness note for reuse: consume `ReadAt` with a fill loop — CachingStream returns short at span
+  boundaries by contract. **Still owed before merge: bzip2 golden rerun (also measures the
+  parallel-decode payoff vs the 17 h 14 m baseline) + DOP≥16 bleed stress + full suite.**
+- [ ] **10b — xz** (next; measure first — see the 21 h 24 m finding above).
+- [ ] **10c — gz** (last; marginal win expected).
