@@ -1278,8 +1278,31 @@ primitive over that codec's immutable index + wiring `ReadAt`.
   **both bzip2 mount MD5 smokes** (SmallPartitionImages.Bzip2 raw chain +
   LargeClonezillaImages.bzip2 partclone chain — 2/2 in 2 m 33 s against the published branch exe).
   Harness note for reuse: consume `ReadAt` with a fill loop — CachingStream returns short at span
-  boundaries by contract. **Still owed before merge: bzip2 golden rerun (also measures the
-  parallel-decode payoff vs the 17 h 14 m baseline) + DOP≥16 bleed stress + full suite.**
+  boundaries by contract.
+  - **bzip2 golden rerun: PASS (2026-08-03), 13 h 00 m vs 17 h 14 m legacy = 1.33× faster.**
+    sda1 112/112, sda2 558,235/558,237 (0 mismatch; 2 transient IO errors, see below), sdb1
+    544/544 — **zero MD5 mismatches across 558,891 files.** CPU ~93 h vs legacy ~83 h (+12%,
+    the DecodeServeAndDrop redundancy) at ~7.5 cores sustained vs legacy ~4.8 — the wall-clock
+    gain is capped by this box's memory bandwidth under 8-way BWT, not by the design.
+  - **Two transient decode errors, both self-healed and re-verified golden-identical during the
+    run** (WinSxS\Catalogs .cat files; 17:09 block-CRC "BZip2 error", 23:27 "invalid Huffman
+    code length" — two DIFFERENT decoder failure points, each a 3-retry burst at one file then
+    clean for hours; both files immediately re-read byte-identical to golden). Diagnosis:
+    transient corruption of in-flight data — leading suspect is this machine's marginal RAM
+    under sustained ~8-core bandwidth (asymmetric 5-DIMM config; repeated LiveKernelEvent
+    117/141 bursts logged across the weekend). Crucially the failure mode was LOUD both times
+    (CRC/format error → IOException to the client), never silent bad data — Batch 8b's
+    reconstruction guard working as designed. Watch item: if these recur on a healthy machine,
+    re-open as a code investigation.
+  - **Run-infrastructure saga (recorded so nobody repeats it):** attempts 1-3 ran under vstest
+    and lost testhost tracelessly at 5.2 h / 15 min / 9.3 h (no dump even with
+    DOTNET_DbgEnableMiniDump armed, no WER record, the mount never died) — vstest is too
+    fragile a vehicle for 10 h+ runs on this box. Attempt 4-5 script bugs: tool-layer escaping
+    collapsed `\\$p`→`\$p` (verify ran against literal `L:$p`), and the mount verb exits on
+    stdin EOF ("Press Enter to exit") so a detached launch unmounted seconds after mounting —
+    hold stdin open with `tail -f /dev/null |`. Attempt 6 (direct mount + the job-tmp verify
+    harness at DOP 8, fully detached) is the reliable recipe: `run-golden9.sh` in the job tmp.
+  **Still owed before merge: DOP≥16 bleed stress + full suite** (and the xz/gz goldens for 10b/10c).
 - [x] **10b — xz (implemented + harness-validated 2026-08-01; mount smokes + heavy gates pending).**
   `SeekableXzStream : IPositionalReader` with a required `createView` factory param, wired at both
   `xzDecompressor` call sites (multi-block native-index and single-block checkpoint-index).
