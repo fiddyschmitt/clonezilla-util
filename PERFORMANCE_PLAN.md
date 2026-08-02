@@ -1303,6 +1303,11 @@ primitive over that codec's immutable index + wiring `ReadAt`.
     hold stdin open with `tail -f /dev/null |`. Attempt 6 (direct mount + the job-tmp verify
     harness at DOP 8, fully detached) is the reliable recipe: `run-golden9.sh` in the job tmp.
   **Still owed before merge: DOP≥16 bleed stress + full suite** (and the xz/gz goldens for 10b/10c).
+- **10b/10c mount smokes green (2026-08-03):** SmallPartitionImages.{xz,gz} +
+  LargeClonezillaImages.{xz,gz} vs the b10 published exe — 4/4 passed in 2 m 40 s. All three
+  bridged codecs are now implemented, harness-validated, and mount-smoked; bzip2 additionally
+  golden-validated on the concurrent path. Remaining gates: xz golden (21 h 24 m legacy baseline —
+  the biggest expected payoff), gz golden (2 h 7 m baseline), DOP≥16 bleed stress, full suite.
 - [x] **10b — xz (implemented + harness-validated 2026-08-01; mount smokes + heavy gates pending).**
   `SeekableXzStream : IPositionalReader` with a required `createView` factory param, wired at both
   `xzDecompressor` call sites (multi-block native-index and single-block checkpoint-index).
