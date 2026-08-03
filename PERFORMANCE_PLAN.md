@@ -1308,6 +1308,29 @@ primitive over that codec's immutable index + wiring `ReadAt`.
   bridged codecs are now implemented, harness-validated, and mount-smoked; bzip2 additionally
   golden-validated on the concurrent path. Remaining gates: xz golden (21 h 24 m legacy baseline —
   the biggest expected payoff), gz golden (2 h 7 m baseline), DOP≥16 bleed stress, full suite.
+- **10b xz golden: correctness PASS, but NO speedup (2026-08-04). 22 h 32 m vs 21 h 24 m legacy
+  — i.e. ~5% SLOWER.** Perfectly clean: sda1 112/112, sda2 558,237/558,237, sdb1 544/544,
+  **0 mismatch / 0 missing / 0 error, OVERALL=0** (and zero transient decode errors this run, in
+  contrast to bzip2's two — consistent with those being machine-RAM events under 8-core load
+  rather than anything codec-specific). sda2 alone: 50.99 GB in 81,128 s = 0.60 MB/s.
+  - **Why no win — the honest mechanism.** The mount held **~1 core for the entire 22 h** (bzip2
+    held ~7.5). Batch 10's bridge only buys *inter-reader* parallelism: several readers each
+    decoding a **different** 32 MB span at once. bzip2 additionally has Batch 8a's **intra-span**
+    `Parallel.For` inside one `ReadAt`, so a *single* reader already saturates cores — that, not
+    the bridge, is where its 1.33× came from. `SeekableXzStream.ReadAt` is one sequential
+    resume-and-decode per view, and the golden sweep walks files in MFT order at DOP 8, so the 8
+    readers cluster inside the *same* span: one owns the decode, the rest either hit the cache or
+    (holding a pool worker, `SuppressCoalesceWait`) redundantly decode-and-drop the same span.
+    Net: no added parallelism, plus a little redundant work — which plausibly explains the ~5%.
+    Within run-to-run variance on this box, so read it as "no change", not a confirmed regression.
+  - **Conclusion for xz: the bridge is correct but not the lever.** Keep it (it costs nothing on
+    cache hits, and it removes the SharedStream gate from xz's serving path), but the follow-on
+    that would actually move xz is **intra-span parallel decode — split a span's LZMA2 chunk range
+    across cores, mirroring Batch 8a for bzip2**. Worth considering alongside: gate the
+    decode-and-drop redundancy per-codec when a codec's `ReadAt` is single-threaded.
+  - **Reframes the earlier "xz is the biggest expected payoff" call** (made from the 21 h 24 m
+    legacy number): the 21 h was never inter-reader serialization — it is single-threaded LZMA2
+    snapshot-resume amplification, which only intra-span work can parallelize.
 - [x] **10b — xz (implemented + harness-validated 2026-08-01; mount smokes + heavy gates pending).**
   `SeekableXzStream : IPositionalReader` with a required `createView` factory param, wired at both
   `xzDecompressor` call sites (multi-block native-index and single-block checkpoint-index).
