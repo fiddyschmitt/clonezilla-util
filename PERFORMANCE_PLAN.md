@@ -1427,6 +1427,52 @@ decode means far fewer reads are in flight when the kill lands.
 **Merge status: BLOCKED.** Not on Batch 10's own changes (its bridges are correctness-clean in
 harness, smoke, and the bzip2 golden), but because merging widens a live correctness hazard that
 master already ships for zst. Full suite deliberately NOT launched.
+
+### Localisation experiment (2026-08-04, `run-diag.sh`, gz @ DOP 24) — refutes BOTH first theories
+
+A baseline → 3× kill bursts → D1 → D2 (same 20k files, **no kills between**) → fresh mount → D3:
+
+| Phase | Result |
+|---|---|
+| A baseline dense 20k | **20,000 clean** |
+| D1 (after kills) | **58 mismatch**, 0 error |
+| D2 (repeat, same mount, no kills) | **75 mismatch**, 4 error |
+| D3 (**fresh mount**, same 20k) | **20,000 clean** |
+
+Mismatch-set diff of the printed samples: **19 D1-only, 19 D2-only, 1 in common** — essentially
+disjoint.
+
+**What this refutes.**
+1. *Not* a transient late-write during the kill (my first theory): D1/D2 contain no kills at all.
+2. *Not* deterministic persistent poison of specific spans (my second theory): D1 and D2 corrupt
+   **different files**.
+
+**What it establishes.** The corruption is **in-memory, non-deterministic, self-sustaining, and
+worsening** — 0 → 58 → 75 mismatches over successive clean passes on the same mount, with the
+error count rising too — and it is **completely cleared by a fresh process** (D3 spotless, same
+files, same image). So the on-disk image and index are fine; the damage is to live process state,
+and once damaged the mount keeps serving wrong bytes indefinitely, getting worse.
+
+**Leading hypothesis (not yet proven): corrupted buffer ownership around the process-global
+`Buffers.BufferPool`.** A single buffer returned while still referenced — or returned twice — on
+an abort path leaves an array with two live owners; every later `Rent` can hand it to a second
+owner, so two decodes write into the same memory. That predicts exactly what we see: random
+different files each pass, compounding damage, cross-file donors, and a clean slate on restart.
+The pool is shared across every partition's cache, so one bad return poisons everything.
+
+Cleared by inspection so far: `InsertAndEvict`/eviction (removes from map before returning, all
+under `mapLock`), `CachingStream.Close()` (drains consistently under `mapLock`),
+`FileEntry.ReadForMemoryMap` (properly locked on both branches). Still unexamined: the abort/
+exception paths through `ReadAtConcurrent` and `DecodeServeAndDrop` when the native 7z read
+throws mid-decode, and `ReleaseContext` disposal racing a read (`ReadFile` takes
+`stream.ReadLock` only when `CreatesNewStreamPerCall`, else `FileEntry.ReadLock`, whereas
+`ReleaseContext` disposes under `fileEntryStream.ReadLock` — the same lock only in the former case).
+
+**Next experiment (decisive, cheap):** temporarily **stop pooling** — `new byte[]` instead of
+`BufferPool.Rent`/`Return` in the concurrent cache — and re-run the DOP-24 kill stress. This is
+the safety net the original S3 design already anticipated. Corruption disappears ⇒ the bug is
+buffer lifetime around the pool, and the fix is ownership discipline (refcount or copy-on-serve).
+Corruption persists ⇒ the pool is exonerated and the search moves to stream disposal racing reads.
 - [x] **10b — xz (implemented + harness-validated 2026-08-01; mount smokes + heavy gates pending).**
   `SeekableXzStream : IPositionalReader` with a required `createView` factory param, wired at both
   `xzDecompressor` call sites (multi-block native-index and single-block checkpoint-index).
