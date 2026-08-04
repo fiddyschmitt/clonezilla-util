@@ -1331,6 +1331,28 @@ primitive over that codec's immutable index + wiring `ReadAt`.
   - **Reframes the earlier "xz is the biggest expected payoff" call** (made from the 21 h 24 m
     legacy number): the 21 h was never inter-reader serialization — it is single-threaded LZMA2
     snapshot-resume amplification, which only intra-span work can parallelize.
+- **10c gz golden: PASS — 1 h 28 m vs 2 h 7 m legacy = 1.45× faster (2026-08-04).** Clean:
+  sda1 112/112 (40.7 MB/s), sda2 558,237/558,237 (50.99 GB @ 9.27 MB/s), sdb1 544/544,
+  **0 mismatch / 0 missing / 0 error, OVERALL=0**, zero transient errors. **The best relative
+  speedup of the three** — and the one predicted to gain least, so worth understanding: gz is
+  the only bridged codec whose decode is cheap enough that a span completes fast, which keeps
+  spans turning over quickly, so the DOP-8 readers spread across *different* spans instead of
+  piling into one. That is precisely the regime the bridge's inter-reader parallelism serves.
+  bzip2/xz, with slow per-span decode, keep all readers waiting on the same span, where only
+  intra-span parallelism (Batch 8a) helps.
+
+### Batch 10 golden scoreboard (all correctness-clean, 558,893 files each, 0 mismatches)
+
+| Codec | Legacy | Batch 10 | Δ | Where the time goes |
+|---|---|---|---|---|
+| bzip2 | 17 h 14 m | **13 h 00 m** | **1.33× faster** | ~7.5 cores — Batch 8a intra-span `Parallel.For` |
+| gz | 2 h 7 m | **1 h 28 m** | **1.45× faster** | cheap decode ⇒ spans turn over ⇒ genuine inter-reader parallelism |
+| xz | 21 h 24 m | 22 h 32 m | ~5% slower (≈ no change) | ~1 core — single sequential resume-decode, readers cluster in one span |
+
+**Lesson for the roadmap:** the bridge pays off exactly where per-span decode is *fast* (readers
+spread out) or where intra-span parallelism already exists. It cannot help a codec whose single
+span decode is slow and serial — that is xz, and the fix there is intra-span LZMA2 chunk
+splitting (mirroring Batch 8a), not more inter-reader concurrency.
 - [x] **10b — xz (implemented + harness-validated 2026-08-01; mount smokes + heavy gates pending).**
   `SeekableXzStream : IPositionalReader` with a required `createView` factory param, wired at both
   `xzDecompressor` call sites (multi-block native-index and single-block checkpoint-index).
