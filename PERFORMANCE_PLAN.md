@@ -1378,8 +1378,55 @@ mechanism, but not measured. Do not cite them as results.
 
 **Process fix:** republish immediately before any gate, and verify the exe's mtime is newer than
 the last source commit. Exe republished 2026-08-04 13:55:11 (29,600,024 bytes vs the stale
-29,595,928) from branch HEAD carrying all three bridges; xz/gz smokes and the xz/gz goldens are
-being re-run against it.
+29,595,928) from branch HEAD carrying all three bridges; xz/gz smokes re-run against it and
+PASS 4/4 (5 m 38 s) — 10b/10c now have genuine integration coverage.
+
+### GATE FAILURE (2026-08-04): L11 cross-file bleed is NOT fixed — and it PRE-DATES Batch 10
+
+The DOP-24 bleed stress (`run-bleed.sh`, correct exe) reproduces real cross-file corruption.
+**Every codec is clean under load alone; only the phase AFTER a client-kill burst corrupts.**
+
+| Codec | A dense (adjacent) | B scatter (strided) | D **post-kill** dense |
+|---|---|---|---|
+| gz | 20,000 clean | 2,000 clean | **98 mismatch, 2 error** |
+| zst | 20,000 clean | 2,000 clean | **87 mismatch, 5 error** |
+| bzip2 | 6,000 clean | 400 clean | 6,000 clean |
+
+`BLEED-OVERALL=1`. Of gz's 20 printed mismatches, **12 are true cross-file bleed** — verify's
+reverse hash→file map names the donor, e.g. `Microsoft.VisualStudio.Validation.dll` served the
+bytes of `System.Composition.AttributedModel.dll`, a neighbour in the same directory (hence the
+same 32 MB span). The other 8 matched no golden file (garbage).
+
+**The decisive fact: zst bleeds too.** zst has been on the concurrent S3 path since before
+Batch 10 — so this is a **pre-existing hole in the shared S3/Dokan core, NOT a Batch 10
+regression**. Batch 10 does not create it; it widens exposure to gz and xz.
+
+**This also retracts the earlier "S3 fix validated" conclusion** (TEST_ANALYSIS): that kill test
+ran at **DOP 8**, where reads rarely queue past Dokan's timeout. `SuppressCoalesceWait` removed
+one *cause* of timeouts (waiters blocking while holding a scarce 7z worker); it did not close the
+*class*. At DOP 24 against a 4-worker pool, plain queueing exceeds the timeout on its own.
+
+**Located mechanism (not yet a proven fix):** `DokanVFS.ReadFile` decodes **directly into Dokan's
+`buffer`** for the entire duration of the read — `file.ReadForMemoryMap(buffer, …)`
+(DokanVFS.cs:352, mmap path) and `stream.Stream.ReadAtLeast(buffer, …)` (DokanVFS.cs:374, handle
+path). If the op is cancelled/timed out (client killed), Dokan reclaims that buffer and reissues
+it for another file's request while our decode is still running — the late write lands in the new
+owner's buffer. That is precisely the observed neighbour-file bleed.
+
+**Candidate fixes (to be designed and proven, not assumed):**
+1. Decode into a **private buffer**, copy into Dokan's buffer only at completion — shrinks the
+   exposure window from seconds-of-decode to a memcpy. Necessary, probably not sufficient alone.
+2. **Bound concurrent Dokan reads** near the native worker-pool size, so a read never queues past
+   the timeout — attacks the cause rather than the symptom.
+3. Revisit the watchdog's 10-minute runaway cap (the point at which extension stops and the op is
+   allowed to die while still executing).
+**Gate discipline going forward: any claimed fix must pass this DOP-24 kill stress on gz AND zst,
+not just DOP 8.** bzip2's clean result is almost certainly exposure, not immunity — its ~3.6 MB/s
+decode means far fewer reads are in flight when the kill lands.
+
+**Merge status: BLOCKED.** Not on Batch 10's own changes (its bridges are correctness-clean in
+harness, smoke, and the bzip2 golden), but because merging widens a live correctness hazard that
+master already ships for zst. Full suite deliberately NOT launched.
 - [x] **10b — xz (implemented + harness-validated 2026-08-01; mount smokes + heavy gates pending).**
   `SeekableXzStream : IPositionalReader` with a required `createView` factory param, wired at both
   `xzDecompressor` call sites (multi-block native-index and single-block checkpoint-index).
