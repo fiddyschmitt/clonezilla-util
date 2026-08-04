@@ -1353,6 +1353,33 @@ primitive over that codec's immutable index + wiring `ReadAt`.
 spread out) or where intra-span parallelism already exists. It cannot help a codec whose single
 span decode is slow and serial — that is xz, and the fix there is intra-span LZMA2 chunk
 splitting (mirroring Batch 8a), not more inter-reader concurrency.
+
+### CORRECTION (2026-08-04): the xz and gz golden results above tested the LEGACY paths
+
+**The published exe under test predated the 10b/10c bridges.** `R:\Temp\clonezilla-util release\
+clonezilla-util.exe` was published **2026-08-01 16:47:41**, from the 10a commit (`57b487a`,
+16:47:00). The xz bridge was edited at **16:59** and the gz bridge at **17:16** — i.e. *after*
+that publish — and the exe was never republished before the xz/gz smokes and goldens ran.
+
+What this invalidates, and what survives:
+
+| Result | Status |
+|---|---|
+| bzip2 golden 13 h 00 m, 1.33×, 0 mismatches | **VALID** — 10a was in the exe |
+| bz10verify / xz10verify / gz10verify harnesses | **VALID** — they `ProjectReference` the source, so all three bridges *are* exercised and correctness-clean |
+| xz golden 22 h 32 m "no speedup" | **INVALID as a Batch 10 measurement** — legacy xz path. (It is a clean re-measure of the legacy baseline: 22 h 32 m vs 21 h 24 m = run-to-run variance, which is at least a useful variance datum.) |
+| gz golden 1 h 28 m "1.45× faster" | **INVALID as a Batch 10 measurement** — legacy gz path. The 1.45× is environmental (warm caches / lower contention), NOT the bridge. |
+| xz+gz mount smokes 4/4 (2026-08-03) | **INVALID** — exercised the legacy paths; 10b/10c had no integration coverage until the re-run below |
+
+**Therefore the "Batch 10 golden scoreboard" and the "lesson for the roadmap" above stand only
+for bzip2.** The xz and gz rows, and the inference drawn from them (that cheap-decode codecs
+benefit and slow-decode ones cannot), are **untested hypotheses again** — plausible from the
+mechanism, but not measured. Do not cite them as results.
+
+**Process fix:** republish immediately before any gate, and verify the exe's mtime is newer than
+the last source commit. Exe republished 2026-08-04 13:55:11 (29,600,024 bytes vs the stale
+29,595,928) from branch HEAD carrying all three bridges; xz/gz smokes and the xz/gz goldens are
+being re-run against it.
 - [x] **10b — xz (implemented + harness-validated 2026-08-01; mount smokes + heavy gates pending).**
   `SeekableXzStream : IPositionalReader` with a required `createView` factory param, wired at both
   `xzDecompressor` call sites (multi-block native-index and single-block checkpoint-index).
