@@ -784,3 +784,67 @@ bridge unblocks the same machinery).
 **Net position:** the serving stack is validated end-to-end on all four codecs; zst additionally
 validates the concurrent path under the harshest regime. Follow-on queued as
 **PERFORMANCE_PLAN Batch 10** (extend `IPositionalReader` to bzip2/xz/gz bridges).
+
+## L11 ROOT CAUSE FOUND AND FIXED (2026-08-06) — Dokan returns a foreign file's context
+
+**The bug.** Under a client-kill burst, the mount served **the right bytes for the wrong file**.
+`DokanVFS.ReadFile` trusts `info.Context` (a `FileEntryStream`) to identify the file being read.
+The driver hands back a context belonging to a **different** file, so a read for X is satisfied
+from Y's stream. Proven directly, not inferred — a diagnostic logged matched pairs:
+
+```
+requested '\sda2\...\8c5255eb....cat'  but this handle's FileEntry is 'PolicyConfigSource.js'
+same FileEntryStream instance first served '...\PolicyConfigSource.js',
+                                  now asked for '...\8c5255eb....cat'
+```
+
+**The fix** (`libDokan/VFS/DokanVFS.cs`, 39 lines):
+1. `CreateFile` drops any inherited `info.Context` on entry. It is assigned on exactly one path
+   (`fileSystemEntry is FileEntry`) but several paths return before it, and a killed client never
+   gets `Cleanup`/`CloseFile`, so a stale `FileEntryStream` could survive into a reused slot. Left
+   null, `ReadFile`'s null-context path resolves the entry **by name** — correct by construction.
+   Dropped, not disposed: these per-handle streams hold no scarce resource, and disposing one that
+   another thread may still be reading would trade corruption for a crash.
+2. `ReadFile` verifies the context's `FileEntry.Name` matches the requested `fileName`, and serves
+   **by name** when it does not — turning silent cross-file corruption into a correct read.
+
+**Evidence.** A rate-measuring harness (`run-repro-l11.sh`: fresh mount, 6 kill bursts of 3×DOP-16
+scattered readers = 48 concurrent vs 4 native workers, then dense + scattered detection passes):
+
+| Build | Trials | Reproduced | Notes |
+|---|---|---|---|
+| unfixed | ~50% baseline | 3/6, 4/6, 1/2, 5/5 … | 133–323 mismatches per run |
+| **fixed** | **28** | **1** | that one was a *different* signature (below) |
+
+Speed-matched pair, which controls for the machine-drift confound that repeatedly misled this
+investigation: unfixed **5/5** at 21.1–25.3 MB/s vs fixed **0/12** at 22.5–26.9 MB/s. Across the
+final clean-build run the guard corrected **846** reads while reproducing **0/8** — the race fires
+constantly and is neutralised, rather than being absent.
+
+### ⚠ This is partly a WORKAROUND, not a cure — revisit
+
+Part 2 detects and corrects; it does not stop the driver handing us a foreign context. Part 1
+removes *our* ability to leak a stale context, yet **846 wrong contexts still arrived**, which means
+they are not coming from our `CreateFile` at all: the driver (or DokanNet's context marshalling)
+associates a context with a file object across different files without a fresh `CreateFile`.
+
+Open questions for a later pass:
+- **Why** does `info.Context` come back foreign? Prime suspect is DokanNet's context marshalling
+  (the native side stores a handle/index that can be stale or recycled) rather than the kernel
+  driver. Worth instrumenting DokanNet's context table, and reporting upstream if confirmed.
+- Can we stop *depending* on `info.Context` for identity at all — e.g. key the handle table
+  ourselves and treat the driver's context as a hint? That would make the guard unnecessary.
+- **Residual, separate bug:** 1 of 28 fixed trials still produced a single wrong file, but with a
+  **garbage** signature (`[got matches no golden file]`) rather than a clean cross-file copy.
+  Different, much rarer mechanism. Leading candidate is the hypothesis formed first and discarded:
+  a timed-out `ReadFile` writing **late** into a buffer the driver already reclaimed — which fits
+  rare *partial* corruption, though it never fitted the cross-file pattern. Tracked, not a blocker.
+
+### Method note (worth keeping)
+
+Five wrong theories died here — late-write, persistent cache poison, byte-buffer pool, worker-pool
+bookkeeping, dirty-worker recycling — and every one was killed by instrumentation, never by reading
+code. Two recurring traps: (1) **cross-time A/B is invalid** — reproduction drifted from 100% to 0%
+over a day, so arms must be paired/interleaved or speed-matched; (2) **check a probe's statistical
+power before trusting its silence** — a 1-in-64 sample against a <1% event had an expected yield of
+0.8 hits, so its zero carried no information.
