@@ -47,7 +47,7 @@ namespace libClonezilla.Decompressors
                 {
                     var r = stream.GetRecommendation(start);
                     return (r.Start, r.End);
-                });
+                }, stream.CreateView);
             }
             catch (Exception ex)
             {

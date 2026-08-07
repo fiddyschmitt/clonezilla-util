@@ -29,11 +29,31 @@ namespace libClonezilla.Decompressors
     /// <see cref="IReadSuggestor"/> as 32 MB-aligned sub-spans within the containing point span
     /// (with gzip's 4 MB default spans the sub-span is simply the whole span), so the CachingStream
     /// layer reads pooled-buffer-sized segments. The <paramref name="spanOf"/> delegate returns the
-    /// containing span for a position. Mirrors <see cref="SeekableXzStream"/>.
+    /// containing span for a position, and <paramref name="createView"/> mints an independent
+    /// cursor over the same source/index (<c>GzipIndexedStream.CreateView()</c>; views are
+    /// concurrent-safe - own position, shared source behind a gate, per-call window inflation).
+    /// Mirrors <see cref="SeekableXzStream"/>.
     /// </summary>
-    public class SeekableGzipStream(Stream inner, Func<long, (long Start, long End)> spanOf) : Stream, IReadSuggestor
+    public class SeekableGzipStream(Stream inner, Func<long, (long Start, long End)> spanOf, Func<Stream> createView) : Stream, IReadSuggestor, IPositionalReader
     {
         const long RecommendationSubSpanBytes = 32L * 1024 * 1024;
+
+        //Absolute positional read (IPositionalReader): each call takes its own independent view, so
+        //concurrent ReadAt calls decode in parallel - this routes gz onto CachingStream's concurrent
+        //single-flight path (Batch 10). Loops because views return short at point-span boundaries.
+        public int ReadAt(long readPosition, byte[] buffer, int offset, int count)
+        {
+            using var view = createView();
+            view.Position = readPosition;
+            var total = 0;
+            while (total < count)
+            {
+                var n = view.Read(buffer, offset + total, count - total);
+                if (n == 0) break;
+                total += n;
+            }
+            return total;
+        }
 
         public (long Start, long End) GetRecommendation(long start)
         {

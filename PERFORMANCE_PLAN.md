@@ -1265,6 +1265,232 @@ primitive over that codec's immutable index + wiring `ReadAt`.
   batch with a full suite run between, per this file's workflow. **Risk: high** (touches the
   corruption-sensitive concurrent decode core for a new codec each time).
 
-- **Status:** flagged 2026-07-31. **Do not start until the in-flight bzip2/gz/xz *legacy-path* golden
-  validation finishes green** (bzip2 ✓ 17 h 14 m, gz ✓ 2 h 7 m, xz in progress) — that run is the
-  pre-change safety baseline for these three codecs.
+- **Status:** flagged 2026-07-31, gate cleared 2026-08-01 (legacy-path golden green: bzip2 17 h 14 m,
+  gz 2 h 7 m, xz 21 h 24 m — all 0 failures; that run is the pre-change safety baseline).
+- [x] **10a — bzip2 (implemented + smoke-validated 2026-08-01, branch `wip/b10-bzip2-positional`,
+  `57b487a`; heavy gates pending).** `Bzip2StreamSeekable : IPositionalReader` — `Read` refactored
+  into a stateless `ReadAtCore`, `ReadAt` on top; `DecodeBlock` was already per-call thread-safe
+  (Batch 8) and the index immutable, so this was the whole change. Verified the activation chain:
+  DecompressorSelector's CachingStream flips `concurrent`, ReadAtConcurrent clamps EOF before
+  bzip2's throwing `GetRecommendation`. Validated: **bz10verify harness** (16-thread random ReadAt
+  bare + through 64/48 MB eviction-thrashing concurrent caches with SuppressCoalesceWait mix,
+  hot-spot races, all group-boundary straddles, full MD5 — 9,742 reads / 1.66 GB, 0 failures) and
+  **both bzip2 mount MD5 smokes** (SmallPartitionImages.Bzip2 raw chain +
+  LargeClonezillaImages.bzip2 partclone chain — 2/2 in 2 m 33 s against the published branch exe).
+  Harness note for reuse: consume `ReadAt` with a fill loop — CachingStream returns short at span
+  boundaries by contract.
+  - **bzip2 golden rerun: PASS (2026-08-03), 13 h 00 m vs 17 h 14 m legacy = 1.33× faster.**
+    sda1 112/112, sda2 558,235/558,237 (0 mismatch; 2 transient IO errors, see below), sdb1
+    544/544 — **zero MD5 mismatches across 558,891 files.** CPU ~93 h vs legacy ~83 h (+12%,
+    the DecodeServeAndDrop redundancy) at ~7.5 cores sustained vs legacy ~4.8 — the wall-clock
+    gain is capped by this box's memory bandwidth under 8-way BWT, not by the design.
+  - **Two transient decode errors, both self-healed and re-verified golden-identical during the
+    run** (WinSxS\Catalogs .cat files; 17:09 block-CRC "BZip2 error", 23:27 "invalid Huffman
+    code length" — two DIFFERENT decoder failure points, each a 3-retry burst at one file then
+    clean for hours; both files immediately re-read byte-identical to golden). Diagnosis:
+    transient corruption of in-flight data — leading suspect is this machine's marginal RAM
+    under sustained ~8-core bandwidth (asymmetric 5-DIMM config; repeated LiveKernelEvent
+    117/141 bursts logged across the weekend). Crucially the failure mode was LOUD both times
+    (CRC/format error → IOException to the client), never silent bad data — Batch 8b's
+    reconstruction guard working as designed. Watch item: if these recur on a healthy machine,
+    re-open as a code investigation.
+  - **Run-infrastructure saga (recorded so nobody repeats it):** attempts 1-3 ran under vstest
+    and lost testhost tracelessly at 5.2 h / 15 min / 9.3 h (no dump even with
+    DOTNET_DbgEnableMiniDump armed, no WER record, the mount never died) — vstest is too
+    fragile a vehicle for 10 h+ runs on this box. Attempt 4-5 script bugs: tool-layer escaping
+    collapsed `\\$p`→`\$p` (verify ran against literal `L:$p`), and the mount verb exits on
+    stdin EOF ("Press Enter to exit") so a detached launch unmounted seconds after mounting —
+    hold stdin open with `tail -f /dev/null |`. Attempt 6 (direct mount + the job-tmp verify
+    harness at DOP 8, fully detached) is the reliable recipe: `run-golden9.sh` in the job tmp.
+  **Still owed before merge: DOP≥16 bleed stress + full suite** (and the xz/gz goldens for 10b/10c).
+- **10b/10c mount smokes green (2026-08-03):** SmallPartitionImages.{xz,gz} +
+  LargeClonezillaImages.{xz,gz} vs the b10 published exe — 4/4 passed in 2 m 40 s. All three
+  bridged codecs are now implemented, harness-validated, and mount-smoked; bzip2 additionally
+  golden-validated on the concurrent path. Remaining gates: xz golden (21 h 24 m legacy baseline —
+  the biggest expected payoff), gz golden (2 h 7 m baseline), DOP≥16 bleed stress, full suite.
+- **10b xz golden: correctness PASS, but NO speedup (2026-08-04). 22 h 32 m vs 21 h 24 m legacy
+  — i.e. ~5% SLOWER.** Perfectly clean: sda1 112/112, sda2 558,237/558,237, sdb1 544/544,
+  **0 mismatch / 0 missing / 0 error, OVERALL=0** (and zero transient decode errors this run, in
+  contrast to bzip2's two — consistent with those being machine-RAM events under 8-core load
+  rather than anything codec-specific). sda2 alone: 50.99 GB in 81,128 s = 0.60 MB/s.
+  - **Why no win — the honest mechanism.** The mount held **~1 core for the entire 22 h** (bzip2
+    held ~7.5). Batch 10's bridge only buys *inter-reader* parallelism: several readers each
+    decoding a **different** 32 MB span at once. bzip2 additionally has Batch 8a's **intra-span**
+    `Parallel.For` inside one `ReadAt`, so a *single* reader already saturates cores — that, not
+    the bridge, is where its 1.33× came from. `SeekableXzStream.ReadAt` is one sequential
+    resume-and-decode per view, and the golden sweep walks files in MFT order at DOP 8, so the 8
+    readers cluster inside the *same* span: one owns the decode, the rest either hit the cache or
+    (holding a pool worker, `SuppressCoalesceWait`) redundantly decode-and-drop the same span.
+    Net: no added parallelism, plus a little redundant work — which plausibly explains the ~5%.
+    Within run-to-run variance on this box, so read it as "no change", not a confirmed regression.
+  - **Conclusion for xz: the bridge is correct but not the lever.** Keep it (it costs nothing on
+    cache hits, and it removes the SharedStream gate from xz's serving path), but the follow-on
+    that would actually move xz is **intra-span parallel decode — split a span's LZMA2 chunk range
+    across cores, mirroring Batch 8a for bzip2**. Worth considering alongside: gate the
+    decode-and-drop redundancy per-codec when a codec's `ReadAt` is single-threaded.
+  - **Reframes the earlier "xz is the biggest expected payoff" call** (made from the 21 h 24 m
+    legacy number): the 21 h was never inter-reader serialization — it is single-threaded LZMA2
+    snapshot-resume amplification, which only intra-span work can parallelize.
+- **10c gz golden: PASS — 1 h 28 m vs 2 h 7 m legacy = 1.45× faster (2026-08-04).** Clean:
+  sda1 112/112 (40.7 MB/s), sda2 558,237/558,237 (50.99 GB @ 9.27 MB/s), sdb1 544/544,
+  **0 mismatch / 0 missing / 0 error, OVERALL=0**, zero transient errors. **The best relative
+  speedup of the three** — and the one predicted to gain least, so worth understanding: gz is
+  the only bridged codec whose decode is cheap enough that a span completes fast, which keeps
+  spans turning over quickly, so the DOP-8 readers spread across *different* spans instead of
+  piling into one. That is precisely the regime the bridge's inter-reader parallelism serves.
+  bzip2/xz, with slow per-span decode, keep all readers waiting on the same span, where only
+  intra-span parallelism (Batch 8a) helps.
+
+### Batch 10 golden scoreboard (all correctness-clean, 558,893 files each, 0 mismatches)
+
+| Codec | Legacy | Batch 10 | Δ | Where the time goes |
+|---|---|---|---|---|
+| bzip2 | 17 h 14 m | **13 h 00 m** | **1.33× faster** | ~7.5 cores — Batch 8a intra-span `Parallel.For` |
+| gz | 2 h 7 m | **1 h 28 m** | **1.45× faster** | cheap decode ⇒ spans turn over ⇒ genuine inter-reader parallelism |
+| xz | 21 h 24 m | 22 h 32 m | ~5% slower (≈ no change) | ~1 core — single sequential resume-decode, readers cluster in one span |
+
+**Lesson for the roadmap:** the bridge pays off exactly where per-span decode is *fast* (readers
+spread out) or where intra-span parallelism already exists. It cannot help a codec whose single
+span decode is slow and serial — that is xz, and the fix there is intra-span LZMA2 chunk
+splitting (mirroring Batch 8a), not more inter-reader concurrency.
+
+### CORRECTION (2026-08-04): the xz and gz golden results above tested the LEGACY paths
+
+**The published exe under test predated the 10b/10c bridges.** `R:\Temp\clonezilla-util release\
+clonezilla-util.exe` was published **2026-08-01 16:47:41**, from the 10a commit (`57b487a`,
+16:47:00). The xz bridge was edited at **16:59** and the gz bridge at **17:16** — i.e. *after*
+that publish — and the exe was never republished before the xz/gz smokes and goldens ran.
+
+What this invalidates, and what survives:
+
+| Result | Status |
+|---|---|
+| bzip2 golden 13 h 00 m, 1.33×, 0 mismatches | **VALID** — 10a was in the exe |
+| bz10verify / xz10verify / gz10verify harnesses | **VALID** — they `ProjectReference` the source, so all three bridges *are* exercised and correctness-clean |
+| xz golden 22 h 32 m "no speedup" | **INVALID as a Batch 10 measurement** — legacy xz path. (It is a clean re-measure of the legacy baseline: 22 h 32 m vs 21 h 24 m = run-to-run variance, which is at least a useful variance datum.) |
+| gz golden 1 h 28 m "1.45× faster" | **INVALID as a Batch 10 measurement** — legacy gz path. The 1.45× is environmental (warm caches / lower contention), NOT the bridge. |
+| xz+gz mount smokes 4/4 (2026-08-03) | **INVALID** — exercised the legacy paths; 10b/10c had no integration coverage until the re-run below |
+
+**Therefore the "Batch 10 golden scoreboard" and the "lesson for the roadmap" above stand only
+for bzip2.** The xz and gz rows, and the inference drawn from them (that cheap-decode codecs
+benefit and slow-decode ones cannot), are **untested hypotheses again** — plausible from the
+mechanism, but not measured. Do not cite them as results.
+
+**Process fix:** republish immediately before any gate, and verify the exe's mtime is newer than
+the last source commit. Exe republished 2026-08-04 13:55:11 (29,600,024 bytes vs the stale
+29,595,928) from branch HEAD carrying all three bridges; xz/gz smokes re-run against it and
+PASS 4/4 (5 m 38 s) — 10b/10c now have genuine integration coverage.
+
+### GATE FAILURE (2026-08-04): L11 cross-file bleed is NOT fixed — and it PRE-DATES Batch 10
+
+The DOP-24 bleed stress (`run-bleed.sh`, correct exe) reproduces real cross-file corruption.
+**Every codec is clean under load alone; only the phase AFTER a client-kill burst corrupts.**
+
+| Codec | A dense (adjacent) | B scatter (strided) | D **post-kill** dense |
+|---|---|---|---|
+| gz | 20,000 clean | 2,000 clean | **98 mismatch, 2 error** |
+| zst | 20,000 clean | 2,000 clean | **87 mismatch, 5 error** |
+| bzip2 | 6,000 clean | 400 clean | 6,000 clean |
+
+`BLEED-OVERALL=1`. Of gz's 20 printed mismatches, **12 are true cross-file bleed** — verify's
+reverse hash→file map names the donor, e.g. `Microsoft.VisualStudio.Validation.dll` served the
+bytes of `System.Composition.AttributedModel.dll`, a neighbour in the same directory (hence the
+same 32 MB span). The other 8 matched no golden file (garbage).
+
+**The decisive fact: zst bleeds too.** zst has been on the concurrent S3 path since before
+Batch 10 — so this is a **pre-existing hole in the shared S3/Dokan core, NOT a Batch 10
+regression**. Batch 10 does not create it; it widens exposure to gz and xz.
+
+**This also retracts the earlier "S3 fix validated" conclusion** (TEST_ANALYSIS): that kill test
+ran at **DOP 8**, where reads rarely queue past Dokan's timeout. `SuppressCoalesceWait` removed
+one *cause* of timeouts (waiters blocking while holding a scarce 7z worker); it did not close the
+*class*. At DOP 24 against a 4-worker pool, plain queueing exceeds the timeout on its own.
+
+**Located mechanism (not yet a proven fix):** `DokanVFS.ReadFile` decodes **directly into Dokan's
+`buffer`** for the entire duration of the read — `file.ReadForMemoryMap(buffer, …)`
+(DokanVFS.cs:352, mmap path) and `stream.Stream.ReadAtLeast(buffer, …)` (DokanVFS.cs:374, handle
+path). If the op is cancelled/timed out (client killed), Dokan reclaims that buffer and reissues
+it for another file's request while our decode is still running — the late write lands in the new
+owner's buffer. That is precisely the observed neighbour-file bleed.
+
+**Candidate fixes (to be designed and proven, not assumed):**
+1. Decode into a **private buffer**, copy into Dokan's buffer only at completion — shrinks the
+   exposure window from seconds-of-decode to a memcpy. Necessary, probably not sufficient alone.
+2. **Bound concurrent Dokan reads** near the native worker-pool size, so a read never queues past
+   the timeout — attacks the cause rather than the symptom.
+3. Revisit the watchdog's 10-minute runaway cap (the point at which extension stops and the op is
+   allowed to die while still executing).
+**Gate discipline going forward: any claimed fix must pass this DOP-24 kill stress on gz AND zst,
+not just DOP 8.** bzip2's clean result is almost certainly exposure, not immunity — its ~3.6 MB/s
+decode means far fewer reads are in flight when the kill lands.
+
+**Merge status: BLOCKED.** Not on Batch 10's own changes (its bridges are correctness-clean in
+harness, smoke, and the bzip2 golden), but because merging widens a live correctness hazard that
+master already ships for zst. Full suite deliberately NOT launched.
+
+### Localisation experiment (2026-08-04, `run-diag.sh`, gz @ DOP 24) — refutes BOTH first theories
+
+A baseline → 3× kill bursts → D1 → D2 (same 20k files, **no kills between**) → fresh mount → D3:
+
+| Phase | Result |
+|---|---|
+| A baseline dense 20k | **20,000 clean** |
+| D1 (after kills) | **58 mismatch**, 0 error |
+| D2 (repeat, same mount, no kills) | **75 mismatch**, 4 error |
+| D3 (**fresh mount**, same 20k) | **20,000 clean** |
+
+Mismatch-set diff of the printed samples: **19 D1-only, 19 D2-only, 1 in common** — essentially
+disjoint.
+
+**What this refutes.**
+1. *Not* a transient late-write during the kill (my first theory): D1/D2 contain no kills at all.
+2. *Not* deterministic persistent poison of specific spans (my second theory): D1 and D2 corrupt
+   **different files**.
+
+**What it establishes.** The corruption is **in-memory, non-deterministic, self-sustaining, and
+worsening** — 0 → 58 → 75 mismatches over successive clean passes on the same mount, with the
+error count rising too — and it is **completely cleared by a fresh process** (D3 spotless, same
+files, same image). So the on-disk image and index are fine; the damage is to live process state,
+and once damaged the mount keeps serving wrong bytes indefinitely, getting worse.
+
+**Leading hypothesis (not yet proven): corrupted buffer ownership around the process-global
+`Buffers.BufferPool`.** A single buffer returned while still referenced — or returned twice — on
+an abort path leaves an array with two live owners; every later `Rent` can hand it to a second
+owner, so two decodes write into the same memory. That predicts exactly what we see: random
+different files each pass, compounding damage, cross-file donors, and a clean slate on restart.
+The pool is shared across every partition's cache, so one bad return poisons everything.
+
+Cleared by inspection so far: `InsertAndEvict`/eviction (removes from map before returning, all
+under `mapLock`), `CachingStream.Close()` (drains consistently under `mapLock`),
+`FileEntry.ReadForMemoryMap` (properly locked on both branches). Still unexamined: the abort/
+exception paths through `ReadAtConcurrent` and `DecodeServeAndDrop` when the native 7z read
+throws mid-decode, and `ReleaseContext` disposal racing a read (`ReadFile` takes
+`stream.ReadLock` only when `CreatesNewStreamPerCall`, else `FileEntry.ReadLock`, whereas
+`ReleaseContext` disposes under `fileEntryStream.ReadLock` — the same lock only in the former case).
+
+**Next experiment (decisive, cheap):** temporarily **stop pooling** — `new byte[]` instead of
+`BufferPool.Rent`/`Return` in the concurrent cache — and re-run the DOP-24 kill stress. This is
+the safety net the original S3 design already anticipated. Corruption disappears ⇒ the bug is
+buffer lifetime around the pool, and the fix is ownership discipline (refcount or copy-on-serve).
+Corruption persists ⇒ the pool is exonerated and the search moves to stream disposal racing reads.
+- [x] **10b — xz (implemented + harness-validated 2026-08-01; mount smokes + heavy gates pending).**
+  `SeekableXzStream : IPositionalReader` with a required `createView` factory param, wired at both
+  `xzDecompressor` call sites (multi-block native-index and single-block checkpoint-index).
+  **No package change needed:** XzSeekable 0.2.0 already ships concurrent-safe views — both stream
+  types expose `CreateView()` (own position, shared source behind a gate, per-resume decoder,
+  thread-safe per-call lazy window loads); local repo verified at the published v0.2.0 tag.
+  Validated by **xz10verify** (job tmp; same five phases as bz10verify, single-block regime,
+  SharpCompress `XZStream` reference): 9,814 reads / 1.66 GB, 0 failures, full-MD5 match — run
+  while the bzip2 golden was loading the machine. Multi-block regime is the same adapter code;
+  covered by the xz mount/list smokes + suite. **Pending: xz mount smokes after the next republish
+  (held until the in-flight bzip2 golden finishes — republishing would swap the exe under it),
+  then xz golden + suite.**
+- [x] **10c — gz (implemented + harness-validated 2026-08-01; mount smokes + heavy gates pending).**
+  Identical shape to 10b: `SeekableGzipStream : IPositionalReader` with a `createView` factory,
+  wired at GzDecompressor's single call site; GzipSeekable 0.1.0 already ships concurrent-safe
+  `CreateView()` (repo verified at the v0.1.0 tag) — no package change. Validated by **gz10verify**
+  (BCL `GZipStream` reference — independent of the package's vendored SharpZipLib inflater):
+  10,694 reads / 1.66 GB, 0 failures, full-MD5 match. All three codec harnesses produced the same
+  content MD5 (`d4559685…`) via three independent reference decoders. **Batch 10 implementation
+  sweep complete** — remaining gates: republish + xz/gz mount smokes (held until the in-flight
+  bzip2 golden finishes), bzip2/xz/gz golden reruns on the new path, DOP≥16 bleed stress, full suite.

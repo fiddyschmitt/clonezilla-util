@@ -1,4 +1,4 @@
-﻿using DokanNet;
+using DokanNet;
 using libCommon;
 using libDokan.Processes;
 using libDokan.VFS;
@@ -72,6 +72,19 @@ namespace libDokan
         {
             var result = DokanResult.Success;
             var filePath = GetPath(fileName);
+
+            //FIX (L11, part 1 of 2): never inherit a previous handle's context.
+            //Context is assigned on exactly ONE path below (fileSystemEntry is FileEntry), while
+            //several paths return before it - CreateNew-exists, Truncate-missing, the IsDirectory
+            //branches, the read-attributes shortcut. A client killed mid-read never gets
+            //Cleanup/CloseFile, so its FileEntryStream can still be sitting here when the slot is
+            //reused for a different file; the next ReadFile would then serve THAT file's stream.
+            //Dropping it here means an unassigned context stays null, and ReadFile's null-context
+            //path resolves the entry by name - which is correct by construction.
+            //Not disposed, only dropped: these per-handle streams hold no scarce resource (see
+            //PooledNativeItemStream) so letting the GC take it is far safer than risking a dispose
+            //of a stream another thread may still be reading.
+            if (info.Context != null) info.Context = null;
 
             if (info.IsDirectory)
             {
@@ -359,6 +372,30 @@ namespace libDokan
             else // normal read
             {
                 if (info.Context is not FileEntryStream stream) return Trace(nameof(ReadFile), fileName, info, DokanResult.Unsuccessful);
+
+
+                //FIX (L11, part 2 of 2): refuse to serve a context that belongs to another file.
+                //Part 1 stops a stale context leaking through CreateFile, but it cannot help if the
+                //driver hands back a recycled context WITHOUT a fresh CreateFile - which is exactly
+                //what the diagnostic caught ("same FileEntryStream instance first served A, now
+                //asked for B"). So the read path itself must not trust the context: verify it names
+                //the file being requested, and if it does not, serve the file by NAME instead.
+                //That turns what was silent cross-file corruption into a correct (marginally
+                //slower) read, which is the right trade in a filesystem.
+                if (!string.Equals(fileName.AsSpan(fileName.LastIndexOf('\\') + 1).ToString(),
+                                   stream.FileEntry.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Warning($"ReadFile context mismatch: '{fileName}' was handed a stream for "
+                              + $"'{stream.FileEntry.Name}'. Serving by name instead.");
+
+                    if (Root.GetEntryFromPath(GetPath(fileName), info.ProcessId) is FileEntry byName)
+                    {
+                        bytesRead = byName.ReadForMemoryMap(buffer, offset, buffer.Length);
+                        return Trace(nameof(ReadFile), fileName, info, DokanResult.Success,
+                            "out " + bytesRead.ToString(), offset.ToString(CultureInfo.InvariantCulture));
+                    }
+                    return Trace(nameof(ReadFile), fileName, info, DokanResult.FileNotFound);
+                }
 
                 int DoRead()
                 {
@@ -714,6 +751,7 @@ namespace libDokan
             //testFS.Mount(rootFolder.MountPoint);
         }
     }
+
 
     public class FileEntryStream
     {

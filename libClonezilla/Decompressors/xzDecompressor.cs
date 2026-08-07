@@ -35,7 +35,7 @@ namespace libClonezilla.Decompressors
                 CompressedStream.Seek(0, SeekOrigin.Begin);
                 var indexed = XzBlockIndexedStream.Open(CompressedStream, leaveOpen: true);
                 Log.Information($"xz: serving random access from the native block index ({indexed.Container.BlockCount} blocks).");
-                return new SeekableXzStream(indexed, indexed.GetRecommendation);
+                return new SeekableXzStream(indexed, indexed.GetRecommendation, indexed.CreateView);
             }
             catch (XzFormatException)
             {
@@ -84,7 +84,7 @@ namespace libClonezilla.Decompressors
                 {
                     var r = stream.GetRecommendation(start);
                     return (r.Start, r.End);
-                });
+                }, stream.CreateView);
             }
             catch (Exception ex)
             {
