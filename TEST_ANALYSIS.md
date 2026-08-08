@@ -848,3 +848,77 @@ code. Two recurring traps: (1) **cross-time A/B is invalid** — reproduction dr
 over a day, so arms must be paired/interleaved or speed-matched; (2) **check a probe's statistical
 power before trusting its silence** — a 1-in-64 sample against a <1% event had an expected yield of
 0.8 hits, so its zero carried no information.
+
+## L11 CAUSE FOUND (2026-08-08) — we free a GCHandle the driver is still quoting
+
+The 2026-08-06 section above asked *why* Dokan hands back a foreign context. Answered, at three
+levels: the library source names the mechanism, the native source names the race window, and a
+raw-value tracer caught the whole chain live.
+
+**What `info.Context` actually is** (DokanNet 2.3.0.3, `DokanFileInfo.cs`): a raw `GCHandle`
+number stored in the per-event native `DOKAN_FILE_INFO` struct. The setter `GCHandle.Free()`s any
+current value and `GCHandle.Alloc()`s the new one; the getter does
+`((GCHandle)(nint)context).Target` with **no validation of any kind**. Our callbacks touch that
+native struct directly (`DokanFileInfoAdapter` wraps a `DokanFileInfo*` via `Unsafe.AsPointer`).
+
+**The race window** (dokany 2.3.1, the installed native library):
+- `SetupIOEventForProcessing` (dokan.c) copies the per-open `UserContext` into **each event's own
+  struct** at dispatch — so every in-flight operation carries an independent copy of the number.
+- `ReleaseDokanOpenInfo` (dokan.c) writes each completing event's copy **back** to the shared
+  `UserContext`, unconditionally, last-writer-wins.
+- The user `CloseFile` callback is **deferred until `OpenCount == 0`** — dokany guarantees the open
+  is quiescent at CloseFile, and only there. Nothing protects `Cleanup`.
+
+**The bug was ours**: `DokanVFS.Cleanup → ReleaseContext → info.Context = null` **freed the
+GCHandle at Cleanup**, exactly when a killed client's slow reads are still in flight carrying
+copies of the number. The CLR recycles a freed handle slot on the next `GCHandle.Alloc` — measured:
+9,914 allocs reused just **108 distinct raw values**, so recycling is near-immediate under churn. A
+concurrent `CreateFile` for another file lands on the freed slot, and the stale read's next
+`info.Context` dereference resolves to **that other file's live stream**. That is the entire
+cross-file bleed. It compounds: stale events completing later write the dangling number back into
+`UserContext`, and `CloseFileProxy`'s `finally { Context = null }` then **frees it a second time**
+— detonating whichever live handle owns the slot by then, poisoning further opens. Hence
+self-worsening, restart-clears, kill-storm-triggered, and hundreds of guard hits per run.
+
+**Caught live** (`ContextForensics`, `CLONEZILLA_CTX_FORENSICS=1`, raw values read through the
+native struct without dereferencing; run-repro-l11 trial, first minute): value `0x8000982228`
+logged `alloc ftpsvc.mfl → free (Cleanup) → alloc …ndiswan….manifest → alloc connect-local.jpg`
+— the same number allocated **twice with no intervening free** (a stale op double-freed the
+manifest's live handle) — then `foreign-read: asked …manifest, got connect-local.jpg`, then the
+manifest's release **cross-freeing connect-local.jpg's stream**. A later kill of 25 readers + the
+mount produced ~386 foreign reads in under a minute — the storm on demand.
+
+**Two 2026-08-06 assumptions corrected by the data:**
+- `create-inherited = 0` across every run: contexts **never arrive at CreateFile** (dokany zeroes
+  both its pooled `DOKAN_IO_EVENT` and `DOKAN_OPEN_INFO` structs on reuse — dokan_pool.c). Part 1
+  of the 08-06 fix was inert insurance; "the driver reuses the slot" was the wrong mental model.
+- "Prime suspect is DokanNet's context marshalling" was half right: the marshalling design is the
+  *hazard* (unvalidated GCHandle round-trip), but the *trigger* was our own free-at-Cleanup.
+
+**The cure** (replaces the workaround's role; the guards stay as defense-in-depth):
+1. **Free at CloseFile only.** `Cleanup` no longer touches the context; dokany's own
+   `OpenCount == 0` deferral makes CloseFile the one point where no in-flight event can hold a
+   copy. This removes the *cause*.
+2. **Never `Free()` a distrusted number.** New `DokanRawContext.TryZero` clears the native field
+   *without* `GCHandle.Free` (deliberately leaking one small object beats freeing another open's
+   live handle). Used by: CreateFile's opening scrub, ReadFile's foreign-context guard (which now
+   also self-heals the open — subsequent ops take the by-name path and CloseFileProxy has nothing
+   left to double-free), and a new CloseFile name-guard.
+
+**Upstream**: worth reporting to dokan-dev — any DokanNet filesystem that assigns `info.Context`
+in `Cleanup` (or frees it there) is exposed; the unvalidated `GCHandle` round-trip turns a
+lifecycle mistake into silent cross-file data corruption. dokany's unconditional `UserContext`
+write-back is what lets a stale copy resurrect after being cleared.
+
+**Validation (2026-08-08)** — three independent layers, all clean:
+1. *Repro harness* (16:45–17:13): cure build, 4 trials — **0 mismatches, 0 read errors, and 0
+   foreign context events of any kind** across ~92,000 alloc/free cycles and 24 kill-bursts
+   (per-trial forensics: ~22–24k allocs, foreign-reads=0, foreign-releases=0, non-stream=0,
+   create-inherited=0; both guards silent). The baseline build the night before showed 5 foreign
+   reads pre-storm and ~386 in a single kill-storm on the same recipe.
+2. *Gate 1, DOP-24 bleed stress* (17:13–19:20): gz + zst + bzip2, 4 phases each incl. the
+   post-kill dense passes that were the original reproducers — **12/12 phases, 0 mismatches,
+   0 errors**, forensics zero-foreign on every mount (bzip2 alone: 25,229 allocs, 0 foreign).
+3. *Gate 2, chunked test suite* (19:27–20:24): **71/71 passed, 0 failed, 0 aborts** against the
+   cure working tree (GoldenReferenceQuartet excluded as its own ~40h gate, unchanged).
+The race is removed at the source, not corrected after the fact.

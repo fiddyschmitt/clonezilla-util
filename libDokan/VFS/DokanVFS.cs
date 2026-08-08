@@ -73,18 +73,16 @@ namespace libDokan
             var result = DokanResult.Success;
             var filePath = GetPath(fileName);
 
-            //FIX (L11, part 1 of 2): never inherit a previous handle's context.
-            //Context is assigned on exactly ONE path below (fileSystemEntry is FileEntry), while
-            //several paths return before it - CreateNew-exists, Truncate-missing, the IsDirectory
-            //branches, the read-attributes shortcut. A client killed mid-read never gets
-            //Cleanup/CloseFile, so its FileEntryStream can still be sitting here when the slot is
-            //reused for a different file; the next ReadFile would then serve THAT file's stream.
-            //Dropping it here means an unassigned context stays null, and ReadFile's null-context
-            //path resolves the entry by name - which is correct by construction.
-            //Not disposed, only dropped: these per-handle streams hold no scarce resource (see
-            //PooledNativeItemStream) so letting the GC take it is far safer than risking a dispose
-            //of a stream another thread may still be reading.
-            if (info.Context != null) info.Context = null;
+            //L11 defense-in-depth: start every open with a provably-clean context. Forensics
+            //(2026-08-08, TEST_ANALYSIS.md "L11 CAUSE") showed contexts never actually arrive at
+            //CreateFile - dokany zeroes both its pooled DOKAN_IO_EVENT and DOKAN_OPEN_INFO structs
+            //on reuse (dokan_pool.c) - so this is pure insurance. Crucially it must be TryZero and
+            //NOT `info.Context = null`: DokanNet's setter calls GCHandle.Free() on whatever number
+            //is present, and if that number were stale its slot could since have been recycled to
+            //ANOTHER file's live handle - freeing it would detonate that open. Zero-without-free
+            //leaks at worst one small object; freeing a foreign live handle corrupts the process.
+            if (ContextForensics.Enabled) ContextForensics.OnCreateEntry(info, fileName);
+            DokanRawContext.TryZero(info);
 
             if (info.IsDirectory)
             {
@@ -195,6 +193,7 @@ namespace libDokan
                             FileEntry = file,
                             Stream = file.GetStream()
                         };
+                        if (ContextForensics.Enabled) ContextForensics.OnAlloc(info, fileName);
                     }
                 }
                 catch (UnauthorizedAccessException) // don't have access rights
@@ -219,17 +218,41 @@ namespace libDokan
                 result);
         }
 
-        static void ReleaseContext(IDokanFileInfo info)
+        //THE L11 CURE (2026-08-08): release the per-handle context at CloseFile ONLY - never at
+        //Cleanup. info.Context is a raw GCHandle number, and every in-flight operation on this
+        //open carries its own per-event copy of it (dokany copies UserContext into each event at
+        //setup - dokan.c, SetupIOEventForProcessing). Freeing at Cleanup - while a killed client's
+        //slow reads were still in flight - left those reads holding a dangling number that the
+        //runtime recycled to the next CreateFile within milliseconds; their next info.Context
+        //access then resolved to ANOTHER file's live stream. That was the entire cross-file bleed
+        //mechanism (forensics: TEST_ANALYSIS.md "L11 CAUSE FOUND"). dokany defers the CloseFile
+        //callback until OpenCount==0, i.e. until every in-flight event on this open has drained
+        //(dokan.c, ReleaseDokanOpenInfo) - so CloseFile is the one point where a free can never
+        //strand a live copy in a concurrent operation.
+        static void ReleaseContext(IDokanFileInfo info, string fileName)
         {
             if (info.Context is FileEntryStream fileEntryStream)
             {
+                if (ContextForensics.Enabled) ContextForensics.OnRelease(info, fileName, fileEntryStream.FileEntry.Name);
+
+                //Belt-and-braces: if the context names another file (should be impossible now that
+                //nothing frees early), neither dispose nor free it - it may be another open's LIVE
+                //stream, and DokanNet's setter would GCHandle.Free it. Zero-without-free instead;
+                //ReadFile's by-name path correctly serves any straggler operations.
+                if (!string.Equals(fileName.AsSpan(fileName.LastIndexOf('\\') + 1).ToString(),
+                                   fileEntryStream.FileEntry.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Warning($"CloseFile context mismatch: '{fileName}' holds a stream for "
+                              + $"'{fileEntryStream.FileEntry.Name}'. Dropping it without dispose/free.");
+                    DokanRawContext.TryZero(info);
+                    return;
+                }
+
                 //only dispose streams the handle owns; shared streams (eg. mounted partition images) live for the lifetime of the VFS
                 if (fileEntryStream.FileEntry.CreatesNewStreamPerCall)
                 {
-                    //Dispose under the SAME per-handle lock ReadFile takes (DokanVFS.cs ReadFile). Dokan can
-                    //call Cleanup/CloseFile while a slow ReadFile is still running on this handle (e.g. a
-                    //force-closed handle), so disposing without the lock could tear the stream out from under
-                    //an in-flight read.
+                    //ReadLock kept as pure defense: with the release moved to CloseFile, dokany
+                    //guarantees no ReadFile can still be running on this open.
                     lock (fileEntryStream.ReadLock)
                     {
                         try
@@ -240,7 +263,7 @@ namespace libDokan
                     }
                 }
 
-                info.Context = null;
+                info.Context = null;   //safe here, and ONLY here: no in-flight op holds a copy
             }
         }
 
@@ -251,7 +274,10 @@ namespace libDokan
                 Log.Debug(DokanFormat($"{nameof(Cleanup)}('{fileName}', {info} - entering"));
 #endif
 
-            ReleaseContext(info);
+            //Deliberately does NOT release the context. Freeing it here was the L11 root cause:
+            //Cleanup arrives while in-flight reads still carry copies of the GCHandle number (a
+            //killed client's reads outlive its handles), and dokany only guarantees the open is
+            //quiescent at CloseFile. See ReleaseContext.
 
             Trace(nameof(Cleanup), fileName, info, DokanResult.Success);
         }
@@ -263,8 +289,7 @@ namespace libDokan
                 Log.Debug(DokanFormat($"{nameof(CloseFile)}('{fileName}', {info} - entering"));
 #endif
 
-            //backstop for the occasions where Cleanup wasn't called
-            ReleaseContext(info);
+            ReleaseContext(info, fileName);
 
             Trace(nameof(CloseFile), fileName, info, DokanResult.Success);
         }
@@ -355,7 +380,12 @@ namespace libDokan
             // that surfaces to the calling app as 0x800705AA (ERROR_NO_SYSTEM_RESOURCES). Return a status.
             try
             {
-            if (info.Context == null) // memory mapped read
+            //Read the native context exactly ONCE. Every info.Context access dereferences the raw
+            //GCHandle stored in this operation's native DOKAN_FILE_INFO; if that value is stale
+            //(see the L11 notes below) its target can differ between two reads.
+            var contextObj = info.Context;
+
+            if (contextObj == null) // memory mapped read
             {
                 var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId);
                 if (fileSystemEntry is FileEntry file)
@@ -371,7 +401,11 @@ namespace libDokan
             }
             else // normal read
             {
-                if (info.Context is not FileEntryStream stream) return Trace(nameof(ReadFile), fileName, info, DokanResult.Unsuccessful);
+                if (contextObj is not FileEntryStream stream)
+                {
+                    if (ContextForensics.Enabled) ContextForensics.OnNonStream(info, fileName, contextObj.GetType().FullName ?? "?");
+                    return Trace(nameof(ReadFile), fileName, info, DokanResult.Unsuccessful);
+                }
 
 
                 //FIX (L11, part 2 of 2): refuse to serve a context that belongs to another file.
@@ -385,8 +419,16 @@ namespace libDokan
                 if (!string.Equals(fileName.AsSpan(fileName.LastIndexOf('\\') + 1).ToString(),
                                    stream.FileEntry.Name, StringComparison.OrdinalIgnoreCase))
                 {
+                    if (ContextForensics.Enabled) ContextForensics.OnForeignRead(info, fileName, stream.FileEntry.Name);
                     Log.Warning($"ReadFile context mismatch: '{fileName}' was handed a stream for "
                               + $"'{stream.FileEntry.Name}'. Serving by name instead.");
+
+                    //Self-heal the open: zero this event's copy WITHOUT freeing (the number may be
+                    //another open's live handle). When this op completes, dokany writes the 0 back
+                    //to the shared UserContext, so subsequent ops on this open take the (correct)
+                    //by-name path instead of re-dereferencing the poisoned number - and DokanNet's
+                    //CloseFileProxy finally-block no longer double-frees it at close.
+                    DokanRawContext.TryZero(info);
 
                     if (Root.GetEntryFromPath(GetPath(fileName), info.ProcessId) is FileEntry byName)
                     {
