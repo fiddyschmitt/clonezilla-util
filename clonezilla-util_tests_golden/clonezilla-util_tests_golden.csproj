@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>clonezilla_util_tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <!--
+    The GoldenReferenceQuartet lives in its OWN test assembly so that running the main
+    clonezilla-util_tests project (Test Explorer, dotnet test) never drags in a ~40-hour gate:
+    the quartet MD5-verifies all ~558k files of all three partitions for all four codecs
+    (bzip2 ~13h, xz ~21h alone). Run it deliberately:
+      dotnet test clonezilla-util_tests_golden -c Release [-~-filter FullyQualifiedName~zst]
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
+    <PackageReference Include="MSTest.TestAdapter" Version="4.2.3" />
+    <PackageReference Include="MSTest.TestFramework" Version="4.2.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- share the exe-under-test path + stray-mount cleanup with the main test project -->
+    <Compile Include="..\clonezilla-util_tests\Main.cs" Link="Main.cs" />
+    <Compile Include="..\clonezilla-util_tests\GlobalUsings.cs" Link="GlobalUsings.cs" />
+  </ItemGroup>
+
+</Project>

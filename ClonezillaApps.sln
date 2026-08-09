@@ -26,6 +26,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "libDecompression", "libDeco
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "libBzip2", "libBzip2\libBzip2.csproj", "{E8E74724-0699-4693-BFD5-ABE8B1B1B95C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "clonezilla-util_tests_golden", "clonezilla-util_tests_golden\clonezilla-util_tests_golden.csproj", "{68A192D3-37E0-448B-99F2-2242F43C719A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -144,6 +146,18 @@ Global
 		{E8E74724-0699-4693-BFD5-ABE8B1B1B95C}.Release|x64.Build.0 = Release|Any CPU
 		{E8E74724-0699-4693-BFD5-ABE8B1B1B95C}.Release|x86.ActiveCfg = Release|Any CPU
 		{E8E74724-0699-4693-BFD5-ABE8B1B1B95C}.Release|x86.Build.0 = Release|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Debug|x64.Build.0 = Debug|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Debug|x86.Build.0 = Debug|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Release|x64.ActiveCfg = Release|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Release|x64.Build.0 = Release|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Release|x86.ActiveCfg = Release|Any CPU
+		{68A192D3-37E0-448B-99F2-2242F43C719A}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
