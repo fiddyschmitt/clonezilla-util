@@ -106,8 +106,11 @@ namespace libClonezilla.Partitions
                 {
                     filesInArchive = GetFilesInPartition(fileListProvider).ToList();
 
-                    //this layer makes the extractor thread-safe by wrapping each stream in a Stream.Synchronized()
-                    extractor = new SynchronisedExtractor(extractor);
+                    //S4: no Stream.Synchronized wrapper here. Every consumer of these streams already
+                    //serialises: DokanVFS.ReadFile locks the per-handle stream's ReadLock (each handle
+                    //owns its own stream - CreatesNewStreamPerCall), ReadForMemoryMap keeps a dedicated
+                    //stream under its own lock, and ReleaseContext disposes under the same handle lock.
+                    //The wrapper only added a lock acquisition to every read (L12 lock inventory, #2).
                 }
                 else
                 {
