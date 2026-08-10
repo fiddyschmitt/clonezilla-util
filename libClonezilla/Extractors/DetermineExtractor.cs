@@ -11,7 +11,12 @@ namespace libClonezilla.Extractors
     {
         // Mount serves concurrent OS file requests, so it pre-warms several workers (each its own open
         // archive) up front to avoid read-time stalls. Listing only enumerates once, so it needs just one.
-        public const int MountWorkerCount = 4;
+        // 8 workers (S5): with the single-flight cache decoding outside its lock, workers genuinely
+        // decode in parallel, so worker count is the throughput ceiling under concurrent load. Cost per
+        // worker is one live $MFT parse at open plus ~40 MB transient per concurrent decode. Held at 4
+        // until the L11 cross-file bleed was cured (433a5f3) and ConcurrentBleedStress existed to gate
+        // this exact knob - worker count multiplies the kill-burst interleavings that exposed L11.
+        public const int MountWorkerCount = 8;
         public const int ListingWorkerCount = 1;
 
         /// <summary>
