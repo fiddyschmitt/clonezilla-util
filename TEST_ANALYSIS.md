@@ -922,3 +922,30 @@ write-back is what lets a stale copy resurrect after being cleared.
 3. *Gate 2, chunked test suite* (19:27–20:24): **71/71 passed, 0 failed, 0 aborts** against the
    cure working tree (GoldenReferenceQuartet excluded as its own ~40h gate, unchanged).
 The race is removed at the source, not corrected after the fact.
+
+## Warm-run cascade of 2026-08-15 — one timeout poisoned 28 tests (test infra, not product)
+
+The 11:00 warm suite run failed 28 mount tests while the 09:00 cold run had passed 75/75 on the
+same build. The product was innocent; the log (`bin\...\logs\clonezilla-util-20260815*.log`) shows
+every failing exe exiting with the product's own guard:
+`"a live volume already answers at this mount point; refusing to displace it"` (exit 1).
+
+Chain: `ConcurrentBleedStress.bzip2` crawled (decode-bound verification + a concurrent unrelated
+test suite on the box) into its 90-min `[Timeout]` → **MSTest's timeout aborts the test thread
+WITHOUT running `finally`**, so the bzip2 mount was never killed and squatted on `L:` →
+~25 minutes of subsequent mount tests failed at launch → worse, three tests **false-passed** in
+under a second each: the orphaned bzip2 mount was still serving content-identical files, so their
+checks succeeded while their own exe died unnoticed.
+
+Fixes (2026-08-15):
+- `ConcurrentBleedStress` teardown moved from `finally` to `[TestCleanup]`, which MSTest runs on
+  pass, fail, AND timeout-abort. A leaked mount can no longer outlive its test.
+- `TestUtility.ConfirmFilesExist` now gates on the exe's OWN `"Mounting complete"` line (stdout
+  redirected; stdin redirected and held open - the mount verb exits on stdin EOF) before checking
+  any file. A stale mount at the same letter can never satisfy another test's checks again.
+- All test mounts pass the new `--no-explorer` flag (Explorer-per-mount also stops flooding the
+  desktop during suite runs).
+
+Unrelated-project note: the image-wide `taskkill /IM testhost.exe` in the chunked-run recipe was
+killing OTHER projects' test hosts; it is now scoped to command lines matching
+`clonezilla-util_tests`.

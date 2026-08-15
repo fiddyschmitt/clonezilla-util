@@ -44,6 +44,32 @@ namespace clonezilla_util_tests.Mount.AsFiles
         const int BurstSeconds = 45;
         const int VerifyDop = 24;           //the DOP that originally exposed L11
 
+        //Registered here so [TestCleanup] can kill them. A [Timeout] expiry ABORTS the test thread
+        //WITHOUT running its finally blocks - on 2026-08-15 a timed-out bzip2 run left its mount
+        //squatting on L:\ for ~25 minutes, which failed (or worse, silently satisfied) every
+        //subsequent mount test in the run. TestCleanup DOES run after a timeout.
+        static Process? currentMount;
+        static readonly List<Process> currentReaders = [];
+
+        [TestCleanup]
+        public void KillLeakedProcesses()
+        {
+            foreach (var reader in currentReaders)
+            {
+                try { reader.Kill(entireProcessTree: true); } catch { }
+                reader.Dispose();
+            }
+            currentReaders.Clear();
+
+            if (currentMount != null)
+            {
+                try { currentMount.Kill(); currentMount.WaitForExit(); } catch { }
+                currentMount.Dispose();
+                currentMount = null;
+                WaitForDriveGone(TimeSpan.FromSeconds(90));
+            }
+        }
+
         //dense = adjacent files (many files per 32 MB span - where cross-file bleed shows as
         //neighbour contamination); scattered = strided across the partition (every read a fresh
         //span - constant cache churn). Counts are per-codec because decode speed varies ~10x.
@@ -65,7 +91,7 @@ namespace clonezilla_util_tests.Mount.AsFiles
             //letter serves a vanishing tree (every read FileNotFound) - so first wait it out
             WaitForDriveGone(TimeSpan.FromSeconds(90));
 
-            var psi = new ProcessStartInfo(Main.ExeUnderTest, $"""mount --input "{imagePath}" -m L:\""")
+            var psi = new ProcessStartInfo(Main.ExeUnderTest, $"""mount --input "{imagePath}" -m L:\ --no-explorer""")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -78,15 +104,15 @@ namespace clonezilla_util_tests.Mount.AsFiles
             };
             var mountingComplete = new ManualResetEventSlim(false);
             var mount = Process.Start(psi)!;
+            currentMount = mount;   //registered for [TestCleanup] - a [Timeout] abort skips finally blocks
             //drain stdout continuously (a full pipe would block the mount) and watch for the
             //product's own readiness signal - Directory.Exists alone is NOT readiness
             mount.OutputDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
             mount.ErrorDataReceived += (_, _) => { };
             mount.BeginOutputReadLine();
             mount.BeginErrorReadLine();
-            var readers = new List<Process>();
+            var readers = currentReaders;   //same registration rationale
 
-            try
             {
                 WaitForMount(mount, mountingComplete, TimeSpan.FromMinutes(30));
 
@@ -174,25 +200,9 @@ namespace clonezilla_util_tests.Mount.AsFiles
                     Assert.Fail($"{all.Count:N0} concurrent-serving failures (any MD5 mismatch = the L11 bug class):{Environment.NewLine}{examples}");
                 }
             }
-            finally
-            {
-                foreach (var reader in readers)
-                {
-                    try { reader.Kill(entireProcessTree: true); } catch { }
-                    reader.Dispose();
-                }
-                try
-                {
-                    mount?.Kill();
-                    mount?.WaitForExit();
-                }
-                catch
-                {
-                    //the process may already have exited
-                }
-                //let Dokan release L: before the next codec mounts (see WaitForDriveGone)
-                WaitForDriveGone(TimeSpan.FromSeconds(90));
-            }
+            //no finally here on purpose: teardown lives in [TestCleanup] (KillLeakedProcesses),
+            //which runs on pass, fail, AND [Timeout] abort - a timeout skips finally blocks, and
+            //that leak is exactly what poisoned the 2026-08-15 warm run
         }
 
         static void WaitForDriveGone(TimeSpan maxWait)

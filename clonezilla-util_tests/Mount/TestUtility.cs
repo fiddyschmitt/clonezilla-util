@@ -14,12 +14,25 @@ namespace clonezilla_util_tests.Mount
     {
         public static void ConfirmFilesExist(string exeUnderTest, string args, IEnumerable<FileDetails> expectedFiles, TimeSpan? timeout = null)
         {
-            var psi = new ProcessStartInfo(exeUnderTest, args)
+            var psi = new ProcessStartInfo(exeUnderTest, $"{args} --no-explorer")
             {
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                //own the exe's stdio (2026-08-15): stdout is watched for the readiness signal below,
+                //and stdin must be redirected AND HELD OPEN because the mount verb exits on stdin EOF
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = true
             };
+            var mountingComplete = new ManualResetEventSlim(false);
             var process = Process.Start(psi);
+            if (process != null)
+            {
+                process.OutputDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
+                process.ErrorDataReceived += (_, _) => { };
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+            }
 
             //cold index builds for the large drive images legitimately take hours; this only guards
             //against waiting forever (e.g. the exe's mount was destroyed and the files never appear)
@@ -30,6 +43,24 @@ namespace clonezilla_util_tests.Mount
             //vanishing mid-copy) throws - or it lingers, holding GBs and its Dokan mounts (2026-07-17)
             try
             {
+                //Gate on the exe's OWN "Mounting complete" before checking any file. Without this, a
+                //stale mount left at the same drive letter by an earlier crashed/timed-out test can
+                //satisfy the file checks while OUR exe dies behind the scenes ("a live volume already
+                //answers at this mount point") - the 2026-08-15 warm run false-passed several tests
+                //exactly that way.
+                while (!mountingComplete.IsSet)
+                {
+                    if (process?.HasExited ?? true)
+                    {
+                        Assert.Fail($"The exe under test exited (code {(process != null ? process.ExitCode.ToString() : "unknown")}) before the mount appeared. (A leftover mount squatting on the drive letter produces exit code 1: 'a live volume already answers at this mount point'.)");
+                    }
+                    if (waited.Elapsed > maxWait)
+                    {
+                        Assert.Fail($"Timed out after {waited.Elapsed} waiting for the exe to report 'Mounting complete'.");
+                    }
+                    Thread.Sleep(1000);
+                }
+
                 bool allSuccessful;
                 do
                 {
