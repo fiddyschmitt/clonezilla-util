@@ -97,7 +97,7 @@ namespace clonezilla_util_tests.Mount.AsFiles
             //letter serves a vanishing tree (every read FileNotFound) - so first wait it out
             WaitForDriveGone(TimeSpan.FromSeconds(90));
 
-            var psi = new ProcessStartInfo(Main.ExeUnderTest, $"""mount --input "{imagePath}" -m L:\ --explorer false""")
+            var psi = new ProcessStartInfo(Main.ExeUnderTest, $"""mount --input "{imagePath}" -m L:\ --no-explorer""")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,

@@ -14,7 +14,7 @@ namespace clonezilla_util_tests.Mount
     {
         public static void ConfirmFilesExist(string exeUnderTest, string args, IEnumerable<FileDetails> expectedFiles, TimeSpan? timeout = null)
         {
-            var psi = new ProcessStartInfo(exeUnderTest, $"{args} --explorer false")
+            var psi = new ProcessStartInfo(exeUnderTest, $"{args} --no-explorer")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,

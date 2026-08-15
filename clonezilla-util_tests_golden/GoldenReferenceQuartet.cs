@@ -46,7 +46,7 @@ namespace clonezilla_util_tests.Mount.AsFiles
 
         static void VerifyImage(string imagePath)
         {
-            var psi = new ProcessStartInfo(Main.ExeUnderTest, $"""mount --input "{imagePath}" -m L:\ --explorer false""")
+            var psi = new ProcessStartInfo(Main.ExeUnderTest, $"""mount --input "{imagePath}" -m L:\ --no-explorer""")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true
