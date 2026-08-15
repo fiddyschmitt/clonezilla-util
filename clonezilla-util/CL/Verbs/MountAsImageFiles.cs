@@ -15,5 +15,8 @@ namespace clonezilla_util.CL.Verbs
 
         [Option('p', "partitions", HelpText = "The partition(s) to serve. Eg. sda1. If not provided, all partitions will be served.", Required = false)]
         public IEnumerable<string> PartitionsToMount { get; set; } = [];
+
+        [Option("no-explorer", HelpText = "Do not open an Explorer window at the mount point once mounting completes. Explorer is shown by default; automation (e.g. the test suite) passes this to avoid opening a window per mount.", Required = false)]
+        public bool NoExplorer { get; set; }
     }
 }
