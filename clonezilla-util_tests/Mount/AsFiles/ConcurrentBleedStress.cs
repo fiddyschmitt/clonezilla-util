@@ -73,16 +73,22 @@ namespace clonezilla_util_tests.Mount.AsFiles
         //dense = adjacent files (many files per 32 MB span - where cross-file bleed shows as
         //neighbour contamination); scattered = strided across the partition (every read a fresh
         //span - constant cache churn). Counts are per-codec because decode speed varies ~10x.
-        [TestMethod, Timeout(90 * 60_000)]
+        //
+        //Timeouts are runaway protection only, so they carry ~5x headroom over the slowest
+        //observed clean run (bzip2 26 min on a cold cache, xz 21 min, gz 7, zst 15): the DOP-24
+        //verification is CPU-bound, and on 2026-08-15 an unrelated test suite sharing the box
+        //pushed bzip2 past its old 90-min ceiling. A timeout no longer cascades ([TestCleanup]
+        //reclaims the mount), so a generous ceiling costs nothing when things are healthy.
+        [TestMethod, Timeout(150 * 60_000)]
         public void bzip2() => StressImage($@"{ImagesFolder}\2022-07-16-22-img_pb-devops1_bzip2", dense: 6000, scattered: 400);
 
         [TestMethod, Timeout(60 * 60_000)]
         public void gz() => StressImage($@"{ImagesFolder}\2022-07-17-16-img_pb-devops1_gz", dense: 8000, scattered: 800);
 
-        [TestMethod, Timeout(90 * 60_000)]
+        [TestMethod, Timeout(120 * 60_000)]
         public void xz() => StressImage($@"{ImagesFolder}\2022-07-17-12-img_pb-devops1_xz", dense: 4000, scattered: 400);
 
-        [TestMethod, Timeout(60 * 60_000)]
+        [TestMethod, Timeout(90 * 60_000)]
         public void zst() => StressImage($@"{ImagesFolder}\2022-07-16-22-img_pb-devops1_zst", dense: 8000, scattered: 800);
 
         static void StressImage(string imagePath, int dense, int scattered)
@@ -91,7 +97,7 @@ namespace clonezilla_util_tests.Mount.AsFiles
             //letter serves a vanishing tree (every read FileNotFound) - so first wait it out
             WaitForDriveGone(TimeSpan.FromSeconds(90));
 
-            var psi = new ProcessStartInfo(Main.ExeUnderTest, $"""mount --input "{imagePath}" -m L:\ --no-explorer""")
+            var psi = new ProcessStartInfo(Main.ExeUnderTest, $"""mount --input "{imagePath}" -m L:\ --explorer false""")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,

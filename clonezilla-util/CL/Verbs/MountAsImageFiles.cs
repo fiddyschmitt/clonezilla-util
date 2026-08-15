@@ -16,7 +16,9 @@ namespace clonezilla_util.CL.Verbs
         [Option('p', "partitions", HelpText = "The partition(s) to serve. Eg. sda1. If not provided, all partitions will be served.", Required = false)]
         public IEnumerable<string> PartitionsToMount { get; set; } = [];
 
-        [Option("no-explorer", HelpText = "Do not open an Explorer window at the mount point once mounting completes. Explorer is shown by default; automation (e.g. the test suite) passes this to avoid opening a window per mount.", Required = false)]
-        public bool NoExplorer { get; set; }
+        //bool? rather than bool: CommandLineParser treats plain bool options as presence-only
+        //switches, and this option must accept an explicit value (--explorer false)
+        [Option("explorer", Default = true, HelpText = "Whether to open an Explorer window at the mount point once mounting completes. On by default; automation (e.g. the test suite) passes --explorer false to avoid opening a window per mount.", Required = false)]
+        public bool? Explorer { get; set; }
     }
 }

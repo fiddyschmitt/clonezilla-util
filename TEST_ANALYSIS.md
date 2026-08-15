@@ -943,8 +943,8 @@ Fixes (2026-08-15):
 - `TestUtility.ConfirmFilesExist` now gates on the exe's OWN `"Mounting complete"` line (stdout
   redirected; stdin redirected and held open - the mount verb exits on stdin EOF) before checking
   any file. A stale mount at the same letter can never satisfy another test's checks again.
-- All test mounts pass the new `--no-explorer` flag (Explorer-per-mount also stops flooding the
-  desktop during suite runs).
+- All test mounts pass the new `--explorer false` (on by default; Explorer-per-mount also stops
+  flooding the desktop during suite runs).
 
 Unrelated-project note: the image-wide `taskkill /IM testhost.exe` in the chunked-run recipe was
 killing OTHER projects' test hosts; it is now scoped to command lines matching

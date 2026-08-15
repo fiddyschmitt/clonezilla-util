@@ -314,7 +314,7 @@ namespace clonezilla_util
             //the fallback can land the mount on a different letter than requested
             var mountedAt = vfs.Value.RootFolder.Value.MountPoint;
             Log.Information($"Mounting complete. Mounted to: {mountedAt}");
-            if (!mountAsImageOptions.NoExplorer) Process.Start("explorer.exe", mountedAt);
+            if (mountAsImageOptions.Explorer ?? true) Process.Start("explorer.exe", mountedAt);
 
             Console.WriteLine("Running. Press Enter to exit.");
             Console.ReadLine();
@@ -348,7 +348,7 @@ namespace clonezilla_util
             //the fallback can land the mount on a different letter than requested
             var mountedAt = vfs.Value.RootFolder.Value.MountPoint;
             Log.Information($"Mounting complete. Mounted to: {mountedAt}");
-            if (!mountAsFilesOptions.NoExplorer) Process.Start("explorer.exe", mountedAt);
+            if (mountAsFilesOptions.Explorer ?? true) Process.Start("explorer.exe", mountedAt);
 
             Console.WriteLine("Running. Press Enter to exit.");
             Console.ReadLine();
