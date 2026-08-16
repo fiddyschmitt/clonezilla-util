@@ -49,13 +49,27 @@ namespace clonezilla_util_tests.Mount.AsFiles
             var psi = new ProcessStartInfo(Main.ExeUnderTest, $"""mount --input "{imagePath}" -m L:\ --no-explorer""")
             {
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                //watch the exe's stdout for its own "Mounting complete" readiness signal (see
+                //WaitForMount); stdin is redirected and held open because the mount verb exits on
+                //stdin EOF
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = true
             };
+            var mountingComplete = new ManualResetEventSlim(false);
             var process = Process.Start(psi);
+            if (process != null)
+            {
+                process.OutputDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
+                process.ErrorDataReceived += (_, _) => { };
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+            }
 
             try
             {
-                WaitForMount(process, TimeSpan.FromHours(6));
+                WaitForMount(process, mountingComplete, TimeSpan.FromHours(6));
 
                 var failures = new ConcurrentBag<string>();
                 long verified = 0;
@@ -157,22 +171,57 @@ namespace clonezilla_util_tests.Mount.AsFiles
             }
         }
 
-        static void WaitForMount(Process? process, TimeSpan maxWait)
+        //the exe declares itself ready by logging this once every partition it will serve is mounted
+        const string MountCompleteSignal = "Mounting complete";
+
+        //Grace between the "Mounting complete" log line and every partition directory becoming
+        //enumerable through Dokan. Volume arrival is near-instant; this is generous slack, not a wait.
+        static readonly TimeSpan MountExposureGrace = TimeSpan.FromSeconds(60);
+
+        //Two phases so an incomplete mount FAILS FAST instead of eating the whole ceiling:
+        //  1. wait for the exe's own "Mounting complete" - cold bzip2/xz index builds legitimately
+        //     take hours, so this phase carries the long ceiling.
+        //  2. once mounting is complete the exe has mounted everything it ever will, so a partition
+        //     still missing after a short grace is one it FAILED to open (e.g. an index-rebuild
+        //     decode error) and will never appear - fail immediately, naming it.
+        //The old code blind-polled Directory.Exists for the full ceiling: on 2026-08-16 a bzip2 sda2
+        //index-rebuild crash dropped that partition and cost a 6-hour timeout instead of a prompt,
+        //clearly-labelled failure.
+        static void WaitForMount(Process? process, ManualResetEventSlim mountingComplete, TimeSpan maxWait)
         {
             var waited = Stopwatch.StartNew();
-            while (true)
+
+            //phase 1 - wait for mounting to complete (slow cold index builds live here)
+            while (!mountingComplete.IsSet)
             {
                 if (process?.HasExited ?? true)
                 {
-                    Assert.Fail($"The exe under test exited (code {(process != null ? process.ExitCode.ToString() : "unknown")}) before the mount appeared.");
-                }
-                if (Partitions.All(p => Directory.Exists($@"L:\{p}")))
-                {
-                    return;
+                    Assert.Fail($"The exe under test exited (code {(process != null ? process.ExitCode.ToString() : "unknown")}) before reporting '{MountCompleteSignal}'.");
                 }
                 if (waited.Elapsed > maxWait)
                 {
-                    Assert.Fail($"Timed out after {waited.Elapsed} waiting for L:\\ to expose {string.Join(", ", Partitions)}.");
+                    Assert.Fail($"Timed out after {waited.Elapsed} waiting for the exe to report '{MountCompleteSignal}'.");
+                }
+                Thread.Sleep(1000);
+            }
+
+            //phase 2 - mounting is done; every partition it will expose is exposing now
+            var grace = Stopwatch.StartNew();
+            while (true)
+            {
+                var missing = Partitions.Where(p => !Directory.Exists($@"L:\{p}")).ToList();
+                if (missing.Count == 0)
+                {
+                    return;
+                }
+                if (process?.HasExited ?? true)
+                {
+                    Assert.Fail($"The exe under test exited before exposing {string.Join(", ", missing)} under L:\\.");
+                }
+                if (grace.Elapsed > MountExposureGrace)
+                {
+                    Assert.Fail($"The exe reported '{MountCompleteSignal}' but did not expose {string.Join(", ", missing)} under L:\\ within {MountExposureGrace.TotalSeconds:N0}s. "
+                              + "A partition missing after mount completion failed to open - check the exe log (bin\\...\\logs\\clonezilla-util-*.log) for an index/decode error on that partition.");
                 }
                 Thread.Sleep(1000);
             }
