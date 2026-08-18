@@ -71,8 +71,9 @@ namespace clonezilla_util_tests.Mount.AsFiles
             {
                 WaitForMount(process, mountingComplete, TimeSpan.FromHours(6));
 
-                var failures = new ConcurrentBag<string>();
+                var failures = new ConcurrentBag<Failure>();
                 long verified = 0;
+                var runStarted = DateTime.Now;
 
                 foreach (var partition in Partitions)
                 {
@@ -89,7 +90,7 @@ namespace clonezilla_util_tests.Mount.AsFiles
                     {
                         if (File.Exists($@"{root}\{entry.RelativePath}"))
                         {
-                            failures.Add($"desktop.ini unexpectedly present (was the deliberate filter in MountedPartitionImage removed? Then verify its hash here instead): {partition}\\{entry.RelativePath}");
+                            failures.Add(new Failure(FailureKind.Structural, partition, entry, "desktop.ini unexpectedly present (was the deliberate filter in MountedPartitionImage removed? Then verify its hash here instead)"));
                         }
                     }
 
@@ -101,24 +102,8 @@ namespace clonezilla_util_tests.Mount.AsFiles
                     //but this test's job is content verification, so it uses the pattern that works.
                     Parallel.ForEach(expectPresent, new ParallelOptions { MaxDegreeOfParallelism = 8 }, entry =>
                     {
-                        var fullPath = $@"{root}\{entry.RelativePath}";
-                        try
-                        {
-                            using var fs = File.OpenRead(fullPath);
-                            var md5 = Convert.ToHexString(MD5.HashData(fs)).ToLowerInvariant();
-                            if (md5 != entry.Md5)
-                            {
-                                failures.Add($"MD5 mismatch: {partition}\\{entry.RelativePath} expected {entry.Md5} got {md5}");
-                            }
-                        }
-                        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-                        {
-                            failures.Add($"Missing from mount: {partition}\\{entry.RelativePath}");
-                        }
-                        catch (Exception ex)
-                        {
-                            failures.Add($"Read error: {partition}\\{entry.RelativePath}: {ex.Message}");
-                        }
+                        var outcome = HashAndCompare(root, partition, entry);
+                        if (outcome != null) failures.Add(outcome);
                         System.Threading.Interlocked.Increment(ref verified);
                     });
 
@@ -136,7 +121,7 @@ namespace clonezilla_util_tests.Mount.AsFiles
 
                         if (!goldenPaths.Contains(relative))
                         {
-                            failures.Add($"Unexpected extra file in mount: {partition}\\{relative}");
+                            failures.Add(new Failure(FailureKind.Structural, partition, new GoldenEntry(relative, ""), "Unexpected extra file in mount"));
                         }
                     }
 
@@ -144,16 +129,72 @@ namespace clonezilla_util_tests.Mount.AsFiles
                                       $"{failures.Count} cumulative failures.");
                 }
 
-                if (!failures.IsEmpty)
+                //RETRY PASS. A read error under load is not the same fault as wrong bytes: the 2026-08-18
+                //bzip2 run "failed" with 191 Dokan read timeouts (0x800705AA) in five bursts and ZERO
+                //mismatches, and nothing here could tell a stall from a broken file. So every read error
+                //and missing file is retried once, sequentially, on the now-quiet mount:
+                //  retries clean   => a transient stall (the mount was slow, not wrong)
+                //  still failing   => a persistent fault on that exact file
+                //Wrong-bytes results are never retried - a mismatch is a mismatch.
+                var retryable = failures.Where(f => f.Kind is FailureKind.ReadError or FailureKind.Missing).ToList();
+                var transient = new List<Failure>();
+                var persistent = new List<Failure>();
+                if (retryable.Count > 0)
                 {
-                    //the inline assert shows only a sample; the full list goes to a file so a
-                    //10-hour run never has to be repeated just to see failure #21
-                    var failureFile = Path.Combine(Path.GetTempPath(),
-                        $"GoldenReferenceQuartet-{Path.GetFileName(imagePath)}-failures.txt");
-                    File.WriteAllLines(failureFile, failures);
+                    Console.WriteLine($"retrying {retryable.Count:N0} read error(s)/missing file(s) sequentially on the quiet mount...");
+                    foreach (var f in retryable)
+                    {
+                        var again = HashAndCompare($@"L:\{f.Partition}", f.Partition, f.Entry);
+                        if (again == null) transient.Add(f);
+                        else persistent.Add(again with { FirstSeen = f.FirstSeen, RetryDetail = again.Detail });
+                    }
+                }
+                var mismatches = failures.Where(f => f.Kind == FailureKind.Mismatch).ToList();
+                var structural = failures.Where(f => f.Kind == FailureKind.Structural).ToList();
 
-                    var examples = string.Join(Environment.NewLine, failures.Take(20));
-                    Assert.Fail($"{failures.Count:N0} golden-reference failures (of {verified:N0} files verified). Full list: {failureFile}{Environment.NewLine}First examples:{Environment.NewLine}{examples}");
+                //the full record always goes to a file (a 13-hour run must never be repeated just to see
+                //failure #21), and the assert names the verdict, not just a count
+                var reportFile = Path.Combine(Path.GetTempPath(),
+                    $"GoldenReferenceQuartet-{Path.GetFileName(imagePath)}-failures.txt");
+                var report = new List<string>
+                {
+                    $"GoldenReferenceQuartet {Path.GetFileName(imagePath)} - run started {runStarted:yyyy-MM-dd HH:mm:ss}, {verified:N0} files verified",
+                    $"  MD5 mismatches (wrong bytes)              : {mismatches.Count:N0}",
+                    $"  structural (missing-should-be / extras)   : {structural.Count:N0}",
+                    $"  read errors/missing, PERSISTENT on retry  : {persistent.Count:N0}",
+                    $"  read errors/missing, transient (retry ok) : {transient.Count:N0}",
+                    ""
+                };
+                void Section(string title, IEnumerable<Failure> items)
+                {
+                    var list = items.ToList();
+                    if (list.Count == 0) return;
+                    report.Add($"=== {title} ({list.Count:N0}) ===");
+                    report.AddRange(list.OrderBy(f => f.FirstSeen).Select(f => f.ToString()));
+                    report.Add("");
+                }
+                Section("MD5 MISMATCHES", mismatches);
+                Section("STRUCTURAL", structural);
+                Section("PERSISTENT read errors / missing (still failing on sequential retry)", persistent);
+                Section("TRANSIENT read errors / missing (retried clean - stalls, not faults)", transient);
+                File.WriteAllLines(reportFile, report);
+
+                //Verdict. Wrong bytes, structural problems and persistent read faults fail the test.
+                //Transient stalls are reported loudly but do NOT fail a content-verification test whose
+                //every byte checked out - they are a performance/environment finding, tracked separately.
+                var hard = mismatches.Count + structural.Count + persistent.Count;
+                if (hard > 0)
+                {
+                    var examples = string.Join(Environment.NewLine,
+                        mismatches.Concat(structural).Concat(persistent).Take(20).Select(f => f.ToString()));
+                    Assert.Fail($"{hard:N0} hard golden-reference failure(s) of {verified:N0} files verified "
+                              + $"({mismatches.Count:N0} MD5 mismatches, {structural.Count:N0} structural, {persistent.Count:N0} persistent read errors; "
+                              + $"plus {transient.Count:N0} transient stalls that retried clean). Full report: {reportFile}{Environment.NewLine}First examples:{Environment.NewLine}{examples}");
+                }
+                if (transient.Count > 0)
+                {
+                    Console.WriteLine($"PASSED on content, but {transient.Count:N0} read(s) stalled under load and had to be retried "
+                                    + $"(all retried clean). Timestamps in {reportFile}; correlate with SLOWREAD lines in the exe log.");
                 }
             }
             finally
@@ -228,6 +269,51 @@ namespace clonezilla_util_tests.Mount.AsFiles
         }
 
         record GoldenEntry(string RelativePath, string Md5);
+
+        enum FailureKind { Mismatch, Missing, ReadError, Structural }
+
+        //One verification failure with WHEN it happened - the timestamp is what turns a list of 191
+        //errors into "five bursts, hours apart" without inferring it from directory adjacency
+        record Failure(FailureKind Kind, string Partition, GoldenEntry Entry, string Detail)
+        {
+            public DateTime FirstSeen { get; init; } = DateTime.Now;
+            public string? RetryDetail { get; init; }
+
+            public override string ToString()
+            {
+                var kind = Kind switch
+                {
+                    FailureKind.Mismatch => "MD5 mismatch",
+                    FailureKind.Missing => "Missing from mount",
+                    FailureKind.ReadError => "Read error",
+                    _ => "Structural"
+                };
+                var retry = RetryDetail != null ? $" | on retry: {RetryDetail}" : "";
+                return $"{FirstSeen:HH:mm:ss}  {kind}: {Partition}\\{Entry.RelativePath}: {Detail}{retry}";
+            }
+        }
+
+        //null = the file hashed correctly; otherwise the classified failure
+        static Failure? HashAndCompare(string root, string partition, GoldenEntry entry)
+        {
+            var fullPath = $@"{root}\{entry.RelativePath}";
+            try
+            {
+                using var fs = File.OpenRead(fullPath);
+                var md5 = Convert.ToHexString(MD5.HashData(fs)).ToLowerInvariant();
+                return md5 == entry.Md5
+                    ? null
+                    : new Failure(FailureKind.Mismatch, partition, entry, $"expected {entry.Md5} got {md5}");
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                return new Failure(FailureKind.Missing, partition, entry, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return new Failure(FailureKind.ReadError, partition, entry, ex.Message);
+            }
+        }
 
         static List<GoldenEntry> LoadGoldenList(string filename)
         {
