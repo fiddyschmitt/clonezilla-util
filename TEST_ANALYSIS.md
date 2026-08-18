@@ -949,3 +949,40 @@ Fixes (2026-08-15):
 Unrelated-project note: the image-wide `taskkill /IM testhost.exe` in the chunked-run recipe was
 killing OTHER projects' test hosts; it is now scoped to command lines matching
 `clonezilla-util_tests`.
+
+## bzip2 golden run of 2026-08-17/18 — 191 timeouts, 0 mismatches; instrumentation added
+
+**Result:** `bzip2 Failed 804.3 min` — 191 "golden-reference failures" of 558,893 files. Signature
+breakdown: **0 MD5 mismatches, 0 missing, 191 read errors**, every one
+`Insufficient system resources` (0x800705AA = Dokan abandoned a read that outlived its deadline).
+Every file the mount served was byte-correct. The 191 sit in exactly five unrelated directory
+subtrees (49 `servicing\LCU`, 39 `WinSxS\Manifests`, 38 `_fileCache`, 22 Azure DevOps, 17
+`CatRoot`) — the golden list is walked in directory order, so that is **five stall bursts hours
+apart**, with clean hashing between them. Only 3 of the 191 correspond to exceptions in the exe
+log; **188 left no trace** — slow, not broken. Runtime including a 2-hour index rebuild matched
+the clean 13h Aug-2 run, so this was a normal-pace run with five hiccups, not a sick mount.
+
+**Separately, the bzip2 decode exceptions are real and unexplained:** across the 08-15…08-18 runs,
+three `SetupBlock` index-out-of-range, one CRC error, and one index-rebuild crash (08-16). The
+rebuild that crashed then completed twice on 08-17 (~110 min each) — transient, not deterministic;
+the affected files hashed clean on Aug 2; and there are zero code changes in the bzip2 decode path
+since. Transient corruption under sustained load remains the leading candidate (no disk/WHEA
+events; consumer RAM bit-flips don't log). Not proven. Watch-only per the user.
+
+**Caveat on the comparison:** S5 (8 workers) and S4 landed on Aug 10, after the clean Aug-2 run.
+Neither is a likely stall source (S4 removes a lock; DOP-24 bleed stress was clean at 8 workers),
+but clean-vs-not is not apples-to-apples.
+
+**Instrumentation added (2026-08-18)** so the next occurrence explains itself:
+- Product `b51fac6`: **SLOWREAD lines** off the existing watchdog tick — reports reads over 5s
+  while they are in flight (count, slowest read named), and each slow read's total duration on
+  completion. Healthy mount = silent (verified). Reading the pattern: many slow at once with no
+  completions → pipeline stall or starved box; one slow while others flow → pathological file;
+  slow reads that log `done` → the watchdog kept them alive, the client saw slowness not errors.
+- Golden test `66b8e32`: every failure **timestamped and typed**; read errors/missing **retried
+  once sequentially** on the quiet mount (clean retry = transient stall, else persistent fault);
+  report grouped by verdict; only mismatches/structural/persistent faults fail the test.
+- Golden test `2674125`: fail fast on an incomplete mount (the 08-16 6-hour hang).
+
+**Next:** bzip2 golden alone, overnight, quiet box, with these in place. Clean → S4/S5 exonerated
+and the transient theory stands; a burst → the SLOWREAD lines say where the time went.
