@@ -317,11 +317,16 @@ namespace libDokan
         //parallel (many slow reads registered at once), a tick racing a completing read calls
         //DokanResetTimeout on a freed handle and crashes the process with 0xC0000005 (a native access
         //violation that the try/catch cannot catch).
-        sealed class InFlightRead(IDokanFileInfo info, long startedTick)
+        sealed class InFlightRead(IDokanFileInfo info, long startedTick, string fileName, long offset, int length)
         {
             public readonly IDokanFileInfo Info = info;
             public readonly long StartedTick = startedTick;
             public bool Completed;   //guarded by lock(this)
+
+            //identity for the slow-read report (SlowReadReporting): which read is stalling, and where
+            public readonly string FileName = fileName;
+            public readonly long Offset = offset;
+            public readonly int Length = length;
         }
 
         static readonly ConcurrentDictionary<long, InFlightRead> InFlightReads = new();
@@ -329,11 +334,25 @@ namespace libDokan
 
         static readonly Timer TimeoutWatchdog = new(_ =>
         {
-            if (InFlightReads.IsEmpty) return;
+            if (InFlightReads.IsEmpty)
+            {
+                SlowReadReporting.OnTick(Environment.TickCount64, 0, 0, null, 0);
+                return;
+            }
             var now = Environment.TickCount64;
+            var inFlight = 0;
+            var slow = 0;
+            InFlightRead? slowest = null;
+            long slowestElapsed = 0;
             foreach (var read in InFlightReads.Values)
             {
                 var elapsed = now - read.StartedTick;
+                inFlight++;
+                if (elapsed >= SlowReadThresholdMs)
+                {
+                    slow++;
+                    if (elapsed > slowestElapsed) { slowestElapsed = elapsed; slowest = read; }
+                }
                 if (elapsed > TimeoutWatchdogMaxMs) continue;   //runaway op - stop extending so it finally fails
                 lock (read)
                 {
@@ -341,14 +360,65 @@ namespace libDokan
                     try { read.Info.TryResetTimeout(TimeoutWatchdogExtensionMs); } catch { }
                 }
             }
+            SlowReadReporting.OnTick(now, inFlight, slow, slowest, slowestElapsed);
         }, null, TimeoutWatchdogInterval, TimeoutWatchdogInterval);
+
+        //--- slow-read reporting -------------------------------------------------------------------
+        //The 2026-08-18 bzip2 golden run lost 191 reads to Dokan timeouts (0x800705AA) in five bursts,
+        //and 188 of them left NO trace in our log: they were slow, not broken. A read that dies of a
+        //timeout throws nothing, so exceptions can never explain a stall. This reports stalls WHILE
+        //THEY HAPPEN, off the existing watchdog tick (zero fast-path cost - the tick already walks the
+        //in-flight registry): a line whenever the number of slow reads changes (and every 30s while a
+        //stall persists) naming the slowest read, plus a line as each slow read completes giving its
+        //total duration. How to read the pattern:
+        //  many reads slow at once, all long          => the serving pipeline stalled, or the box was starved
+        //  one read slow while others flow            => that file is pathological (fragmented / far seeks)
+        //  slow reads that log a completion           => the watchdog kept them alive; the client saw a
+        //                                                slow read, not an error
+        //  a stall with no completions, then timeouts => reads hit the 10-min cap and Dokan abandoned them
+        const long SlowReadThresholdMs = 5_000;
+
+        static class SlowReadReporting
+        {
+            static int lastReportedSlow;
+            static long lastReportTick;
+            const long RepeatIntervalMs = 30_000;   //while a stall persists, re-report at most this often
+
+            public static void OnTick(long now, int inFlight, int slow, InFlightRead? slowest, long slowestElapsed)
+            {
+                //report on any change in the slow count, and periodically while it stays non-zero
+                var changed = slow != lastReportedSlow;
+                var due = slow > 0 && now - lastReportTick >= RepeatIntervalMs;
+                if (!changed && !due) return;
+                lastReportedSlow = slow;
+                lastReportTick = now;
+
+                if (slow == 0)
+                {
+                    Log.Information("SLOWREAD cleared: {InFlight} read(s) in flight, none over {ThresholdSec}s", inFlight, SlowReadThresholdMs / 1000);
+                    return;
+                }
+                Log.Warning("SLOWREAD {Slow} of {InFlight} in-flight read(s) over {ThresholdSec}s; slowest {SlowestSec:N0}s: '{File}' @ {Offset:N0} len {Length:N0}",
+                    slow, inFlight, SlowReadThresholdMs / 1000, slowestElapsed / 1000.0,
+                    slowest?.FileName, slowest?.Offset ?? 0, slowest?.Length ?? 0);
+            }
+
+            //called from WatchdogRegistration.Dispose for reads that ended up slow: how long the client
+            //actually waited (or, past the cap, how long we kept going after Dokan gave up on it)
+            public static void OnSlowReadCompleted(InFlightRead read, long elapsedMs)
+            {
+                Log.Warning("SLOWREAD done after {Sec:N1}s: '{File}' @ {Offset:N0} len {Length:N0}{Abandoned}",
+                    elapsedMs / 1000.0, read.FileName, read.Offset, read.Length,
+                    elapsedMs > TimeoutWatchdogMaxMs ? " (past the 10-min cap - Dokan will have abandoned this read)" : "");
+            }
+        }
 
         //Registers the current read with the shared watchdog for its duration; Dispose() unregisters it.
         //The handle is a struct, so `using var` disposes it with no allocation.
-        static WatchdogRegistration StartTimeoutWatchdog(IDokanFileInfo info)
+        static WatchdogRegistration StartTimeoutWatchdog(IDokanFileInfo info, string fileName, long offset, int length)
         {
             var id = Interlocked.Increment(ref inFlightReadIdSeq);
-            InFlightReads[id] = new InFlightRead(info, Environment.TickCount64);
+            InFlightReads[id] = new InFlightRead(info, Environment.TickCount64, fileName, offset, length);
             return new WatchdogRegistration(id);
         }
 
@@ -361,6 +431,9 @@ namespace libDokan
                     //Mark completed under the same lock the timer uses, so a concurrent tick can't call
                     //TryResetTimeout on this read once ReadFile returns and the native handle is freed.
                     lock (read) { read.Completed = true; }
+
+                    var elapsed = Environment.TickCount64 - read.StartedTick;
+                    if (elapsed >= SlowReadThresholdMs) SlowReadReporting.OnSlowReadCompleted(read, elapsed);
                 }
             }
         }
@@ -374,7 +447,7 @@ namespace libDokan
             //extend the Dokan deadline if this read runs long (some fragmented files are genuinely slow).
             //Just registers with the shared watchdog (a dictionary insert/remove); a fast read is gone
             //before the next tick, so the common path pays no Timer alloc.
-            using var watchdog = StartTimeoutWatchdog(info);
+            using var watchdog = StartTimeoutWatchdog(info, fileName, offset, buffer.Length);
 
             // A Dokan callback must never throw: an unhandled exception becomes a generic driver failure
             // that surfaces to the calling app as 0x800705AA (ERROR_NO_SYSTEM_RESOURCES). Return a status.
