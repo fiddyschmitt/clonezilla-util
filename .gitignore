@@ -362,3 +362,6 @@ MigrationBackup/
 FodyWeavers.xsd
 /clonezilla-util/Properties/launchSettings.json
 /CODE_REVIEW_PLAN.md
+
+# output of scripts/run-suite.sh
+test-results/
