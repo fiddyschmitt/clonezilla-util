@@ -403,13 +403,15 @@ namespace libDokan
                     slowest?.FileName, slowest?.Offset ?? 0, slowest?.Length ?? 0);
             }
 
-            //called from WatchdogRegistration.Dispose for reads that ended up slow: how long the client
-            //actually waited (or, past the cap, how long we kept going after Dokan gave up on it)
+            //called from WatchdogRegistration.Dispose for reads that ended up slow: how long the read
+            //took to complete. This fires when ReadFile RETURNS, so the read did finish; past the
+            //watchdog cap only means we stopped extending its Dokan deadline, so the client MAY have
+            //seen a timeout for it even though we served it (observed in practice: these completed).
             public static void OnSlowReadCompleted(InFlightRead read, long elapsedMs)
             {
-                Log.Warning("SLOWREAD done after {Sec:N1}s: '{File}' @ {Offset:N0} len {Length:N0}{Abandoned}",
+                Log.Warning("SLOWREAD done after {Sec:N1}s: '{File}' @ {Offset:N0} len {Length:N0}{PastCap}",
                     elapsedMs / 1000.0, read.FileName, read.Offset, read.Length,
-                    elapsedMs > TimeoutWatchdogMaxMs ? " (past the 10-min cap - Dokan will have abandoned this read)" : "");
+                    elapsedMs > TimeoutWatchdogMaxMs ? " (past the 10-min watchdog cap - deadline no longer extended, client may have timed out)" : "");
             }
         }
 
