@@ -1029,3 +1029,31 @@ test change would have turned the 08-18 "191 failures" into "PASSED on content; 
 clean", and the SLOWREAD lines pinpoint any real stall. (Minor: the "Dokan will have abandoned this
 read" note on past-cap SLOWREAD lines is pessimistic — those reads completed; soften the wording
 next time that file is touched.)
+
+## Golden quartet DOP 16 validation (2026-08-23/24) — PASSED, 1.31× faster overall
+
+Reader DOP of the quartet's content pass raised 8 → 16 (`3ffde8d`; the DOP-8 comment blamed
+corruption that was really L11, since cured and guarded at DOP 24 by ConcurrentBleedStress).
+Full quartet run, warm cache, exe = HEAD, box otherwise idle:
+
+| Codec | DOP 8 warm (08-23) | DOP 16 | Speedup | MD5 mismatch | Persistent | Transient |
+|---|---|---|---|---|---|---|
+| bzip2 | 625.9 min | **472.0 min** (7h52m) | **1.33×** | 0 | 0 | 1 (`Windows\Logs\CBS\CbsPersist_….log`, retried clean) |
+| gz | 44.9 min | **33.6 min** | **1.34×** | 0 | 0 | 0 |
+| xz | 201.3 min | **184.0 min** | 1.09× | 0 | 0 | 0 |
+| zst | 87.1 min | **43.2 min** | **2.02×** | 0 | 0 | 0 |
+| **total** | **959.2 min** | **~733 min** | **1.31×** (−3.8 h) | **0** | **0** | 1 |
+
+4 × 558,893 files verified, 0 wrong bytes, 0 persistent read faults. Exe log across all four
+mounts: 0 errors, 0 decode exceptions, 3,332 slow-read completions, none past the 10-min cap. The
+one transient was a single Dokan timeout on a fragmented Windows log — the pathological-file
+signature — retried clean; exactly what the retry-by-signature report is for.
+
+Reading the pattern: the codecs whose decode is cheap relative to per-read overhead (zst, gz,
+bzip2 with its intra-span Parallel.For) gain most from more readers keeping the 8 workers fed;
+xz is decode-bound and barely moves. bzip2 at 472 min now also beats its *cold* DOP-8 time (527.5).
+
+**Verdict: keep DOP 16.** bzip2 still dominates the wall clock (64% of the run), so DOP 24 —
+already proven correct by ConcurrentBleedStress — is the optional next notch if a shorter golden
+gate is wanted; expect diminishing returns (8 workers) and a few more transient stalls on
+fragmented files. Not needed for correctness.
