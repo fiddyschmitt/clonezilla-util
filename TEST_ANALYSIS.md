@@ -986,3 +986,46 @@ but clean-vs-not is not apples-to-apples.
 
 **Next:** bzip2 golden alone, overnight, quiet box, with these in place. Clean → S4/S5 exonerated
 and the transient theory stands; a burst → the SLOWREAD lines say where the time went.
+
+## RESOLVED (2026-08-23) — it was the RAM. Decode corruption gone after reseating.
+
+The bzip2 golden decode failures were **bad RAM**, confirmed by a clean before/after split once the
+user reseated the sticks (memtest86 passed each of 7 sticks individually; the fault was the
+full-population configuration, not any single stick — repositioning fixed it). No log on 08-20 =
+the reseat/memtest day.
+
+**Corruption signature (bzip2 decode exceptions: `SetupBlock` IndexOutOfRange, `BZip2 error` CRC,
+`Read callback threw`) per day:**
+
+| Before reseat | 08-15 | 08-16 | 08-17 | 08-18 | 08-19 |
+|---|---|---|---|---|---|
+| decode/corruption lines | 7 | 4 | 16 | 16 | 4 |
+
+| After reseat | 08-21 | 08-22 | 08-23 |
+|---|---|---|---|
+| decode/corruption lines | **0** | **0** | **0** |
+
+After the reseat: golden quartet **cold and warm both PASSED** — all four codecs, every one of the
+558,893 files per codec, **0 MD5 mismatches, 0 persistent read errors, 0 decode exceptions** across
+~4.5M file verifications. The transient-corruption hypothesis is confirmed, and **S4/S5 are
+exonerated** — the code was never at fault.
+
+**Two phenomena, only one was RAM:**
+- *Decode corruption* (the `SetupBlock`/CRC exceptions) = RAM bit-flips in decode buffers.
+  Transient, non-deterministic, on data proven correct on disk. Gone after the reseat. This is what
+  "it was RAM related" refers to, and it's solid.
+- *The 191 read timeouts of 08-18* were a **separate, load-related** phenomenon, not a RAM
+  signature — though the unstable RAM config plausibly aggravated the whole machine's behaviour that
+  day. After the reseat there were **zero** read-timeout failures.
+
+**The new instrumentation earned its keep.** The passing 08-22 run still logged genuinely-slow
+reads, and the SLOWREAD lines named them exactly: two pathologically-fragmented Windows logs on
+sda2 — `System32\LogFiles\setupcln\diagerr.xml` and `Windows\Temp\MpCmdRun.log` — read in
+sequential 1 MB chunks at 700–1500 s each (each chunk seeks all over the bzip2 stream, precisely the
+case the watchdog was built for). These are the golden test's only 2 "transient" errors (bzip2), and
+the retry pass confirmed them clean — a genuinely slow file, not a fault. Everything else completed
+in well under a minute (8,208 reads <10 s, 2,532 in 10–60 s on 08-22). Net: the retry-by-signature
+test change would have turned the 08-18 "191 failures" into "PASSED on content; 191 stalls, retried
+clean", and the SLOWREAD lines pinpoint any real stall. (Minor: the "Dokan will have abandoned this
+read" note on past-cap SLOWREAD lines is pessimistic — those reads completed; soften the wording
+next time that file is touched.)
