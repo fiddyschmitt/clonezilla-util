@@ -32,6 +32,11 @@ namespace clonezilla_util_tests.Mount.AsFiles
         const string ImagesFolder = @"E:\clonezilla-util-test resources\clonezilla images";
         static readonly string[] Partitions = ["sda1", "sda2", "sdb1"];
 
+        //reader parallelism for the content pass (see the note above Parallel.ForEach). 16 = twice
+        //the 8 native workers so they never starve on reader overhead; ConcurrentBleedStress proves
+        //24 is correct, so 24 is the next notch if the bzip2 leg is still the bottleneck.
+        const int VerifyDop = 16;
+
         [TestMethod]
         public void bzip2() => VerifyImage($@"{ImagesFolder}\2022-07-16-22-img_pb-devops1_bzip2");
 
@@ -95,12 +100,15 @@ namespace clonezilla_util_tests.Mount.AsFiles
                     }
 
                     //golden -> mounted: every golden file must exist with a matching hash.
-                    //DOP 8 with default 4 KB reads is deliberate: DOP 16 with 1 MB buffered reads made the
-                    //mount serve wrong bytes under load (32k mismatches incl. cross-file data bleed - two
-                    //files returning identical wrong content - plus ~950 outright read errors), while this
-                    //pattern hashed all 558k files cleanly. That load-related serving bug is worth chasing,
-                    //but this test's job is content verification, so it uses the pattern that works.
-                    Parallel.ForEach(expectPresent, new ParallelOptions { MaxDegreeOfParallelism = 8 }, entry =>
+                    //History of the DOP: this ran at 8 because DOP 16 once made the mount serve wrong bytes
+                    //under load (32k mismatches incl. cross-file bleed). That was Lead L11 - the Dokan
+                    //context GCHandle freed at Cleanup while reads were in flight - cured at the source in
+                    //433a5f3 and guarded by ConcurrentBleedStress, which verifies at DOP 24 against 8 native
+                    //workers on every codec. With the serving stack genuinely concurrent now (S3 single-
+                    //flight cache, S5 8 workers), reader parallelism is what keeps those workers busy, so
+                    //the DOP was raised to cut the ~9-10h bzip2 leg (2026-08-23). If this ever produces
+                    //mismatches again it is a real serving bug, not a reason to lower the DOP.
+                    Parallel.ForEach(expectPresent, new ParallelOptions { MaxDegreeOfParallelism = VerifyDop }, entry =>
                     {
                         var outcome = HashAndCompare(root, partition, entry);
                         if (outcome != null) failures.Add(outcome);
