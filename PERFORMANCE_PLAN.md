@@ -453,7 +453,7 @@ build path contains no Dokan code. Zst proxy at parity (33.9–34.2 vs 31.0 base
     High-performance power plan; (3) re-bench cold vs warm (cold 35.2 vs warm 46.7 MB/s on 07-03 already
     hints the E:-read path carries a ~33% tax).
 
-- [ ] **Fix D3 — item-stream reuse with worker affinity (= Batch 6 (D)).** **Deprioritised** — D3 ≈ 0 once
+- [skip] **Fix D3 — item-stream reuse with worker affinity (= Batch 6 (D)).** **Deprioritised** — D3 ≈ 0 once
   D6 is fixed (see correction above), so this is a latent cleanup for very-high-concurrency mounts, **not**
   the xz regression fix. Revisit only if a future profile shows reopen cost. Don't build it speculatively.
 
@@ -826,7 +826,7 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
   (pool over-allocation); all access is Start/End-bounded. The short-read `Array.Resize` copy is gone
   too. I0's `ZranInflate` was born pooled. (gz/bzip2 per-read wrapper allocations = P10, still
   deliberately left.)
-- [ ] **Free win (not a stream change):** skip `pagefile.sys` / `hiberfil.sys` / `swapfile.sys` (huge,
+- [skip] **Free win (not a stream change):** skip `pagefile.sys` / `hiberfil.sys` / `swapfile.sys` (huge,
   useless). **Deliberately NOT implemented as a silent default (2026-07-10):** hiding real files from
   the mounted view trades data fidelity for copy speed — wrong call for a tool people may use
   forensically. If wanted, do it as an opt-in CLI flag (e.g. `--exclude-system-files`); needs a
@@ -1494,3 +1494,43 @@ Corruption persists ⇒ the pool is exonerated and the search moves to stream di
   content MD5 (`d4559685…`) via three independent reference decoders. **Batch 10 implementation
   sweep complete** — remaining gates: republish + xz/gz mount smokes (held until the in-flight
   bzip2 golden finishes), bzip2/xz/gz golden reruns on the new path, DOP≥16 bleed stress, full suite.
+
+## Campaign close-out (2026-08-23) — everything above is landed, gated, and on `origin/master`
+
+Status of the work this plan tracked, with the commits that landed it (full evidence in
+`TEST_ANALYSIS.md`):
+
+- [x] **Batch 10 — bzip2 / xz / gz on the concurrent serving path.** All gates passed after the
+  L11 cure; merged to master in `68cc110`. Golden-verified: bzip2 13h00m vs 17h14m legacy (1.33×),
+  gz 1h28m vs 2h08m (1.45×), xz parity (decode-bound). The "GATE FAILURE (2026-08-04)" above was
+  L11 — pre-existing, not a Batch 10 regression.
+- [x] **L11 cross-file bleed — CURED at the source** (`433a5f3`; guards from `fb87b98` kept as
+  tripwires). Cause: DokanNet stores `info.Context` as a raw GCHandle number; we freed it at
+  `Cleanup` while in-flight reads still carried copies, and the recycled slot resolved to another
+  file's stream. Fix: free at `CloseFile` only (dokany's quiescence point) + zero-without-free for
+  any distrusted value. Validated: 4-trial kill-storm harness 0 foreign / 0 mismatch, DOP-24 bleed
+  stress 12/12 phases clean, full suite green.
+- [x] **S4 — redundant `Stream.Synchronized` removed** (`fb8552e`). Every consumer already
+  serialised; full suite green.
+- [x] **S5 — mount worker pool 4 → 8** (`3f0d073`). The payoff step of the S0–S3 rework (see
+  TEST_ANALYSIS "Lock-removal work"); held until L11 was cured and a DOP≥16 bleed test existed to
+  gate it. Full suite green; bleed stress clean at 8 workers.
+- [x] **Test infrastructure.** `ConcurrentBleedStress` (`973d691`): per-codec kill-bursts + DOP-24
+  golden verify, the in-repo guard for the L11 class. `GoldenReferenceQuartet` moved to its own
+  project (`0831e0f`) so Test Explorer runs never drag in the ~40h gate. Readiness gates on the
+  exe's own "Mounting complete" in every mount test (`e3f05c8`, `2674125`), timeout-proof
+  teardown, `--no-explorer` for suite mounts (`201e570`/`446cc09`). Slow-read instrumentation
+  (`b51fac6`) + golden retry-by-signature (`66b8e32`). Suite recipe committed as
+  `scripts/run-suite.sh` + `scripts/killtool.sh`.
+- [x] **The Aug-2026 bzip2 decode corruption was bad RAM**, not code (full-population config;
+  fixed by reseating; decode-error lines 7/4/16/16/4 per day before → 0/0/0 after; golden quartet
+  then passed cold and warm). Exonerates S4/S5.
+- [skip] **D3** and the **pagefile/hiberfil skip** — declined 2026-08-10.
+- [ ] **S3b** (per-decode FileStream over the .zst) — optional, only if the zstd compressed-read
+  gate ever profiles. Never needed so far.
+- Not done by decision: upstream reports to dokan-dev (the unvalidated GCHandle round-trip /
+  free-at-Cleanup hazard; dokany's unconditional `UserContext` write-back; the adapter's
+  post-callback buffer copy) — declined 2026-08-10, available if wanted.
+
+Final state: 2.9.0 RC passes the full suite cold + warm (75/75) and the golden quartet cold + warm
+(4 codecs × 558,893 files, 0 mismatches). Release-ready.
