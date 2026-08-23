@@ -61,6 +61,15 @@ namespace clonezilla_util_tests.Mount
                     Thread.Sleep(1000);
                 }
 
+                //Once the exe reports "Mounting complete" its tree is fully built and every file it
+                //will ever serve is already visible, so an expected file still MISSING after a short
+                //grace is never coming (wrong listing, or a partition that failed to open) - fail
+                //immediately, naming it, instead of re-polling for the whole 6-hour ceiling. The
+                //ceiling still covers the part that is legitimately slow: copying + hashing large
+                //files from a cold mount. (Same two-phase shape as GoldenReferenceQuartet.WaitForMount.)
+                var sinceMountComplete = Stopwatch.StartNew();
+                var mountExposureGrace = TimeSpan.FromSeconds(60);
+
                 bool allSuccessful;
                 do
                 {
@@ -123,9 +132,15 @@ namespace clonezilla_util_tests.Mount
                         break;
                     }
 
+                    var firstMissing = expectedFiles.FirstOrDefault(f => !File.Exists(f.FullPath))?.FullPath;
+                    if (firstMissing != null && sinceMountComplete.Elapsed > mountExposureGrace)
+                    {
+                        Assert.Fail($"The exe reported 'Mounting complete' but '{firstMissing}' is still absent after {mountExposureGrace.TotalSeconds:N0}s. "
+                                  + "A file missing after mount completion will never appear - check the exe log (bin\\...\\logs\\clonezilla-util-*.log) for a partition that failed to open or a listing error.");
+                    }
                     if (waited.Elapsed > maxWait)
                     {
-                        Assert.Fail($"Timed out after {waited.Elapsed} waiting for the expected files to be served. First missing: {expectedFiles.FirstOrDefault(f => !File.Exists(f.FullPath))?.FullPath ?? "(all exist)"}");
+                        Assert.Fail($"Timed out after {waited.Elapsed} waiting for the expected files to be served. First missing: {firstMissing ?? "(all exist)"}");
                     }
 
                     Thread.Sleep(1000);
