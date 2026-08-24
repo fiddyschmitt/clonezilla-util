@@ -1057,3 +1057,30 @@ xz is decode-bound and barely moves. bzip2 at 472 min now also beats its *cold* 
 already proven correct by ConcurrentBleedStress — is the optional next notch if a shorter golden
 gate is wanted; expect diminishing returns (8 workers) and a few more transient stalls on
 fragmented files. Not needed for correctness.
+
+## Golden quartet DOP 24 attempt (2026-08-24/25) — REVERTED to 16
+
+Tried reader DOP 24 (`a5aa2d7`) on the strength of the 8 → 16 result (1.31×) and because bzip2
+still owned 64% of the run. Full quartet, warm cache, exe = HEAD product code, box idle:
+
+| Codec | DOP 8 | DOP 16 | DOP 24 | 24 vs 16 | Content | Transient stalls |
+|---|---|---|---|---|---|---|
+| bzip2 | 625.9 | 472.0 | **546** | +16% | clean | 2 (vs 1) |
+| gz | 44.9 | 33.6 | **69** | 2.05× slower | clean | 0 |
+| xz | 201.3 | 184.0 | **245** | +33% | clean | 0 |
+| zst | 87.1 | 43.2 | **470** | **10.9× slower** | clean | 9 |
+| **total** | **959.2** | **733** | **1,330** | **1.8× slower** | 0 mismatches, 0 persistent | 11 |
+
+Every leg regressed; zst fell off a cliff. The exe log shows why: **13,726 slow-read completions
+on the zst/xz day** against ~3,300 for the *entire* DOP-16 quartet, 0 errors, 0 decode exceptions,
+1 past-cap read (the usual fragmented `diagerr.xml`). That is thrash, not contention: past ~2
+readers per native worker the extra readers do not keep the 8 workers fed, they each pull their
+own 32 MB spans, the working set outgrows the RAM cache budget, and evicted spans get re-decoded —
+the L12 decode-amplification effect, now measured from the reader side. zst suffers most because
+its decode is cheapest relative to the cost of a re-fetched span; xz least because it is
+decode-bound regardless.
+
+**Verdict: DOP 16 is the knee. Reverted.** Correctness was never in question (4 × 558,893 files,
+0 wrong bytes, all stalls retried clean) — this was purely a throughput measurement, and it also
+bounds the mount's useful concurrency on this box: ~2 concurrent readers per worker with the
+current cache budget. A larger cache budget would move the knee; not pursued.

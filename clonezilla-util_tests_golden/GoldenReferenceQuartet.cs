@@ -32,12 +32,15 @@ namespace clonezilla_util_tests.Mount.AsFiles
         const string ImagesFolder = @"E:\clonezilla-util-test resources\clonezilla images";
         static readonly string[] Partitions = ["sda1", "sda2", "sdb1"];
 
-        //reader parallelism for the content pass (see the note above Parallel.ForEach). Validated
-        //2026-08-23: 8 -> 16 gave 1.31x overall (bzip2 625.9 -> 472 min) with zero mismatches.
-        //24 = three readers per native worker and the same DOP ConcurrentBleedStress verifies at;
-        //trying it because bzip2 still owns ~64% of the wall clock. Expect diminishing returns
-        //against 8 workers and a few more transient stalls on fragmented files (retried clean).
-        const int VerifyDop = 24;
+        //reader parallelism for the content pass (see the note above Parallel.ForEach).
+        //Measured (warm cache, 8 native workers), quartet total:  DOP 8 = 959 min,  DOP 16 = 733,
+        //DOP 24 = 1,330. 16 is the knee. 24 (tried 2026-08-24/25, content clean) regressed every
+        //codec - bzip2 472 -> 546 min, gz 33.6 -> 69, xz 184 -> 245, and zst 43 -> 470 (10.9x) with
+        //13.7k slow-read completions in a day vs 3.3k for the whole DOP-16 run: past ~2 readers per
+        //worker the extra readers do not feed the workers, they thrash the span cache (each reader
+        //pulls its own spans, the working set outgrows the RAM budget, and evicted spans get
+        //re-decoded - the L12 amplification effect). Do not raise this without re-measuring.
+        const int VerifyDop = 16;
 
         [TestMethod]
         public void bzip2() => VerifyImage($@"{ImagesFolder}\2022-07-16-22-img_pb-devops1_bzip2");
