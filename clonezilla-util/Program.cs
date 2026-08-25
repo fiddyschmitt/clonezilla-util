@@ -28,7 +28,7 @@ namespace clonezilla_util
     public class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "2.9.0";
+        const string PROGRAM_VERSION = "2.10.0";
 
         // Runtime-adjustable log level. Default Information: the mount hot paths then never format or
         // emit the per-operation Debug traces, whose WriteTo.Debug (OutputDebugString) sink and its
