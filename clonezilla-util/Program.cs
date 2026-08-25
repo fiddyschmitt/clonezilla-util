@@ -28,7 +28,13 @@ namespace clonezilla_util
     public class Program
     {
         const string PROGRAM_NAME = "clonezilla-util";
-        const string PROGRAM_VERSION = "2.10.0";
+
+        //Version has ONE source of truth: <Version> in clonezilla-util.csproj. Read it back from the
+        //assembly here so the startup banner and CommandLineParser's --help header can never disagree.
+        static readonly string PROGRAM_VERSION =
+            Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
+            ?? "unknown";
 
         // Runtime-adjustable log level. Default Information: the mount hot paths then never format or
         // emit the per-operation Debug traces, whose WriteTo.Debug (OutputDebugString) sink and its
