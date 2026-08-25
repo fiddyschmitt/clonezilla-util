@@ -22,7 +22,7 @@ $sources = @(
 
 $rsp = "$build\cl.rsp"
 $lines = @(
-  "/nologo /O2 /MD /EHsc /std:c++17",
+  "/nologo /O2 /MT /EHsc /std:c++17",
   "/DZ7_EXTERNAL_CODECS /D_UNICODE /DUNICODE /DWIN32 /DNDEBUG",
   "/I`"$v\CPP`"",
   "/Fo`"$obj\\`"",

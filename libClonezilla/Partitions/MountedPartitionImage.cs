@@ -124,6 +124,19 @@ namespace libClonezilla.Partitions
                 Log.Information($"[{container.ContainerName}] [{partitionName}] No browsable filesystem found in this partition. Serving it with no files.");
                 return [];
             }
+            catch (DllNotFoundException ex)
+            {
+                //The native 7-Zip engine (lib7zNative.dll) failed to LOAD. That is global, not a property
+                //of this partition - EVERY partition would be empty - so surface it clearly and fatally
+                //rather than silently serving an empty drive after a long index build (gh #89). The
+                //historical cause was lib7zNative depending on the VC++ runtime (VCRUNTIME140.dll); the
+                //shipped DLL is now statically linked (build.ps1 /MT), so this guards future regressions.
+                Log.Fatal(ex, $"The native 7-Zip engine (lib7zNative.dll) could not be loaded, so file "
+                            + $"contents cannot be read. This is not specific to [{partitionName}] - it affects the whole mount. "
+                            + $"If you built clonezilla-util yourself, build lib7zNative with the static CRT (/MT); "
+                            + $"otherwise please report this at https://github.com/fiddyschmitt/clonezilla-util/issues with your Windows version.");
+                throw;
+            }
             catch (Exception ex)
             {
                 Log.Error(ex, $"[{container.ContainerName}] [{partitionName}] Error while getting files in partition. Returning empty file list.");

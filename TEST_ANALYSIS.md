@@ -1084,3 +1084,26 @@ decode-bound regardless.
 0 wrong bytes, all stalls retried clean) — this was purely a throughput measurement, and it also
 bounds the mount's useful concurrency on this box: ~2 concurrent readers per worker with the
 current cache budget. A larger cache budget would move the knee; not pursued.
+
+## gh #89 — DllNotFoundException on a clean machine (2026-08-25) — static-CRT fix
+
+**Report:** v2.9.0, 102 GB gz partition. The gzip index built fine (~16 min), the mount came up, but
+enumerating the filesystem threw `System.DllNotFoundException` from `SevenZip_Open` (the lib7zNative
+P/Invoke) → caught into "empty file list" → "Mounting complete" over an empty L:.
+
+**Root cause (proven, not inferred):** `lib7zNative.dll` was built `/MD` (dynamic CRT). `dumpbin
+/dependents` on the shipped DLL: imports **VCRUNTIME140.dll, VCRUNTIME140_1.dll** and the
+api-ms-win-crt-* UCRT. Those ship with Visual Studio (dev box) but are absent on a clean machine
+without the VC++ 2015-2022 Redistributable, so Windows can't resolve lib7zNative's imports and the
+managed load surfaces as DllNotFoundException. Same single-file bundle for everyone ⇒ the difference
+is the machine's runtime, i.e. the missing redist.
+
+**Fix:** build lib7zNative with the static CRT — `build.ps1` `/MD` → `/MT`. Rebuilt DLL `dumpbin
+/dependents`: only **KERNEL32 / OLEAUT32 / USER32** (always present). Safe with 7z.dll: they talk over
+7-Zip's COM/external-codecs ABI (IInArchive, PropVariant/BSTR via oleaut32), no CRT objects cross the
+boundary. Smoke: 8 native workers open, 712 files enumerated - the exact path that threw now works.
+
+**Also fixed (the confusing UX):** `MountedPartitionImage.GetTree` swallowed the native-load failure
+into an empty partition and still logged "Mounting complete" - which is why the reporter got an empty
+drive showing used space and no error. A native *load* failure is global, not per-partition, so a new
+`catch (DllNotFoundException)` logs a clear, actionable FTL and rethrows (fail loud, not empty-drive).
