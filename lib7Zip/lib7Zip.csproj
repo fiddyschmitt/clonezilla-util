@@ -21,12 +21,23 @@
     </Content>
 
     <!-- Native 7-Zip engine (built separately by lib7zNative/build.ps1). Copied beside the exe so the
-         lib7Zip P/Invoke ("lib7zNative") resolves at runtime, and folded into the single-file bundle. -->
-    <Content Include="..\lib7zNative\build\lib7zNative.dll" Condition="Exists('..\lib7zNative\build\lib7zNative.dll')">
+         lib7Zip P/Invoke ("lib7zNative") resolves at runtime, and folded into the single-file bundle.
+         No Condition="Exists": the file MUST be present (guarded below). A Condition silently omitted
+         it and shipped an exe that threw DllNotFoundException at runtime (gh #89). -->
+    <Content Include="..\lib7zNative\build\lib7zNative.dll">
       <Link>lib7zNative.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
+
+  <!-- Fail-fast if the native engine hasn't been built. lib7zNative.dll is produced by the separate
+       native build lib7zNative\build.ps1 (MSVC, static CRT) - dotnet does NOT build it, and it is a
+       gitignored build product. Without this guard a checkout that skipped build.ps1 would publish an
+       exe with no native DLL, and every user would hit DllNotFoundException (gh #89). -->
+  <Target Name="EnsureLib7zNativeBuilt" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('..\lib7zNative\build\lib7zNative.dll')"
+           Text="lib7zNative.dll not found under ..\lib7zNative\build\. It is built by the native engine's own script, not by dotnet. Run:  powershell lib7zNative\build.ps1  (needs Visual Studio / MSVC; produces a static-CRT DLL), then rebuild. Background: gh #89." />
+  </Target>
 
 
 

@@ -1,5 +1,11 @@
 # Builds lib7zNative.dll with MSVC (x64). Run from anywhere.
 # Requires Visual Studio 2026 (uses its vcvars64.bat).
+#
+# RELEASE STEP - dotnet does NOT build this. lib7zNative.dll is a native build product (gitignored)
+# that lib7Zip.csproj bundles into the exe. Run this ONCE (and again whenever this script or src/
+# changes) BEFORE `dotnet publish`, or the build fails the EnsureLib7zNativeBuilt guard (gh #89).
+# /MT (static CRT) is deliberate: /MD made the DLL depend on VCRUNTIME140.dll, which is absent on
+# machines without the VC++ redistributable -> DllNotFoundException at runtime.
 $ErrorActionPreference = "Stop"
 
 $vcvars = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvars64.bat"

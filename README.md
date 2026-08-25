@@ -94,6 +94,24 @@ If the images are extracted to an NTFS drive, they are created as sparse. Meanin
 <br />
 <br />
 
+# Building from source
+
+Two steps, in order:
+
+1. **Build the native 7-Zip engine** (needs Visual Studio / MSVC — it is a C++ DLL, not compiled by `dotnet`):
+   ```
+   powershell lib7zNative\build.ps1
+   ```
+   Run this once, and again whenever `lib7zNative` changes. It produces a **statically-linked** `lib7zNative.dll` (no Visual C++ Redistributable needed on the target machine).
+2. **Publish the app:**
+   ```
+   dotnet publish clonezilla-util\clonezilla-util.csproj -c Release -p:PublishProfile=FolderProfile
+   ```
+
+If you skip step 1 the build fails fast with a message telling you to run `build.ps1` — it will not silently produce an exe that is missing the native engine.
+
+<br />
+
 # Thanks
 
 A special thanks to Roberto for creating [gztool](https://github.com/circulosmeos/gztool). It allows the gz files in the Clonezilla archive to be read randomly, which gz doesn't natively support.
