@@ -1,5 +1,6 @@
 using DokanNet;
 using libCommon;
+using libCommon.Streams;
 using libDokan.Processes;
 using libDokan.VFS;
 using libDokan.VFS.Files;
@@ -297,8 +298,17 @@ namespace libDokan
         //Dokan abandons an operation that outlives options.TimeOut (surfacing to the app as 0x800705AA,
         //and at the threshold it can unmount the volume). A few reads are genuinely slow - a heavily
         //fragmented file (e.g. a log) scatters its clusters across the partition, so reading it seeks all
-        //over the compressed stream and can take tens of seconds. For those, keep the operation alive by
-        //extending its deadline while it runs, capped so a true hang still eventually fails.
+        //over the compressed stream and can take tens of seconds, occasionally minutes. For those, keep the
+        //operation alive by extending its deadline while it runs.
+        //
+        //How long is "too long"? A FIXED elapsed cap is wrong: a 3.4 MB bzip2-scattered log can legitimately
+        //need several minutes of continuous decode, so any cap large enough to let it finish is also large
+        //enough to sit uselessly on a real hang. Instead we extend for as long as the mount is *making
+        //decode progress* (CachingStream.DecodeProgress, a global counter bumped once per span decoded) and
+        //stop only after TimeoutWatchdogStuckMs with NO decode anywhere - i.e. the pipeline is genuinely
+        //stuck, not merely slow. A pathological-but-progressing file thus runs to completion (gh #87: it used
+        //to die at the 10-min cap, and the external 7z reading the .img - which has no read-retry - hung),
+        //while a true deadlock still fails within the stuck window.
         //
         //A drive-image tree-walk issues millions of tiny fast reads, so we must NOT allocate a Timer per
         //read (alloc + schedule + dispose, each taking the global timer-queue lock - measured as the single
@@ -307,7 +317,12 @@ namespace libDokan
         //dictionary insert/remove. The timer only ever extends reads still running at a tick = the slow ones.
         const int TimeoutWatchdogExtensionMs = 20_000;                                 //push the deadline out by this each tick
         static readonly TimeSpan TimeoutWatchdogInterval = TimeSpan.FromSeconds(5);    //tick well inside the 20s timeout
-        static readonly long TimeoutWatchdogMaxMs = (long)TimeSpan.FromMinutes(10).TotalMilliseconds;
+        //Abandon a slow read only after this long with the whole mount decoding nothing. Env override
+        //(CLONEZILLA_READ_STUCK_SECONDS) for tuning; the default is generous because the cost of over-waiting
+        //is just a stuck op held a little longer, while under-waiting reintroduces gh #87.
+        static readonly long TimeoutWatchdogStuckMs =
+            (long.TryParse(Environment.GetEnvironmentVariable("CLONEZILLA_READ_STUCK_SECONDS"), out var stuckSec) && stuckSec > 0
+                ? stuckSec : 120) * 1000L;
 
         //An in-flight read the watchdog may extend. `Completed` (guarded by lock(this)) closes a
         //use-after-free: an IDokanFileInfo's native handle is valid ONLY while its ReadFile callback is on
@@ -327,6 +342,12 @@ namespace libDokan
             public readonly string FileName = fileName;
             public readonly long Offset = offset;
             public readonly int Length = length;
+
+            //adaptive-cap bookkeeping (guarded by lock(this)): the DecodeProgress value we last saw, and the
+            //tick at which it last advanced. While decode is happening the read is "progressing" and we keep
+            //extending; once LastProgressTick is older than TimeoutWatchdogStuckMs the mount is stuck.
+            public long ProgressSnapshot = startedTick;   //placeholder; set to the live counter in StartTimeoutWatchdog
+            public long LastProgressTick = startedTick;
         }
 
         static readonly ConcurrentDictionary<long, InFlightRead> InFlightReads = new();
@@ -340,6 +361,10 @@ namespace libDokan
                 return;
             }
             var now = Environment.TickCount64;
+            //Read the global decode counter ONCE per tick (not per read): "is the mount decoding anything?"
+            //is a whole-pipeline question, and a single snapshot keeps every in-flight read judged against the
+            //same instant.
+            var decodeProgress = Interlocked.Read(ref CachingStream.DecodeProgress);
             var inFlight = 0;
             var slow = 0;
             InFlightRead? slowest = null;
@@ -353,10 +378,17 @@ namespace libDokan
                     slow++;
                     if (elapsed > slowestElapsed) { slowestElapsed = elapsed; slowest = read; }
                 }
-                if (elapsed > TimeoutWatchdogMaxMs) continue;   //runaway op - stop extending so it finally fails
                 lock (read)
                 {
                     if (read.Completed) continue;   //callback has returned; its native handle may be freed
+                    //decode advanced since we last looked -> the mount is making progress; restart this read's
+                    //stuck timer. (Any read benefits from any decode: they share the one serving pipeline.)
+                    if (decodeProgress != read.ProgressSnapshot)
+                    {
+                        read.ProgressSnapshot = decodeProgress;
+                        read.LastProgressTick = now;
+                    }
+                    if (now - read.LastProgressTick > TimeoutWatchdogStuckMs) continue;   //stuck - stop extending so it finally fails
                     try { read.Info.TryResetTimeout(TimeoutWatchdogExtensionMs); } catch { }
                 }
             }
@@ -375,7 +407,8 @@ namespace libDokan
         //  one read slow while others flow            => that file is pathological (fragmented / far seeks)
         //  slow reads that log a completion           => the watchdog kept them alive; the client saw a
         //                                                slow read, not an error
-        //  a stall with no completions, then timeouts => reads hit the 10-min cap and Dokan abandoned them
+        //  a stall with no completions, then timeouts => no decode progress for the stuck window; the mount
+        //                                                deadlocked and the watchdog stopped extending them
         const long SlowReadThresholdMs = 5_000;
 
         static class SlowReadReporting
@@ -404,14 +437,13 @@ namespace libDokan
             }
 
             //called from WatchdogRegistration.Dispose for reads that ended up slow: how long the read
-            //took to complete. This fires when ReadFile RETURNS, so the read did finish; past the
-            //watchdog cap only means we stopped extending its Dokan deadline, so the client MAY have
-            //seen a timeout for it even though we served it (observed in practice: these completed).
+            //took to complete. This fires when ReadFile RETURNS, so the read did finish. As long as the mount
+            //kept decoding, the watchdog kept this read's Dokan deadline alive the whole time, so a completion
+            //here - however long - means the client was served rather than timed out.
             public static void OnSlowReadCompleted(InFlightRead read, long elapsedMs)
             {
-                Log.Warning("SLOWREAD done after {Sec:N1}s: '{File}' @ {Offset:N0} len {Length:N0}{PastCap}",
-                    elapsedMs / 1000.0, read.FileName, read.Offset, read.Length,
-                    elapsedMs > TimeoutWatchdogMaxMs ? " (past the 10-min watchdog cap - deadline no longer extended, client may have timed out)" : "");
+                Log.Warning("SLOWREAD done after {Sec:N1}s: '{File}' @ {Offset:N0} len {Length:N0}",
+                    elapsedMs / 1000.0, read.FileName, read.Offset, read.Length);
             }
         }
 
@@ -420,7 +452,9 @@ namespace libDokan
         static WatchdogRegistration StartTimeoutWatchdog(IDokanFileInfo info, string fileName, long offset, int length)
         {
             var id = Interlocked.Increment(ref inFlightReadIdSeq);
-            InFlightReads[id] = new InFlightRead(info, Environment.TickCount64, fileName, offset, length);
+            var read = new InFlightRead(info, Environment.TickCount64, fileName, offset, length);
+            read.ProgressSnapshot = Interlocked.Read(ref CachingStream.DecodeProgress);   //baseline: extend only on decode AFTER this
+            InFlightReads[id] = read;
             return new WatchdogRegistration(id);
         }
 

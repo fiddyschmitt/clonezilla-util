@@ -75,6 +75,14 @@ namespace libCommon.Streams
         [ThreadStatic] static bool tSuppressCoalesceWait;
         public static bool SuppressCoalesceWait { get => tSuppressCoalesceWait; set => tSuppressCoalesceWait = value; }
 
+        //Coarse global progress signal for DokanVFS's read watchdog: bumped whenever ANY span is decoded.
+        //The watchdog extends a slow read's Dokan deadline as long as this keeps advancing (the mount is
+        //doing decode work), and abandons a read only once it stops advancing for a while (the mount is
+        //genuinely stuck). This lets a legitimately-slow read - e.g. a heavily-fragmented log whose clusters
+        //scatter across many spans, seconds of decode each - run to completion instead of being killed at a
+        //fixed elapsed cap and left to hang an external tool (gh #87).
+        public static long DecodeProgress;
+
         //One span in the concurrent cache. Content==null while a decode is in flight; set once ready.
         sealed class SpanSlot(long start, long end)
         {
@@ -180,6 +188,7 @@ namespace libCommon.Streams
                     int spanLen = (int)(spanEnd - spanStart);
                     buff = Buffers.BufferPool.Rent(spanLen);
                     int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, buff, 0, spanLen);
+                    System.Threading.Interlocked.Increment(ref DecodeProgress);   //watchdog progress signal
                     if (got <= 0) throw new Exception($"No bytes decoded for span {spanStart:N0}-{spanEnd:N0}");
 
                     int n;
@@ -216,6 +225,7 @@ namespace libCommon.Streams
             try
             {
                 int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, buff, 0, spanLen);
+                System.Threading.Interlocked.Increment(ref DecodeProgress);   //watchdog progress signal
                 long bytesLeft = (spanStart + got) - readPosition;
                 if (bytesLeft <= 0) return 0;
                 int toCopy = (int)Math.Min(count, bytesLeft);
@@ -352,6 +362,7 @@ namespace libCommon.Streams
 
                 BaseStream.Seek(recommendedRead.Start, SeekOrigin.Begin);
                 var bytesRead = BaseStream.Read(buff, 0, toRead);
+                System.Threading.Interlocked.Increment(ref DecodeProgress);   //watchdog progress signal
 
                 if (bytesRead == 0)
                 {
