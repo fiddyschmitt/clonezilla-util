@@ -66,52 +66,22 @@ namespace libBzip2
             {
             }
 
-            //Batch 8: group consecutive blocks into ~32 MB spans. GetRecommendation returns a whole
-            //group, and Read decodes a group's blocks in parallel - bzip2 blocks are independently
-            //decodable, so serving throughput scales with cores instead of being pinned to one.
-            //A group only closes at a block boundary; a single merged entry larger than the target
-            //(byte-aligned magic detection can merge many real blocks into one index entry) forms a
-            //group by itself, which matches the old one-entry-per-recommendation behaviour.
-            Mapping? currentGroup = null;
-            foreach (var block in blocks)
-            {
-                if (currentGroup != null && (currentGroup.UncompressedEndByte - currentGroup.UncompressedStartByte) + (block.UncompressedEndByte - block.UncompressedStartByte) > TargetGroupBytes)
-                {
-                    blockGroups.Add(currentGroup);
-                    currentGroup = null;
-                }
-
-                if (currentGroup == null)
-                {
-                    currentGroup = new Mapping()
-                    {
-                        CompressedStartByte = block.CompressedStartByte,
-                        CompressedEndByte = block.CompressedEndByte,
-                        UncompressedStartByte = block.UncompressedStartByte,
-                        UncompressedEndByte = block.UncompressedEndByte,
-                    };
-                }
-                else
-                {
-                    currentGroup.CompressedEndByte = block.CompressedEndByte;
-                    currentGroup.UncompressedEndByte = block.UncompressedEndByte;
-                }
-            }
-            if (currentGroup != null)
-            {
-                blockGroups.Add(currentGroup);
-            }
         }
 
-        const long TargetGroupBytes = 32L * 1024 * 1024;
-        readonly List<Mapping> blockGroups = [];
-
+        //Serving granularity is the individual bzip2 block. Each block is independently decodable with
+        //NO reach, so GetRecommendation returns the single block containing a position and CachingStream
+        //decodes/caches exactly that block - typically ~1-2.5 MB of data - instead of amplifying a
+        //few-KB read into a 32 MB decode. (The old Batch-8 block-GROUP recommendation coalesced ~32 MB
+        //per recommendation to batch-decode blocks in parallel; it served sequential scans well but
+        //forced ~10-30x over-decode on the scattered reads that dominate fragmented-file serving - the
+        //gh#87 case. Multi-block parallelism still kicks in for any single ReadAt whose range spans
+        //blocks; see ReadAtCore's Parallel.For.)
         public override (long Start, long End) GetRecommendation(long start)
         {
-            var group = blockGroups.BinarySearch(start, MappingComparer)
-                ?? throw new Exception($"Could not find block group which contains position {start:N0}");
-
-            return (group.UncompressedStartByte, group.UncompressedEndByte);
+            var index = FindBlockIndex(start);
+            if (index < 0) throw new Exception($"Could not find the bzip2 block which contains position {start:N0}");
+            var block = Blocks[index];
+            return (block.UncompressedStartByte, block.UncompressedEndByte);
         }
 
         public override int Read(byte[] buffer, int offset, int count)

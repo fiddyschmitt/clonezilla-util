@@ -57,7 +57,11 @@ namespace libClonezilla.Cache
         {
             //single-block xz only: LZMA2-chunk checkpoint index (multi-block xz uses the file's
             //native footer index and needs no cache file).
-            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.xz_index.xzi");
+            //v2: denser checkpoints (TargetSpanBytes lowered from 32 MB, see xzDecompressor) so a random
+            //read decodes far less than a full 32 MB span. The old ".xz_index.xzi" still decodes
+            //correctly if present, but is coarse; the new name forces a one-time rebuild at the finer
+            //granularity (a larger index, deliberately traded for much faster scattered xz reads).
+            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.xz_index_v2.xzi");
             return result;
         }
 

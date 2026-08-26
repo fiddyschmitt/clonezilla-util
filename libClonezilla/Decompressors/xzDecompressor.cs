@@ -64,7 +64,16 @@ namespace libClonezilla.Decompressors
                     Log.Information($"Creating xz random-access index: {Path.GetFileName(indexFilename)}");
                 }
 
-                var options = new XzIndexOptions { Logger = new SerilogLoggerBridge() };
+                //Denser checkpoints than the package default (32 MB): a scattered random read must
+                //decode-and-discard from the nearest checkpoint, so with 32 MB spacing a 4 KB read cost
+                //up to ~32 MB of decode - the reason single-block xz was by far the slowest codec for
+                //fragmented files (measured ~615s for a 3.6 MB log vs bzip2's ~274s). 16 MB checkpoints
+                //roughly halve the per-read decode. But each checkpoint stores a (DEFLATE-compressed) LZMA
+                //dictionary window, so denser spacing costs index SIZE super-linearly: 8 MB checkpoints
+                //ballooned sda2's index to ~10 GB; 16 MB keeps it to a few GB - the balance we want until
+                //the window payloads are compressed better (e.g. zstd long-range) in the XzSeekable package.
+                //Paired with the ".xz_index_v2" filename so existing 32 MB indexes rebuild at this density.
+                var options = new XzIndexOptions { Logger = new SerilogLoggerBridge(), TargetSpanBytes = 16L * 1024 * 1024 };
                 CompressedStream.Seek(0, SeekOrigin.Begin);
                 var index = XzIndex.LoadOrBuild(CompressedStream, indexFilename, options, new XzBuildProgressLogger());
 
