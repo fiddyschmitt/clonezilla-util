@@ -10,7 +10,7 @@
     <!-- THE version. Single source of truth: sets AssemblyVersion/FileVersion/InformationalVersion,
          which the CommandLineParser help header uses and which Program.cs reads back at runtime for
          its startup banner. Bump this one line to release a new version. -->
-    <Version>2.10.0</Version>
+    <Version>2.10.1</Version>
     <!-- keep InformationalVersion a clean "2.10.0" (no git-hash suffix) so both surfaces match. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
