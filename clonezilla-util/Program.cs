@@ -21,6 +21,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 using static libClonezilla.Partitions.MountedPartitionImage;
 
 namespace clonezilla_util
@@ -178,6 +180,11 @@ namespace clonezilla_util
                 case ExtractPartitionImage extractPartitionImageOptions:
 
                     ExtractPartitionImage(extractPartitionImageOptions);
+                    break;
+
+                case ExtractFiles extractFilesOptions:
+
+                    ExtractFiles(extractFilesOptions);
                     break;
             }
         }
@@ -411,6 +418,198 @@ namespace clonezilla_util
                             partition.ExtractToFile(outputFilename, makeSparse);
                         });
                 });
+        }
+
+        private static void ExtractFiles(ExtractFiles extractOptions)
+        {
+            if (extractOptions.InputPaths == null) throw new Exception($"{nameof(extractOptions.InputPaths)} not specified.");
+
+            var inputPaths = extractOptions.InputPaths.ToList();
+            var outputRoot = ResolveExtractOutputRoot(extractOptions.OutputFolder, inputPaths);
+            Directory.CreateDirectory(outputRoot);
+
+            var filter = new PathGlobFilter(extractOptions.Include, extractOptions.Exclude);
+
+            var vfs = new Lazy<IVFS>(() =>
+            {
+                //null mount point = OnDemandVFS picks a free letter at mount time. Extract never actually
+                //mounts (this Lazy stays unforced) - it enumerates and copies streams directly, headless.
+                var result = new OnDemandVFS(PROGRAM_NAME, null, allowMountPointFallback: true);
+                return result;
+            });
+
+            var containers = PartitionContainer.FromPaths(
+                                inputPaths,
+                                CacheFolder,
+                                extractOptions.PartitionsToExtract.ToList(),
+                                true,   //random access: we seek to scattered individual files
+                                vfs,
+                                extractOptions.ProcessTrailingNulls);
+
+            long totalFiles = 0;
+            long totalBytes = 0;
+            long failedFiles = 0;
+
+            containers.ForEach(container =>
+            {
+                container.Partitions.ForEach(partition =>
+                {
+                    var containerName = container.ContainerName;
+                    var partitionName = partition.PartitionName;
+
+                    //preserve-mode output nests under a partition-named folder; prefix with the container
+                    //name too when several containers could otherwise collide on the same partition name.
+                    var prefix = containers.Count == 1 ? partitionName : $"{containerName}.{partitionName}";
+
+                    IExtractor? extractor = null;
+                    try
+                    {
+                        var partitionStream = partition.FullPartitionImage
+                            ?? throw new Exception($"[{containerName}] [{partitionName}] {nameof(partition.FullPartitionImage)} is not initialised.");
+                        var sharedPartitionStream = new SharedStream(partitionStream);
+
+                        //MountWorkerCount (not ListingWorkerCount): the same pool serves the file list AND
+                        //the parallel content reads below.
+                        extractor = DetermineExtractor.FindExtractor(
+                            sharedPartitionStream.CreateView,
+                            DetermineExtractor.MountWorkerCount);
+
+                        if (extractor is not IFileListProvider fileListProvider)
+                        {
+                            Log.Error($"[{containerName}] [{partitionName}] Could not find a suitable extractor for this partition. Skipping.");
+                            return;
+                        }
+
+                        var matches = fileListProvider.GetFileList()
+                            .Where(e => !e.IsFolder)
+                            .Where(e => !Path.GetFileName(e.Path).Equals("desktop.ini", StringComparison.OrdinalIgnoreCase))
+                            .Where(e => IsExtractableToFile(e.Path))
+                            .Where(e => filter.Matches(Path.Combine(containerName, partitionName, e.Path)))
+                            .ToList();
+
+                        if (matches.Count == 0)
+                        {
+                            Log.Information($"[{containerName}] [{partitionName}] No files matched.");
+                            return;
+                        }
+
+                        Log.Information($"[{containerName}] [{partitionName}] Extracting {matches.Count} file(s) to: {outputRoot}");
+
+                        var seenFlatNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var localExtractor = extractor;
+
+                        //Each iteration owns its own PooledNativeItemStream and reads it on one thread; the
+                        //worker pool serialises native access. This is the concurrency model the mount path
+                        //exercises under the ConcurrentBleedStress gate.
+                        Parallel.ForEach(
+                            matches,
+                            new ParallelOptions { MaxDegreeOfParallelism = DetermineExtractor.MountWorkerCount },
+                            entry =>
+                            {
+                                string destination;
+                                if (extractOptions.Flatten)
+                                {
+                                    var name = Path.GetFileName(entry.Path);
+                                    lock (seenFlatNames)
+                                    {
+                                        if (!seenFlatNames.Add(name))
+                                            Log.Warning($"[{containerName}] [{partitionName}] --flatten name collision, overwriting: {name}");
+                                    }
+                                    destination = Path.Combine(outputRoot, name);
+                                }
+                                else
+                                {
+                                    destination = Path.Combine(outputRoot, prefix, entry.Path);
+                                }
+
+                                try
+                                {
+                                    var destinationDir = Path.GetDirectoryName(destination);
+                                    if (destinationDir != null) Directory.CreateDirectory(destinationDir);
+
+                                    using (var source = localExtractor.Extract(entry.Path))
+                                    using (var fileStream = File.Create(destination))
+                                    {
+                                        source.CopyTo(fileStream, Buffers.ARBITRARY_LARGE_SIZE_BUFFER);
+                                    }
+
+                                    TrySetTimestamps(destination, entry);
+
+                                    Interlocked.Increment(ref totalFiles);
+                                    Interlocked.Add(ref totalBytes, entry.Size);
+                                }
+                                catch (Exception ex)
+                                {
+                                    //one unwritable name (odd characters, path too long, ...) must not abort
+                                    //the whole extract - report it and carry on.
+                                    Interlocked.Increment(ref failedFiles);
+                                    Log.Warning($"[{containerName}] [{partitionName}] Could not extract '{entry.Path}': {ex.Message}");
+                                }
+                            });
+                    }
+                    catch (NotAnArchiveException)
+                    {
+                        //expected: this partition has no filesystem 7-Zip can browse (e.g. a raw bios_grub partition).
+                        Log.Information($"[{containerName}] [{partitionName}] No browsable filesystem found in this partition. Nothing to extract.");
+                    }
+                    finally
+                    {
+                        (extractor as IDisposable)?.Dispose();
+                    }
+                });
+            });
+
+            Log.Information($"Extracted {totalFiles} file(s), {totalBytes.BytesToString()}, to: {outputRoot}");
+            if (failedFiles > 0) Log.Warning($"{failedFiles} file(s) could not be extracted (see warnings above).");
+        }
+
+        //Skip archive entries that can't be written as a distinct file on the host: NTFS alternate data
+        //streams (7z spells them "name:stream", and File.Create would silently write into the base file's
+        //stream), and the '.'/'..' pseudo-entries the NTFS handler emits. Real files - including NTFS
+        //$-metafiles - are kept.
+        private static bool IsExtractableToFile(string archivePath)
+        {
+            var leaf = Path.GetFileName(archivePath);
+            if (leaf is "." or "..") return false;
+            if (archivePath.Contains(':')) return false;
+            return true;
+        }
+
+        //Resolve the extract output folder. An explicit -o wins; otherwise default to a new subfolder in the
+        //current directory named after the input (the folder's name, or a file's name without its extension),
+        //never writing into the input itself.
+        private static string ResolveExtractOutputRoot(string? outputOption, List<string> inputPaths)
+        {
+            if (!string.IsNullOrWhiteSpace(outputOption)) return outputOption;
+
+            var firstInput = inputPaths.First().TrimEnd('\\', '/');
+            var baseName = Directory.Exists(firstInput)
+                ? new DirectoryInfo(firstInput).Name
+                : Path.GetFileNameWithoutExtension(firstInput);
+            if (string.IsNullOrWhiteSpace(baseName)) baseName = "extracted";
+
+            var candidate = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), baseName));
+
+            var inputFull = Path.GetFullPath(firstInput);
+            if (candidate.Equals(inputFull, StringComparison.OrdinalIgnoreCase) ||
+                candidate.StartsWith(inputFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                candidate = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), baseName + "-extracted"));
+            }
+
+            return candidate;
+        }
+
+        private static void TrySetTimestamps(string path, ArchiveEntry entry)
+        {
+            //best-effort: some entries carry no/degenerate timestamps, and pre-1601 dates are invalid for
+            //the Win32 filetime APIs - the try/catch keeps extraction going regardless.
+            try
+            {
+                if (entry.Modified > DateTime.MinValue) File.SetLastWriteTimeUtc(path, DateTime.SpecifyKind(entry.Modified, DateTimeKind.Utc));
+                if (entry.Created > DateTime.MinValue) File.SetCreationTimeUtc(path, DateTime.SpecifyKind(entry.Created, DateTimeKind.Utc));
+            }
+            catch { }
         }
 
         private static ReturnCode HandleErrors(IEnumerable<Error> obj)

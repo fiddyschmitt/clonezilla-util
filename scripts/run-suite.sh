@@ -39,6 +39,7 @@ CHUNKS=(
   "image-files|FullyQualifiedName~Mount.AsImageFiles.ImageFileTests"
   "mount-large|FullyQualifiedName~Mount.AsFiles.LargeClonezillaImages|FullyQualifiedName~Mount.AsFiles.LargeDriveImages"
   "list-large|FullyQualifiedName~ListContents.LargeClonezillaPartitions|FullyQualifiedName~ListContents.LargeDriveImages"
+  "extract|FullyQualifiedName~clonezilla_util_tests.Extract."
   "bleed-stress|FullyQualifiedName~Mount.AsFiles.ConcurrentBleedStress"
 )
 

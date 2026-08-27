@@ -94,6 +94,28 @@ If the images are extracted to an NTFS drive, they are created as sparse. Meanin
 <br />
 <br />
 
+## Extract individual files (Dokan not required)
+
+Extract selected files straight to a folder, without mounting a drive:
+
+`clonezilla-util.exe extract --input <clonezilla folder> [--output <folder>] [--include <patterns...>] [--exclude <patterns...>] [--flatten]`
+
+- `--include` / `--exclude` take glob patterns (`*` and `?`). A pattern with no path separator matches by filename anywhere (e.g. `*.log`); a pattern with separators is scoped (e.g. `"Windows/Logs/*.log"`). If `--include` is omitted, every file is extracted; `--exclude` wins over `--include`.
+- Patterns match the same path the `list` command prints (`container\partition\path`), so you can copy a line from `list` output and paste it in verbatim as an `--include`.
+- `--output` is optional: if omitted, the files are written to a new folder (named after the input) in the current directory. `-p sda1 sda2` restricts to particular partitions.
+- By default the directory structure is preserved; pass `--flatten` to write bare filenames into the output folder.
+
+Examples:
+
+```
+# every .log under the Windows folder (any depth) and every .xml anywhere, into .\<archive name>\...
+clonezilla-util.exe extract --input C:\backup --include "Windows/*.log" "*.xml"
+
+# one exact file (a line copied from `list`), flattened into D:\out
+clonezilla-util.exe list --input C:\backup > files.txt
+clonezilla-util.exe extract --input C:\backup -o D:\out --flatten --include "my-backup\sda2\Windows\System32\config\SYSTEM"
+```
+
 # Building from source
 
 Two steps, in order:
