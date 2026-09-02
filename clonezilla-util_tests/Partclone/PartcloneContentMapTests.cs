@@ -113,6 +113,28 @@ namespace clonezilla_util_tests.Partclone
 
         // ---- assertion: the restored stream must equal the ground-truth bytes ----------------
 
+        [TestMethod]
+        public void V2_BitmapLength_TotalBlocksMultipleOf8()
+        {
+            // Regression for gh#79. v2.6.0 sized the bitmap as TotalBlocks/8 + 1 instead of ceil(TotalBlocks/8).
+            // Those agree except when TotalBlocks is a multiple of 8, where the reader consumed one byte too
+            // many, shifted StartOfContent by 1 and corrupted every block from the boot sector on (the
+            // reporter's XP/sector-63 NTFS partitions: 19,537,040 and 78,142,160 blocks - both 0 mod 8).
+            // A 2048-aligned partition always has TotalBlocks = 256m-1 = 7 mod 8, so no real test asset
+            // ever hit it. Cover every residue mod 8, with the device exactly covered by the bitmap and
+            // with the device running past it (NTFS keeps its backup boot sector beyond the last FS block).
+            for (int total = 8; total <= 24; total++)
+            {
+                var pattern = new string(Enumerable.Range(0, total).Select(i => (i % 3 == 0 || i == total - 1) ? '1' : '0').ToArray());
+                var pop = Bits(pattern);
+
+                var (img, exp) = BuildV2(pop, BlockSize, blocksPerChecksum: 4, checksumSize: 4, deviceSize: (long)total * BlockSize);
+                AssertRestoresTo(img, exp, BlockSize);
+
+                var (img2, exp2) = BuildV2(pop, BlockSize, blocksPerChecksum: 4, checksumSize: 4, deviceSize: (long)total * BlockSize + 13);
+                AssertRestoresTo(img2, exp2, BlockSize);
+            }
+        }
         static void AssertRestoresTo(byte[] image, byte[] expected, int blockSize)
         {
             var chunkSizes = new[] { 1, 3, blockSize - 1, blockSize, blockSize + 1, blockSize * 3 + 1, 997 }
