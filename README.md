@@ -120,6 +120,16 @@ clonezilla-util.exe list --input C:\backup > files.txt
 clonezilla-util.exe extract --input C:\backup -o D:\out --flatten --include "my-backup\sda2\Windows\System32\config\SYSTEM"
 ```
 
+# Memory use
+
+While serving a mount, clonezilla-util caches decoded data in RAM to avoid re-decompressing the same
+regions. The cache grows to use free memory and automatically shrinks when the OS or other programs need
+it, so it never pushes the machine into paging.
+
+- `--memory-reserve <MB>` — physical RAM to always leave free (default: the larger of 1 GB or 8% of RAM).
+  Raise it to be gentler on other programs; lower it to give the cache more room. Env: `CLONEZILLA_MEMORY_RESERVE_MB`.
+- `--cache-max <MB>` — optional hard cap on the total cache regardless of free memory. Env: `CLONEZILLA_CACHE_MAX_MB`.
+
 # Building from source
 
 Two steps, in order:

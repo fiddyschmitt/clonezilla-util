@@ -8,6 +8,7 @@ using libClonezilla.PartitionContainers;
 using libClonezilla.VFS;
 using libCommon;
 using libCommon.Logging;
+using libCommon.Memory;
 using libCommon.Streams;
 using libPartclone;
 using Serilog;
@@ -164,6 +165,23 @@ namespace clonezilla_util
                     CacheFolder = baseVerb.CacheFolder;
                 }
             }
+
+            //Memory governor: the decoded-span cache grows to fill RAM down to a reserve (not a fixed
+            //fraction of total RAM). Resolve reserve/cap CLI > env > default, before any cache is built.
+            var verb = obj as BaseVerb;
+            long? reserveMb = verb?.MemoryReserveMb;
+            string reserveSource = reserveMb != null ? "--memory-reserve" : "default (8% RAM)";
+            if (reserveMb == null && long.TryParse(Environment.GetEnvironmentVariable("CLONEZILLA_MEMORY_RESERVE_MB"), out var envReserveMb) && envReserveMb > 0)
+            {
+                reserveMb = envReserveMb;
+                reserveSource = "CLONEZILLA_MEMORY_RESERVE_MB";
+            }
+            long? cacheMaxMb = verb?.CacheMaxMb;
+            if (cacheMaxMb == null && long.TryParse(Environment.GetEnvironmentVariable("CLONEZILLA_CACHE_MAX_MB"), out var envCacheMaxMb) && envCacheMaxMb > 0)
+            {
+                cacheMaxMb = envCacheMaxMb;
+            }
+            MemoryGovernor.Configure(reserveMb, cacheMaxMb, reserveSource);
 
             WholeFileCacheManager.Initialize(CacheFolder);
 

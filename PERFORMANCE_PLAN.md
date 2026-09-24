@@ -800,12 +800,33 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
 [ 1] FileStream × N (sda2.…ptcl-img.gz.aa/.ab/…)
 ```
 
-- [x] **(A) Global cache budget** — **DONE 2026-07-10 (awaiting suite).** `CachingStream` now tracks a
-  process-wide count of live `LimitByRAMUsage` instances; each caps itself at
-  `CacheLimitValue ÷ liveCount` (all callers pass ¼ RAM, so the TOTAL stays ≤ ¼ RAM regardless of
-  partition count — was N×¼). No cross-instance locking (each instance evicts only its own LRU);
-  never-Close()d instances err toward LESS memory. Fixes root #1 (exhaustion → paging → 0x800705AA /
-  machine unusability). Tension stands: shrinks each cache → more misses → leans on (B)/(E).
+- [x] **(A) Global cache budget** — **SUPERSEDED 2026-09-18 by the MemoryGovernor (see below).** Original
+  (DONE 2026-07-10): `CachingStream` tracked a process-wide count of live `LimitByRAMUsage` instances; each
+  capped itself at `CacheLimitValue ÷ liveCount` (all callers passed ¼ RAM, so the TOTAL stayed ≤ ¼ RAM
+  regardless of partition count — was N×¼). Fixed root #1 (exhaustion → paging → 0x800705AA). Its flaw:
+  the budget was ¼ of *total* RAM (ignores what is actually free — oversubscribes a busy box → pages), split
+  *evenly* per partition (the golden sda2 leg ran through a 5.3 GB share while sda1/sdb1 held idle thirds),
+  and eviction happened only inside a cache miss (an idle partition never gave memory back). This is why the
+  golden quartet's wall-clock swung 340↔966 min on identical code (2026-09-16 investigation).
+
+- [x] **(A′) MemoryGovernor** — **DONE 2026-09-18 (awaiting suite).** Replaces (A). `libCommon/Memory/`:
+  a process-wide governor samples `GlobalMemoryStatusEx` every 1 s and grows the caches until the machine's
+  *available* physical memory (min of free RAM and free commit) reaches a **reserve** = max(1 GB, 8% of RAM),
+  sheds **globally-oldest** spans (across all partitions) when anything else needs memory, and admits a
+  reader's own span even at the floor rather than stall it. Cache slots moved to **native memory**
+  (`NativeBlock`, VirtualAlloc-backed) so a free returns pages to the OS immediately (the governor can then
+  measure the effect) with exact accounting and no LOH churn / pool retention. Legacy `ReadInternal` path
+  split into `listLock` (hits) + `decodeLock` (the stateful seek+read) so a minutes-long restart seek no
+  longer stalls a hit or the governor. Knobs: `--memory-reserve` / `CLONEZILLA_MEMORY_RESERVE_MB`,
+  `--cache-max` / `CLONEZILLA_CACHE_MAX_MB`. Telemetry: a `MEM …` log line (state change / 30 s / 10 min)
+  with avail, cache size, in-flight, pool-out, hit/miss/evict/redecode counts — the memory instrumentation
+  the earlier `[diag]` snapshots used to provide. GC `System.GC.HighMemoryPercent=95` so the 8% reserve
+  (≈92% load) does not trip the GC's aggressive high-memory mode (the managed heap is small once slots are
+  native). Fixed-cost trims shipped alongside: `Buffers.BufferPool` bucket cap 50→16, restart-seek skip
+  buffer 50 MB→1 MB, and `PartcloneImageInfo.Bitmap` released after packing (−64 MiB per 2 TB partition).
+  In-process unit tests cover admit/evict/shrink/cap/floor and parallel served-bytes + native alloc/free
+  balance on both paths. Removes the (A) "shrinks each cache → more misses" tension: the cache is now as
+  large as free RAM allows.
 - [x] **(B) Denser gztool checkpoints** — **DONE 2026-07-10 (awaiting suite).** Index span 10 → 4 MiB
   (`gztool -s 4` in `GZipStreamSeekable`): average cold-seek discard ~5 MB → ~2 MB (~2.5× less decode
   per scattered read), compounding with I0's in-process reads. Cost: ~2.5× bigger on-disk index

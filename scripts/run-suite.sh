@@ -32,7 +32,7 @@ cd "$REPO"
 # name|filter  - ordered fast-first so problems surface early; bleed-stress last (~55 min,
 # 4 codecs x kill-bursts + DOP-24 verify)
 CHUNKS=(
-  "unit|FullyQualifiedName~PartcloneContentMapTests|FullyQualifiedName~SparseTests"
+  "unit|FullyQualifiedName~PartcloneContentMapTests|FullyQualifiedName~SparseTests|FullyQualifiedName~clonezilla_util_tests.Memory."
   "list-small|FullyQualifiedName~ListContents.SmallPartitionImages|FullyQualifiedName~ListContents.SmallClonezillaPartitions|FullyQualifiedName~ListContents.Partclone"
   "mount-small|FullyQualifiedName~Mount.AsFiles.SmallPartitionImages|FullyQualifiedName~Mount.AsFiles.SmallClonezillaPartitions|FullyQualifiedName~Mount.AsFiles.Misc|FullyQualifiedName~Mount.AsFiles.Ext4|FullyQualifiedName~Mount.AsFiles.UbuntuFileSystems|FullyQualifiedName~Mount.AsFiles.Partclone"
   "mount-luks|FullyQualifiedName~Mount.AsFiles.LuksClonezillaImages|FullyQualifiedName~Mount.AsFiles.LuksParcloneImages"

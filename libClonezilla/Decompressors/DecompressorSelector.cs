@@ -121,14 +121,11 @@ namespace libClonezilla.Decompressors
             //addCacheLayer = false;
             if (addCacheLayer)
             {
-                //add a cache layer
+                //add a cache layer. Its RAM is now managed process-wide by MemoryGovernor (the cache grows
+                //until system-available memory reaches a reserve, and sheds globally-oldest spans under
+                //pressure) - there is no per-instance ¼-RAM budget any more.
                 var readSuggestor = uncompressedStream as IReadSuggestor;
-
-                var totalSystemRAMInBytes = libCommon.Utility.GetTotalRamSizeBytes();
-                var totalSystemRAMInMegabytes = (int)(totalSystemRAMInBytes / (double)(1024 * 1024));
-                var maxCacheSizeInMegabytes = totalSystemRAMInMegabytes / 4;
-
-                uncompressedStream = new CachingStream(uncompressedStream, readSuggestor, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
+                uncompressedStream = new CachingStream(uncompressedStream, readSuggestor, StreamName);
             }
 
             return uncompressedStream;

@@ -17,7 +17,9 @@ namespace libPartclone
         public ImageDescV2? ImageDescV2;
 
         //Each bit in this bitmap represents a block in the original partition. If the bit is 0, then an empty block should be created. If bit is 1, then the original block should be restored.
-        readonly byte[]? Bitmap;
+        //Non-readonly so it can be released once BitmapContentMap has packed it into 64-bit words (it copies,
+        //never retains the raw array) - ~64 MiB per 2 TB partition that would otherwise sit on the LOH for the mount's life.
+        byte[]? Bitmap;
 
         //Format parameters, resolved once from the V1/V2 header and handed to the content map.
         readonly BitmapMode bitmapMode;
@@ -122,7 +124,9 @@ namespace libPartclone
 
                   if (Bitmap == null) throw new Exception($"[{containerName}] [{partitionName}] BitMap is not populated.");
 
-                  return new BitmapContentMap(Bitmap, bitmapMode, blockSize, checksumSize, blocksPerChecksum, StartOfContent, totalBlocks, Length);
+                  var map = new BitmapContentMap(Bitmap, bitmapMode, blockSize, checksumSize, blocksPerChecksum, StartOfContent, totalBlocks, Length);
+                  Bitmap = null;   //packed into the map (which copies, not retains); drop the raw array
+                  return map;
               });
         }
 

@@ -1,74 +1,83 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading;
+using libCommon.Memory;
 using Serilog;
 
 namespace libCommon.Streams
 {
-    public class CachingStream(Stream baseStream, IReadSuggestor? readSuggestor, EnumCacheType cacheType, int cacheLimitValue, List<CacheEntry>? precapturedCache) : Stream, IPositionalReader
+    // ------------------------------------------------------------------------------------------------
+    // Decoded-span cache. Slots live in NATIVE memory (NativeBlock) and their total size is managed
+    // process-wide by MemoryGovernor: the cache grows until the machine's available RAM reaches a reserve,
+    // and the governor sheds globally-oldest spans when anything else needs memory. This replaces the old
+    // "¼ of total RAM split per partition" budget, which ignored what was free and only ever shrank inside
+    // a cache miss (so an idle partition never gave memory back).
+    //
+    // Lock-ordering rules (also in MemoryGovernor):
+    //  1. MemoryGovernor.registryLock > any instance lock (mapLock / listLock). The governor takes an
+    //     instance lock only inside TryEvict.
+    //  2. An instance never calls governor.Admit/Register/Unregister while holding its own lock. Only the
+    //     Interlocked governor counters (Release/CountHit/...) are used under an instance lock.
+    //  3. Legacy path: decodeLock > listLock; listLock nests nothing.
+    //  4. A native pointer is dereferenced (CopyTo) and freed only under the owning instance's lock (or by
+    //     NativeBlock's finalizer once the whole stream is unreachable). A use-after-free is an AV, so the
+    //     copy-under-lock discipline is load-bearing, not just an anti-bleed nicety.
+    //  5. slot.Ready.Wait() is never called under a lock.
+    // ------------------------------------------------------------------------------------------------
+    public class CachingStream : Stream, IPositionalReader, IGovernedCache
     {
         public override bool CanRead => true;
-
         public override bool CanSeek => true;
-
         public override bool CanWrite => false;
-
         public override long Length => BaseStream.Length;
 
         long position = 0;
-        public override long Position
+        public override long Position { get => position; set => Seek(value, SeekOrigin.Begin); }
+
+        public Stream BaseStream { get; }
+        public IReadSuggestor? ReadSuggestor { get; }   //insight into the most optimal way to read the underlying stream
+
+        readonly MemoryGovernor governor;
+        readonly string name;
+        volatile bool disposed;
+
+        //total logical bytes cached in this instance's live slots (mutated only under the instance lock).
+        long cachedBytes;
+        //LastTouchTick of the LRU-tail slot (oldest); long.MaxValue when empty. Volatile so the governor
+        //can read it without taking this instance's lock when choosing an eviction victim.
+        long oldestTouchTick = long.MaxValue;
+
+        public CachingStream(Stream baseStream, IReadSuggestor? readSuggestor, string name, MemoryGovernor? governor = null)
         {
-            get => position;
-            set => Seek(value, SeekOrigin.Begin);
+            BaseStream = baseStream;
+            ReadSuggestor = readSuggestor;
+            this.name = name;
+            this.governor = governor ?? MemoryGovernor.Default;
+
+            //The concurrent single-flight path is used only when the base stream can be read positionally
+            //(so misses decode in parallel via independent cursors) and a read suggestor supplies
+            //deterministic, aligned spans to key and coalesce on - i.e. the zstd/gz/xz/bzip2 serving paths.
+            //Every other source (restart streams, SubStream) keeps the legacy single-decode-lock path.
+            concurrent = baseStream is IPositionalReader && readSuggestor != null;
+
+            this.governor.Register(this);
         }
-        public Stream BaseStream { get; } = baseStream;
-        public IReadSuggestor? ReadSuggestor { get; } = readSuggestor;    //gives us insight into the most optimal way to read from the underyling stream
-        public int BufferSize { get; set; }
-        public EnumCacheType CacheType { get; set; } = cacheType;
-        public int CacheLimitValue { get; set; } = cacheLimitValue;
 
-        readonly List<CacheEntry> cache = precapturedCache ?? [];
-        //running total of cached byte size, kept in sync at every cache mutation so the
-        //LimitByRAMUsage eviction loop doesn't recompute cache.Sum(...) on each iteration
-        long currentCacheSizeBytes = precapturedCache?.Sum(c => c.Length) ?? 0;
+        readonly bool concurrent;
 
-        //CacheLimitValue used to be a PER-INSTANCE budget, so mounting N partitions (each wrapped in
-        //a ¼-RAM cache) could commit N×¼ of system RAM and exhaust the machine (measured: free RAM
-        //fell to ~400 MB on a 3-partition mount). LimitByRAMUsage instances now split their declared
-        //budget evenly: each keeps at most CacheLimitValue ÷ (live instances). All current callers
-        //pass the same ¼-RAM value, so the TOTAL stays ≤ ¼ RAM regardless of partition count, with
-        //no cross-instance locking (each instance still evicts only from its own LRU list). An
-        //instance that is never Close()d keeps its slot reserved - that errs towards using LESS
-        //memory, never more.
-        static int liveRamLimitedCaches;
-        readonly bool countedAsRamLimited = cacheType == EnumCacheType.LimitByRAMUsage
-            && System.Threading.Interlocked.Increment(ref liveRamLimitedCaches) > 0;
-        bool closed;
-
-        //The concurrent single-flight path is used only when the base stream can be read positionally (so
-        //misses decode in parallel via independent cursors) and a read suggestor supplies deterministic,
-        //aligned spans to key and coalesce on - i.e. exactly the zstd serving path. Every other codec
-        //(whose seekable stream is not IPositionalReader) keeps the legacy single-lock path unchanged.
-        readonly bool concurrent = baseStream is IPositionalReader && readSuggestor != null
-            && cacheType == EnumCacheType.LimitByRAMUsage;
-
-        //Concurrent cache (used when `concurrent`). The map keys a span-start to a slot; an in-flight slot
-        //has Content==null. mapLock guards map + lru + currentCacheSizeBytes + copy-out, and is NEVER held
-        //across a decode - misses on different spans decode in parallel.
-        //
-        //Coalescing (a second reader of an in-flight span waiting on the first) is gated by
-        //SuppressCoalesceWait. When a reader holds a scarce native 7z worker (the pool serving path), it
-        //MUST NOT block waiting here: waiters would pin workers and starve the pool, which surfaced as Dokan
-        //read timeouts and cross-file corruption when a client died mid-read (TEST_ANALYSIS.md). Such readers
-        //instead decode their own copy and drop it. The mount-time parallel worker-open holds no pool worker,
-        //leaves the flag false, and keeps the lockstep coalescing the parallel open relies on (Lead L9) -
-        //without it, 4 workers each re-decode the whole ~1 GB $MFT.
+        // ---- concurrent path state -------------------------------------------------------------------
         readonly object mapLock = new();
         readonly Dictionary<long, SpanSlot> spanMap = [];
         readonly LinkedList<SpanSlot> lru = new();
+
+        // ---- legacy path state -----------------------------------------------------------------------
+        readonly object listLock = new();     //guards `cache` (short)
+        readonly object decodeLock = new();   //serialises the stateful BaseStream seek+read (can be minutes)
+        readonly List<CacheEntry> cache = [];
 
         //Set by a caller that holds a scarce native worker across the read (see PooledNativeItemStream), so
         //the coalescing wait below won't pin that worker. Thread-static: the read runs synchronously on one thread.
@@ -76,35 +85,23 @@ namespace libCommon.Streams
         public static bool SuppressCoalesceWait { get => tSuppressCoalesceWait; set => tSuppressCoalesceWait = value; }
 
         //Coarse global progress signal for DokanVFS's read watchdog: bumped whenever ANY span is decoded.
-        //The watchdog extends a slow read's Dokan deadline as long as this keeps advancing (the mount is
-        //doing decode work), and abandons a read only once it stops advancing for a while (the mount is
-        //genuinely stuck). This lets a legitimately-slow read - e.g. a heavily-fragmented log whose clusters
-        //scatter across many spans, seconds of decode each - run to completion instead of being killed at a
-        //fixed elapsed cap and left to hang an external tool (gh #87).
+        //The watchdog extends a slow read's Dokan deadline as long as this keeps advancing (gh #87).
         public static long DecodeProgress;
 
-        //One span in the concurrent cache. Content==null while a decode is in flight; set once ready.
+        //One span in the concurrent cache. Block==null while a decode is in flight; set once ready.
         sealed class SpanSlot(long start, long end)
         {
             public readonly long Start = start;
             public long End = end;                    //set to Start + bytesDecoded on publish
-            public byte[]? Content;                   //null while in flight; the decoded buffer once ready
+            public NativeBlock? Block;                //null while in flight; the decoded native buffer once ready
+            public long LastTouchTick;
             public LinkedListNode<SpanSlot>? Node;    //LRU node (null while in flight)
-            public readonly System.Threading.ManualResetEventSlim Ready = new(false);
+            public readonly ManualResetEventSlim Ready = new(false);
         }
 
-        public IList<CacheEntry> GetCacheContents()
-        {
-            var result = cache.AsReadOnly();
-            return result;
-        }
-
-        public override void Flush()
-        {
-            throw new NotImplementedException();
-        }
-
-        readonly object cacheLock = new();
+        public override void Flush() => throw new NotImplementedException();
+        public override void SetLength(long value) => throw new NotImplementedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotImplementedException();
 
         public override int Read(byte[] buffer, int offset, int count)
         {
@@ -118,25 +115,16 @@ namespace libCommon.Streams
         //Absolute positional read: carries its own position, touches no shared cursor.
         public int ReadAt(long readPosition, byte[] buffer, int offset, int count)
         {
-            if (concurrent)
-            {
-                return ReadAtConcurrent(readPosition, buffer, offset, count);
-            }
-
-            //Legacy path: the whole miss (including the decode) is serialized on cacheLock. Used when the
-            //base stream has no positional API (non-zstd codecs) or for non-RAM cache types.
-            lock (cacheLock)
-            {
-                return ReadInternal(readPosition, buffer, offset, count);
-            }
+            return concurrent
+                ? ReadAtConcurrent(readPosition, buffer, offset, count)
+                : ReadAtLegacy(readPosition, buffer, offset, count);
         }
 
-        //Concurrent read. A hit is a brief locked memcpy. A clean miss becomes the span's owner: it decodes
-        //with no lock held, then publishes (caches) it. A second reader that finds the span already in flight
-        //either waits for the owner (coalesce - mount-time, no worker held) or, if it holds a scarce worker
-        //(serving path, SuppressCoalesceWait), decodes its own copy and drops it rather than block.
+        // ---- concurrent path -------------------------------------------------------------------------
+
         int ReadAtConcurrent(long readPosition, byte[] buffer, int offset, int count)
         {
+            if (disposed) throw new ObjectDisposedException(nameof(CachingStream));
             if (count <= 0 || readPosition >= Length) return 0;
 
             var (spanStart, spanEnd) = ReadSuggestor!.GetRecommendation(readPosition);
@@ -148,12 +136,14 @@ namespace libCommon.Streams
                 bool iOwn = false;
                 lock (mapLock)
                 {
+                    if (disposed) throw new ObjectDisposedException(nameof(CachingStream));
                     if (spanMap.TryGetValue(spanStart, out var existing))
                     {
-                        if (existing.Content != null)
+                        if (existing.Block != null)
                         {
-                            //HIT - copy out under the lock so eviction can't return this buffer mid-copy
+                            //HIT - copy out under the lock so eviction can't free this block mid-copy
                             TouchLru(existing);
+                            governor.CountHit();
                             return CopyOut(existing, readPosition, buffer, offset, count);
                         }
                         slot = existing;   //in flight
@@ -172,8 +162,8 @@ namespace libCommon.Streams
                     if (tSuppressCoalesceWait)
                     {
                         //Serving path (holding a pool worker): NEVER block here. Decode our own copy, serve
-                        //it, drop it - the owner will cache it. Bounded redundant decode instead of pinning
-                        //a worker on a wait (which starves the pool and corrupts under a client-kill burst).
+                        //it, drop it - the owner will cache it. Bounded redundant decode instead of pinning a
+                        //worker on a wait (which starves the pool and corrupts under a client-kill burst).
                         return DecodeServeAndDrop(spanStart, spanEnd, readPosition, buffer, offset, count);
                     }
                     //Mount-time parallel open (no pool worker): coalesce onto the owner's decode (L9 lockstep).
@@ -181,23 +171,35 @@ namespace libCommon.Streams
                     continue;
                 }
 
-                //Owner: decode with NO lock held, then publish under the lock.
-                byte[]? buff = null;
+                //Owner: decode with NO lock held, publish under the lock.
+                governor.CountMiss();
+                int spanLen = (int)(spanEnd - spanStart);
+                NativeBlock? block = null;
+                byte[]? staging = null;
+                bool published = false;
                 try
                 {
-                    int spanLen = (int)(spanEnd - spanStart);
-                    buff = Buffers.BufferPool.Rent(spanLen);
-                    int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, buff, 0, spanLen);
-                    System.Threading.Interlocked.Increment(ref DecodeProgress);   //watchdog progress signal
+                    governor.Admit(spanLen);                          //reserve BEFORE allocating; may evict globally (never this in-flight slot)
+                    staging = Buffers.BufferPool.Rent(spanLen);
+                    int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, staging, 0, spanLen);
+                    Interlocked.Increment(ref DecodeProgress);        //watchdog progress signal
                     if (got <= 0) throw new Exception($"No bytes decoded for span {spanStart:N0}-{spanEnd:N0}");
+
+                    block = NativeBlock.AllocateReserved(got, governor);   //consumes `got` of the reservation
+                    governor.Release(spanLen - got);                       //release the unused tail; block now owns `got`
+                    block.CopyFrom(staging, 0, got);
 
                     int n;
                     lock (mapLock)
                     {
-                        slot.Content = buff;
+                        if (disposed) throw new ObjectDisposedException(nameof(CachingStream));
+                        slot.Block = block;
                         slot.End = spanStart + got;
-                        buff = null;   //ownership transferred to the slot; the finally/catch must not return it
-                        InsertAndEvict(slot);
+                        slot.LastTouchTick = Environment.TickCount64;
+                        slot.Node = lru.AddFirst(slot);
+                        cachedBytes += got;
+                        published = true;
+                        UpdateOldest();
                         n = CopyOut(slot, readPosition, buffer, offset, count);
                     }
                     slot.Ready.Set();   //publish complete: wake any coalescing waiters
@@ -205,27 +207,34 @@ namespace libCommon.Streams
                 }
                 catch
                 {
-                    //Decode failed: drop the slot so a later read retries, wake waiters (they re-loop), and
-                    //return the rented buffer if it never reached the slot.
                     lock (mapLock) { spanMap.Remove(spanStart); }
                     slot.Ready.Set();
-                    if (buff != null) Buffers.BufferPool.Return(buff);
+                    if (!published)
+                    {
+                        if (block != null) block.Free();          //releases the block's `got`
+                        else governor.Release(spanLen);           //reservation never consumed by a block
+                    }
                     throw;
+                }
+                finally
+                {
+                    if (staging != null) Buffers.BufferPool.Return(staging);
                 }
             }
         }
 
-        //Decode a span into a private buffer, serve the requested bytes from it, and return it to the pool -
-        //no caching, no lock, no blocking. Used by the serving path when the span is already being decoded by
-        //another reader (so we must not wait while holding a worker).
+        //Decode a span into a private pooled buffer, serve the requested bytes, return it - no caching, no
+        //lock, no blocking, no governor reservation (transient). Used by the serving path when the span is
+        //already being decoded by another reader (so we must not wait while holding a worker).
         int DecodeServeAndDrop(long spanStart, long spanEnd, long readPosition, byte[] buffer, int offset, int count)
         {
+            governor.CountRedecode();
             int spanLen = (int)(spanEnd - spanStart);
             byte[] buff = Buffers.BufferPool.Rent(spanLen);
             try
             {
                 int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, buff, 0, spanLen);
-                System.Threading.Interlocked.Increment(ref DecodeProgress);   //watchdog progress signal
+                Interlocked.Increment(ref DecodeProgress);
                 long bytesLeft = (spanStart + got) - readPosition;
                 if (bytesLeft <= 0) return 0;
                 int toCopy = (int)Math.Min(count, bytesLeft);
@@ -236,347 +245,271 @@ namespace libCommon.Streams
         }
 
         //Copies from a ready slot into the caller's buffer. MUST be called under mapLock: eviction (also
-        //under mapLock) may return slot.Content to the pool, so copying here - never from a reference held
-        //outside the lock - is what prevents cross-reader data bleed.
+        //under mapLock) frees slot.Block, so a copy from a block referenced outside the lock could read
+        //freed memory (an access violation) or another reader's bytes.
         int CopyOut(SpanSlot slot, long readPosition, byte[] buffer, int offset, int count)
         {
             long bytesLeft = slot.End - readPosition;
             if (bytesLeft <= 0) return 0;
             int toCopy = (int)Math.Min(count, bytesLeft);
             long delta = readPosition - slot.Start;
-            Array.Copy(slot.Content!, delta, buffer, offset, toCopy);
+            slot.Block!.CopyTo(delta, buffer, offset, toCopy);
             return toCopy;
-        }
-
-        //Publishes a freshly-decoded slot into the LRU and evicts to the RAM budget. Under mapLock.
-        void InsertAndEvict(SpanSlot slot)
-        {
-            slot.Node = lru.AddFirst(slot);
-            currentCacheSizeBytes += slot.End - slot.Start;
-
-            //Evict LRU-tail until within this instance's share of the budget. Never evict the slot just
-            //inserted (LRU-head): if a single span exceeds the budget (e.g. a deliberately tiny stress
-            //budget), the cache holds just that one, temporarily over budget, until the next span pushes it out.
-            long budgetBytes = (long)(CacheLimitValue / Math.Max(1, liveRamLimitedCaches)) * 1024 * 1024;
-            while (currentCacheSizeBytes > budgetBytes
-                   && lru.Last is { } tailNode && !ReferenceEquals(tailNode.Value, slot))
-            {
-                var victim = tailNode.Value;
-                lru.RemoveLast();
-                spanMap.Remove(victim.Start);                 //remove from the map BEFORE returning the buffer
-                currentCacheSizeBytes -= victim.End - victim.Start;
-                var content = victim.Content;
-                victim.Content = null;
-                victim.Node = null;
-                if (content != null) Buffers.BufferPool.Return(content);
-            }
         }
 
         //Moves a hit slot to the LRU front. Under mapLock.
         void TouchLru(SpanSlot slot)
         {
+            slot.LastTouchTick = Environment.TickCount64;
             if (slot.Node != null && !ReferenceEquals(lru.First, slot.Node))
             {
                 lru.Remove(slot.Node);
                 slot.Node = lru.AddFirst(slot);
+                UpdateOldest();
             }
         }
 
-        int ReadInternal(long readPosition, byte[] buffer, int offset, int count)
+        //Recomputes oldestTouchTick from the current LRU/list tail. Under the instance lock.
+        void UpdateOldest()
         {
-            CacheEntry? servedEntryToReturn = null;
+            long t = concurrent
+                ? (lru.Last?.Value.LastTouchTick ?? long.MaxValue)
+                : (cache.Count > 0 ? cache[^1].LastTouchTick : long.MaxValue);
+            Volatile.Write(ref oldestTouchTick, t);
+        }
 
-            //linear scan rather than FirstOrDefault, to avoid allocating a this-capturing
-            //closure on every read. The cache is LRU-ordered (newest first), so a hot entry
-            //is found near the front.
-            var pos = readPosition;
-            CacheEntry? cacheEntry = null;
-            for (int i = 0; i < cache.Count; i++)
+        // ---- legacy path (non-positional base stream) ------------------------------------------------
+
+        int ReadAtLegacy(long readPosition, byte[] buffer, int offset, int count)
+        {
+            if (disposed) throw new ObjectDisposedException(nameof(CachingStream));
+
+            //Fast hit under the short list lock (never behind a decode).
+            lock (listLock)
             {
-                var entry = cache[i];
-                if (pos >= entry.Start && pos < entry.End)
-                {
-                    cacheEntry = entry;
-                    break;
-                }
+                var hit = FindLegacy(readPosition);
+                if (hit != null) { TouchLegacy(hit); governor.CountHit(); return CopyLegacy(hit, readPosition, buffer, offset, count); }
             }
 
-            if (cacheEntry == null)
+            var (start, toRead) = GetLegacySpan(readPosition, count);
+            if (toRead == 0) return 0;
+
+            governor.CountMiss();
+            governor.Admit(toRead);
+
+            lock (decodeLock)   //serialises the stateful BaseStream; a minutes-long restart seek can't stall a hit or the governor
             {
-                (long Start, long End) recommendedRead;
-                if (ReadSuggestor == null)
+                //Another thread may have filled this span while we waited for decodeLock.
+                lock (listLock)
                 {
-                    var to = Math.Max(readPosition + count, readPosition + 1024 * 1024);
-                    to = Math.Min(to, Length);
-                    recommendedRead = (readPosition, to);
-                }
-                else
-                {
-                    recommendedRead = ReadSuggestor.GetRecommendation(readPosition);
+                    var hit = FindLegacy(readPosition);
+                    if (hit != null) { governor.Release(toRead); TouchLegacy(hit); return CopyLegacy(hit, readPosition, buffer, offset, count); }
                 }
 
-                if (recommendedRead.Start == -1 || recommendedRead.End == -1)
+                NativeBlock? block = null;
+                byte[]? staging = null;
+                bool published = false;
+                try
                 {
-                    throw new Exception($"Could not get recommendation for reading {count:N0} bytes from position {readPosition:N0}");
-                }
+                    staging = Buffers.BufferPool.Rent(toRead);
+                    BaseStream.Seek(start, SeekOrigin.Begin);
+                    int bytesRead = BaseStream.Read(staging, 0, toRead);
+                    Interlocked.Increment(ref DecodeProgress);
+                    if (bytesRead == 0) throw new Exception($"No bytes read despite recommendation at {start:N0} (len {toRead:N0})");
 
-                var maxReadSize = Math.Min(int.MaxValue, Array.MaxLength);
+                    block = NativeBlock.AllocateReserved(bytesRead, governor);
+                    governor.Release(toRead - bytesRead);
+                    block.CopyFrom(staging, 0, bytesRead);
 
-                //Recommendations can be larger than what can be stored in an array. Let's trim it down to size if required
-                var toReadLong = recommendedRead.End - recommendedRead.Start;
-                if (toReadLong > maxReadSize)
-                {
-                    if (readPosition < (recommendedRead.Start + maxReadSize))
+                    int n;
+                    lock (listLock)
                     {
-                        //Let's bring down the recommend end
-                        recommendedRead.End = recommendedRead.Start + maxReadSize;
+                        if (disposed) throw new ObjectDisposedException(nameof(CachingStream));
+                        var entry = new CacheEntry(start, start + bytesRead, block) { LastTouchTick = Environment.TickCount64 };
+                        cache.Insert(0, entry);
+                        cachedBytes += bytesRead;
+                        published = true;
+                        UpdateOldest();
+                        n = CopyLegacy(entry, readPosition, buffer, offset, count);
                     }
-                    else
+                    return n;
+                }
+                catch
+                {
+                    if (!published)
                     {
-                        if (readPosition > (recommendedRead.End - maxReadSize))
-                        {
-                            //Let's bring up the recommended start
-                            recommendedRead.Start = recommendedRead.End - maxReadSize;
-                        }
-                        else
-                        {
-                            recommendedRead.Start = readPosition;
-                            recommendedRead.End = readPosition + Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER;
-                        }
+                        if (block != null) block.Free();
+                        else governor.Release(toRead);
                     }
+                    throw;
                 }
-                toReadLong = recommendedRead.End - recommendedRead.Start;
-
-                int toRead = (int)toReadLong;
-
-                if (toRead == 0)
+                finally
                 {
-                    return 0;
+                    if (staging != null) Buffers.BufferPool.Return(staging);
                 }
+            }
+        }
 
-                //Pooled: a fresh multi-MB array per cache miss was the main source of LOH churn
-                //(measured gcFrag spikes of ~2 GB during full-copy runs). Rented arrays can be larger
-                //than requested; every consumer is bounded by the entry's Start/End, never by
-                //Content.Length. Short reads just make the entry span smaller - no Array.Resize copy.
-                var buff = Buffers.BufferPool.Rent(toRead);
+        //linear scan rather than FirstOrDefault, to avoid a per-read closure allocation. Newest first, so a
+        //hot entry is near the front. Caller holds listLock.
+        CacheEntry? FindLegacy(long pos)
+        {
+            for (int i = 0; i < cache.Count; i++)
+            {
+                var e = cache[i];
+                if (pos >= e.Start && pos < e.End) return e;
+            }
+            return null;
+        }
 
-                BaseStream.Seek(recommendedRead.Start, SeekOrigin.Begin);
-                var bytesRead = BaseStream.Read(buff, 0, toRead);
-                System.Threading.Interlocked.Increment(ref DecodeProgress);   //watchdog progress signal
+        void TouchLegacy(CacheEntry entry)
+        {
+            entry.LastTouchTick = Environment.TickCount64;
+            if (!ReferenceEquals(cache[0], entry)) { cache.Remove(entry); cache.Insert(0, entry); }
+            UpdateOldest();
+        }
 
-                if (bytesRead == 0)
+        int CopyLegacy(CacheEntry entry, long readPosition, byte[] buffer, int offset, int count)
+        {
+            var bytesLeft = entry.End - readPosition;
+            var toCopy = (int)Math.Min(count, bytesLeft);
+            if (toCopy <= 0) return 0;
+            entry.Block.CopyTo(readPosition - entry.Start, buffer, offset, toCopy);
+            return toCopy;
+        }
+
+        //Stateless recommendation for the legacy path (mirrors the old ReadInternal miss logic).
+        (long start, int toRead) GetLegacySpan(long readPosition, int count)
+        {
+            (long Start, long End) rec;
+            if (ReadSuggestor == null)
+            {
+                var to = Math.Min(Math.Max(readPosition + count, readPosition + 1024 * 1024), Length);
+                rec = (readPosition, to);
+            }
+            else
+            {
+                rec = ReadSuggestor.GetRecommendation(readPosition);
+            }
+            if (rec.Start == -1 || rec.End == -1)
+                throw new Exception($"Could not get recommendation for reading {count:N0} bytes from position {readPosition:N0}");
+
+            //recommendations can exceed what fits in an array - trim toward the read position
+            var maxReadSize = Math.Min(int.MaxValue, Array.MaxLength);
+            if (rec.End - rec.Start > maxReadSize)
+            {
+                if (readPosition < rec.Start + maxReadSize) rec.End = rec.Start + maxReadSize;
+                else if (readPosition > rec.End - maxReadSize) rec.Start = rec.End - maxReadSize;
+                else { rec.Start = readPosition; rec.End = readPosition + Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER; }
+            }
+            return (rec.Start, (int)(rec.End - rec.Start));
+        }
+
+        // ---- IGovernedCache --------------------------------------------------------------------------
+
+        public string Name => name;
+        public long CachedBytes => Interlocked.Read(ref cachedBytes);
+        public int SlotCount => concurrent ? lru.Count : cache.Count;
+        public long OldestTouchTick => Volatile.Read(ref oldestTouchTick);
+
+        public bool TryEvict(long wantBytes, out long freedBytes)
+        {
+            freedBytes = 0;
+            if (concurrent)
+            {
+                lock (mapLock)
                 {
-                    Buffers.BufferPool.Return(buff);
-                    throw new Exception($"No bytes read despite recommendation of {recommendedRead.Start:N0} - {recommendedRead.End:N0}");
-                }
-
-                cacheEntry = new CacheEntry(recommendedRead.Start, recommendedRead.Start + bytesRead, buff, pooled: true);
-
-                //clear the cache until there's enough room
-                bool addToCache;
-                switch (CacheType)
-                {
-                    case EnumCacheType.NoCaching:
-                        addToCache = false;
-                        break;
-
-                    case EnumCacheType.LimitBySegmentCount:
-                        while (cache.Count >= CacheLimitValue)
-                        {
-                            currentCacheSizeBytes -= cache[cache.Count - 1].Length;
-                            ReturnToPoolIfPooled(cache[cache.Count - 1]);
-                            cache.RemoveAt(cache.Count - 1);
-                        }
-                        addToCache = true;
-                        break;
-
-                    case EnumCacheType.Unlimited:
-                        addToCache = true;
-                        break;
-
-                    case EnumCacheType.LimitByRAMUsage:
-
-                        //this instance's share of the declared budget (see liveRamLimitedCaches above)
-                        var effectiveLimitInMegabytes = CacheLimitValue / Math.Max(1, liveRamLimitedCaches);
-
-                        var newEntrySizeInMegabytes = (int)(cacheEntry.Length / (double)(1024 * 1024));
-
-                        while (true)
-                        {
-                            var currentCacheSizeInMegabytes = (int)(currentCacheSizeBytes / (double)(1024 * 1024));
-
-                            if (newEntrySizeInMegabytes > effectiveLimitInMegabytes)
-                            {
-                                addToCache = false;
-                                break;
-                            }
-
-                            if (currentCacheSizeInMegabytes + newEntrySizeInMegabytes <= effectiveLimitInMegabytes)
-                            {
-                                addToCache = true;
-                                break;
-                            }
-                            else
-                            {
-                                currentCacheSizeBytes -= cache[cache.Count - 1].Length;
-                                ReturnToPoolIfPooled(cache[cache.Count - 1]);
-                                cache.RemoveAt(cache.Count - 1);
-                            }
-                        }
-                        break;
-
-                    default:
-                        addToCache = false;
-                        break;
-                }
-
-                if (addToCache)
-                {
-                    cache.Insert(0, cacheEntry);
-                    currentCacheSizeBytes += cacheEntry.Length;
-                }
-                else
-                {
-                    //fresh rented buffer that never entered the cache: serve from it, then return it
-                    servedEntryToReturn = cacheEntry;
+                    while (freedBytes < wantBytes && lru.Count > MemoryGovernor.FloorSlots && lru.Last is { } tail)
+                    {
+                        var victim = tail.Value;
+                        lru.RemoveLast();
+                        spanMap.Remove(victim.Start);
+                        long len = victim.End - victim.Start;
+                        cachedBytes -= len;
+                        freedBytes += len;
+                        victim.Block?.Free();
+                        victim.Block = null;
+                        victim.Node = null;
+                    }
+                    UpdateOldest();
                 }
             }
             else
             {
-                //move it to the beginning of the cache, to keep it fresh.
-                //net-zero for currentCacheSizeBytes (same entry removed then re-added).
-                cache.Remove(cacheEntry);
-                cache.Insert(0, cacheEntry);
+                lock (listLock)
+                {
+                    while (freedBytes < wantBytes && cache.Count > MemoryGovernor.FloorSlots)
+                    {
+                        var victim = cache[^1];
+                        cache.RemoveAt(cache.Count - 1);
+                        long len = victim.End - victim.Start;
+                        cachedBytes -= len;
+                        freedBytes += len;
+                        victim.Block.Free();
+                    }
+                    UpdateOldest();
+                }
             }
-
-            var bytesLeftInThisRange = cacheEntry.End - readPosition;
-
-            var bytesToRead = (int)Math.Min(count, bytesLeftInThisRange);
-
-            if (bytesToRead == 0)
-            {
-                throw new Exception($"Doing a zero-byte read");
-            }
-
-            var deltaFromBeginningOfRange = readPosition - cacheEntry.Start;
-            if (deltaFromBeginningOfRange < 0)
-            {
-                throw new Exception("deltaFromBeginningOfRange < 0");
-            }
-
-            Array.Copy(cacheEntry.Content, deltaFromBeginningOfRange, buffer, offset, bytesToRead);
-
-            //no shared Position to advance - ReadAt is positional; Stream.Read advances its own cursor.
-
-            if (servedEntryToReturn != null)
-            {
-                ReturnToPoolIfPooled(servedEntryToReturn);
-            }
-
-            return bytesToRead;
-        }
-
-        static void ReturnToPoolIfPooled(CacheEntry entry)
-        {
-            if (entry.Pooled)
-            {
-                Buffers.BufferPool.Return(entry.Content);
-            }
+            return freedBytes > 0;
         }
 
         public override long Seek(long offset, SeekOrigin origin)
         {
-            switch (origin)
+            position = origin switch
             {
-                case SeekOrigin.Begin:
-                    position = offset;
-                    break;
-
-                case SeekOrigin.Current:
-                    position += offset;
-                    break;
-
-                case SeekOrigin.End:
-                    position = Length + offset;
-                    break;
-            }
-
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => position + offset,
+                SeekOrigin.End => Length + offset,
+                _ => position,
+            };
             return position;
         }
 
-        public override void SetLength(long value)
-        {
-            throw new NotImplementedException();
-        }
-
-        public override void Write(byte[] buffer, int offset, int count)
-        {
-            throw new NotImplementedException();
-        }
-
-        public override void Close()
+        protected override void Dispose(bool disposing)
         {
             if (concurrent)
             {
                 lock (mapLock)
                 {
-                    //Drain the cached slots, returning each buffer to the pool.
-                    foreach (var slot in lru)
+                    if (!disposed)
                     {
-                        if (slot.Content != null) Buffers.BufferPool.Return(slot.Content);
-                        slot.Content = null;
+                        disposed = true;
+                        foreach (var slot in lru) { slot.Block?.Free(); slot.Block = null; }
+                        lru.Clear();
+                        spanMap.Clear();
+                        cachedBytes = 0;
+                        UpdateOldest();
                     }
-                    lru.Clear();
-                    spanMap.Clear();
-                    currentCacheSizeBytes = 0;
                 }
             }
             else
             {
-                lock (cacheLock)
+                lock (listLock)
                 {
-                    foreach (var entry in cache)
+                    if (!disposed)
                     {
-                        ReturnToPoolIfPooled(entry);
+                        disposed = true;
+                        foreach (var entry in cache) entry.Block.Free();
+                        cache.Clear();
+                        cachedBytes = 0;
+                        UpdateOldest();
                     }
-                    cache.Clear();
-                    currentCacheSizeBytes = 0;
                 }
             }
-
-            if (countedAsRamLimited && !closed)
-            {
-                closed = true;
-                System.Threading.Interlocked.Decrement(ref liveRamLimitedCaches);
-            }
+            governor.Unregister(this);   //outside the instance lock (registryLock > instance lock)
+            base.Dispose(disposing);
         }
     }
 
-    [Serializable]
-    public class CacheEntry(long start, long end, byte[] content, bool pooled = false)
+    //One cached span on the legacy path. Backed by native memory, exactly like a concurrent SpanSlot.
+    public sealed class CacheEntry(long start, long end, NativeBlock block)
     {
         public long Start = start;
         public long End = end;
         public long Length => End - Start;
+        public long LastTouchTick;
+        public NativeBlock Block = block;
 
-        //may be LARGER than Length (rented from a pool) - always bound access by Start/End
-        public byte[] Content = content;
-
-        //true when Content was rented from Buffers.BufferPool and must be returned on eviction
-        public readonly bool Pooled = pooled;
-
-        public override string ToString()
-        {
-            string result = $"{Start:N0} - {End:N0}";
-            return result;
-        }
-    }
-
-    public enum EnumCacheType
-    {
-        NoCaching,
-        LimitBySegmentCount,
-        LimitByRAMUsage,
-        Unlimited
+        public override string ToString() => $"{Start:N0} - {End:N0}";
     }
 }

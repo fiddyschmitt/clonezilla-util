@@ -21,5 +21,11 @@ namespace clonezilla_util.CL.Verbs
 
         [Option("verbose", HelpText = "Enable verbose (Debug-level) logging. Off by default: the per-operation debug trace is suppressed because emitting it (OutputDebugString, under a global lock) costs a large share of thread-time while a mount is under load.", Required = false)]
         public bool Verbose { get; set; } = false;
+
+        [Option("memory-reserve", HelpText = "Physical RAM (in MB) to always leave free for the OS and other programs. The decoded-span cache grows to fill the rest and shrinks when free memory drops below this. Default: max(1 GB, 8% of RAM). Env: CLONEZILLA_MEMORY_RESERVE_MB.", Required = false)]
+        public int? MemoryReserveMb { get; set; }
+
+        [Option("cache-max", HelpText = "Optional hard cap (in MB) on the total decoded-span cache, regardless of free memory. Unlimited by default. Env: CLONEZILLA_CACHE_MAX_MB.", Required = false)]
+        public int? CacheMaxMb { get; set; }
     }
 }

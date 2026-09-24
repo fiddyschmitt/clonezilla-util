@@ -2,3 +2,4 @@ CreateJobObject
 SetInformationJobObject
 AssignProcessToJobObject
 DeviceIoControl
+GlobalMemoryStatusEx

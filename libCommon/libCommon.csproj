@@ -19,4 +19,9 @@
     <PackageReference Include="System.Memory" Version="4.6.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- the memory governor + CachingStream internals are unit-tested directly from the test project -->
+    <InternalsVisibleTo Include="clonezilla-util_tests" />
+  </ItemGroup>
+
 </Project>

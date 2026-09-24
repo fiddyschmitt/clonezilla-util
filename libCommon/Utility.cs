@@ -10,12 +10,6 @@ namespace libCommon
 {
     public static class Utility
     {
-        public static long GetTotalRamSizeBytes()
-        {
-            var gcMemoryInfo = GC.GetGCMemoryInfo();
-            return gcMemoryInfo.TotalAvailableMemoryBytes;
-        }
-
         public static bool IsOnNTFS(string filename)
         {
             //Get all the drives on the local machine.

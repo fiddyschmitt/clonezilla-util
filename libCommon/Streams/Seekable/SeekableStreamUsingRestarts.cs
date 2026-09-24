@@ -44,7 +44,7 @@ namespace libCommon.Streams.Seekable
                     else
                     {
                         var originalPosition = Position;
-                        Extensions.CopyTo(this, Null, Buffers.ARBITRARY_LARGE_SIZE_BUFFER);
+                        Extensions.CopyTo(this, Null, Buffers.ARBITRARY_SMALL_SIZE_BUFFER);   //a discard-skip is decoder-bound; a 1 MB buffer is plenty (was 50 MB of LOH per restart)
                         length = Position;
                         //We are now at the end of the stream. Let's go back to the original position
                         Seek(originalPosition, SeekOrigin.Begin);
@@ -109,7 +109,7 @@ namespace libCommon.Streams.Seekable
                 //The original stream can't go backwards. So we need to start over
                 Log.Debug($"Restarting stream. Need to seek from beginning to position {position.BytesToString()}");
                 underlyingStream = StreamFactory.Invoke();
-                underlyingStream.CopyTo(Null, position, Buffers.ARBITRARY_LARGE_SIZE_BUFFER);
+                underlyingStream.CopyTo(Null, position, Buffers.ARBITRARY_SMALL_SIZE_BUFFER);
             }
             else
             {
@@ -130,7 +130,7 @@ namespace libCommon.Streams.Seekable
                     }
                     */
 
-                    var seeked = underlyingStream.CopyTo(Null, toSeek, Buffers.ARBITRARY_LARGE_SIZE_BUFFER);
+                    var seeked = underlyingStream.CopyTo(Null, toSeek, Buffers.ARBITRARY_SMALL_SIZE_BUFFER);
 
                     position = oldPosition + seeked;
                 }
