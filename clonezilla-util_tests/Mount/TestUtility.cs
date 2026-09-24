@@ -28,8 +28,10 @@ namespace clonezilla_util_tests.Mount
             var process = Process.Start(psi);
             if (process != null)
             {
+                //"Mounting complete" is a log line, which the exe now writes to stderr, so watch BOTH
+                //streams for it. Draining both also stops a full pipe buffer from blocking the exe.
                 process.OutputDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
-                process.ErrorDataReceived += (_, _) => { };
+                process.ErrorDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
             }

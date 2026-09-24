@@ -19,6 +19,19 @@ namespace libClonezilla
 {
     public static class Utility
     {
+        /// <summary>The container name to show for an input path: the folder's (or file's) own name.
+        /// Path.GetFileName returns "" when the path ends in a separator - which cmd/PowerShell tab
+        /// completion appends to a directory - so a trailing separator would otherwise produce an empty
+        /// container name that breaks multi-container mounts and drops the container from list/extract
+        /// output (gh review F10). Trim the trailing separator first; fall back to the trimmed path for a
+        /// bare drive root.</summary>
+        public static string ContainerNameFromPath(string path)
+        {
+            var trimmed = Path.TrimEndingDirectorySeparator(path);
+            var name = Path.GetFileName(trimmed);
+            return string.IsNullOrEmpty(name) ? trimmed : name;
+        }
+
         public static void LoadAllBinDirectoryAssemblies(string folder)
         {
             foreach (string dll in Directory.GetFiles(folder, "*.dll", SearchOption.AllDirectories))

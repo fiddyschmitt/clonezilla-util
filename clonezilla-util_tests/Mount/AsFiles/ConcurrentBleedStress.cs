@@ -113,8 +113,9 @@ namespace clonezilla_util_tests.Mount.AsFiles
             currentMount = mount;   //registered for [TestCleanup] - a [Timeout] abort skips finally blocks
             //drain stdout continuously (a full pipe would block the mount) and watch for the
             //product's own readiness signal - Directory.Exists alone is NOT readiness
+            //"Mounting complete" is a log line, now written to stderr, so watch BOTH streams for it.
             mount.OutputDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
-            mount.ErrorDataReceived += (_, _) => { };
+            mount.ErrorDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
             mount.BeginOutputReadLine();
             mount.BeginErrorReadLine();
             var readers = currentReaders;   //same registration rationale

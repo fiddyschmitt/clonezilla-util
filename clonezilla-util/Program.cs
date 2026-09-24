@@ -49,6 +49,7 @@ namespace clonezilla_util
             Success = 0,
             InvalidArguments = 1,
             GeneralException = 2,
+            PartialFailure = 3,   //the verb ran, but some items could not be processed (e.g. extract skipped files)
         }
 
         // Anchored to the real executable's folder (not AppContext.BaseDirectory): with
@@ -84,6 +85,12 @@ namespace clonezilla_util
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(MountAsImageFiles))]
         public static int Main(string[] args)
         {
+            //stdout in UTF-8 so `list` prints non-ASCII file names correctly when redirected (the Windows
+            //default is the OEM code page, which renders them as '?') (gh review F47). BOM-less, so a
+            //redirected `list > files.txt` has no 3-byte prefix on its first record. Guarded: the setter
+            //can throw when there is no real console attached.
+            try { System.Console.OutputEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false); } catch { }
+
             AppDomain.CurrentDomain.ProcessExit += (sender, args) =>
             {
                 TempUtility.Cleanup();
@@ -92,7 +99,11 @@ namespace clonezilla_util
             Log.Logger = new LoggerConfiguration()
                             .MinimumLevel.ControlledBy(LogLevelSwitch)
                             .Filter.With(new SuppressConsecutiveDuplicateFilter())
-                            .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Information)
+                            //All log output goes to stderr (standardErrorFromLevel at the lowest level) so
+                            //that `list` can write clean, machine-readable records to stdout - a redirected
+                            //`list > files.txt` must hold only the file identities, never the banner or the
+                            //progress lines (gh review F47).
+                            .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Information, standardErrorFromLevel: LogEventLevel.Verbose)
                             .WriteTo.Debug(restrictedToMinimumLevel: LogEventLevel.Debug)
                             .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day, restrictedToMinimumLevel: LogEventLevel.Information)
                             .CreateLogger();
@@ -107,11 +118,7 @@ namespace clonezilla_util
             {
                 returnCode = Parser.Default.ParseArguments(args, types)
                                 .MapResult(
-                                    obj =>
-                                    {
-                                        Run(obj);
-                                        return ReturnCode.Success;
-                                    },
+                                    obj => Run(obj),
                                     HandleErrors);
             }
             catch (Exception ex)
@@ -137,7 +144,7 @@ namespace clonezilla_util
                 .Where(t => t.GetCustomAttribute<VerbAttribute>() != null).ToArray();
         }
 
-        private static void Run(object obj)
+        private static ReturnCode Run(object obj)
         {
             if (obj is BaseVerb baseVerb)
             {
@@ -165,28 +172,29 @@ namespace clonezilla_util
                 case ListContents listContentsOptions:
 
                     ListContents(listContentsOptions);
-                    break;
+                    return ReturnCode.Success;
 
                 case MountAsImageFiles mountAsImageOptions:
 
                     MountAsImageFiles(mountAsImageOptions);
-                    break;
+                    return ReturnCode.Success;
 
                 case MountAsFiles mountAtFilesOptions:
 
                     MountAsFiles(mountAtFilesOptions);
-                    break;
+                    return ReturnCode.Success;
 
                 case ExtractPartitionImage extractPartitionImageOptions:
 
                     ExtractPartitionImage(extractPartitionImageOptions);
-                    break;
+                    return ReturnCode.Success;
 
                 case ExtractFiles extractFilesOptions:
 
-                    ExtractFiles(extractFilesOptions);
-                    break;
+                    return ExtractFiles(extractFilesOptions);
             }
+
+            return ReturnCode.Success;
         }
 
         private static void ListContents(ListContents listContentsOptions)
@@ -297,6 +305,10 @@ namespace clonezilla_util
                             }
                         });
                 });
+
+            //the records above are the program's real output; make sure they are all on the wire before we
+            //exit (stdout is UTF-8 and separate from the stderr log stream) (gh review F47).
+            Console.Out.Flush();
         }
 
         private static void MountAsImageFiles(MountAsImageFiles mountAsImageOptions)
@@ -420,20 +432,24 @@ namespace clonezilla_util
                 });
         }
 
-        private static void ExtractFiles(ExtractFiles extractOptions)
+        private static ReturnCode ExtractFiles(ExtractFiles extractOptions)
         {
             if (extractOptions.InputPaths == null) throw new Exception($"{nameof(extractOptions.InputPaths)} not specified.");
 
             var inputPaths = extractOptions.InputPaths.ToList();
             var outputRoot = ResolveExtractOutputRoot(extractOptions.OutputFolder, inputPaths);
             Directory.CreateDirectory(outputRoot);
+            var outputRootFull = Path.GetFullPath(outputRoot);
 
             var filter = new PathGlobFilter(extractOptions.Include, extractOptions.Exclude);
 
             var vfs = new Lazy<IVFS>(() =>
             {
-                //null mount point = OnDemandVFS picks a free letter at mount time. Extract never actually
-                //mounts (this Lazy stays unforced) - it enumerates and copies streams directly, headless.
+                //null mount point = OnDemandVFS picks a free letter at mount time. For Clonezilla folders
+                //and partclone/uncompressed image files this Lazy stays unforced - extract enumerates and
+                //copies streams headlessly. A COMPRESSED, non-partclone image file (sda.img.gz/.zst/...) is
+                //the exception: CompressedImage forces a temp folder, which mounts, so Dokan IS required
+                //for those inputs (gh review F46; a future fix feeds the decompressed stream in-process).
                 var result = new OnDemandVFS(PROGRAM_NAME, null, allowMountPointFallback: true);
                 return result;
             });
@@ -449,6 +465,10 @@ namespace clonezilla_util
             long totalFiles = 0;
             long totalBytes = 0;
             long failedFiles = 0;
+
+            //Destinations already claimed, case-insensitively, across the whole extract. Shared (not
+            //per-partition) so --flatten collisions between two partitions are caught too (gh review F11).
+            var seenDestinations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             containers.ForEach(container =>
             {
@@ -495,7 +515,6 @@ namespace clonezilla_util
 
                         Log.Information($"[{containerName}] [{partitionName}] Extracting {matches.Count} file(s) to: {outputRoot}");
 
-                        var seenFlatNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         var localExtractor = extractor;
 
                         //Each iteration owns its own PooledNativeItemStream and reads it on one thread; the
@@ -506,21 +525,24 @@ namespace clonezilla_util
                             new ParallelOptions { MaxDegreeOfParallelism = DetermineExtractor.MountWorkerCount },
                             entry =>
                             {
-                                string destination;
-                                if (extractOptions.Flatten)
+                                var desired = extractOptions.Flatten
+                                    ? Path.Combine(outputRoot, Path.GetFileName(entry.Path))
+                                    : Path.Combine(outputRoot, prefix, entry.Path);
+
+                                //Never write outside the output folder. Entry paths come straight from the
+                                //archive; a rooted path or a ".." segment would otherwise let Path.Combine /
+                                //File.Create escape the root. No supported 7-Zip handler emits such a name
+                                //today, but this is the cheap backstop (gh review F44).
+                                if (!IsInsideRoot(Path.GetFullPath(desired), outputRootFull))
                                 {
-                                    var name = Path.GetFileName(entry.Path);
-                                    lock (seenFlatNames)
-                                    {
-                                        if (!seenFlatNames.Add(name))
-                                            Log.Warning($"[{containerName}] [{partitionName}] --flatten name collision, overwriting: {name}");
-                                    }
-                                    destination = Path.Combine(outputRoot, name);
+                                    Interlocked.Increment(ref failedFiles);
+                                    Log.Warning($"[{containerName}] [{partitionName}] Refusing to extract '{entry.Path}': it resolves outside the output folder.");
+                                    return;
                                 }
-                                else
-                                {
-                                    destination = Path.Combine(outputRoot, prefix, entry.Path);
-                                }
+
+                                var destination = ResolveUniqueDestination(desired, seenDestinations);
+                                if (!string.Equals(destination, desired, StringComparison.Ordinal))
+                                    Log.Warning($"[{containerName}] [{partitionName}] Output name collision for '{entry.Path}'; writing as '{Path.GetFileName(destination)}' so it does not overwrite another extracted file.");
 
                                 try
                                 {
@@ -560,7 +582,36 @@ namespace clonezilla_util
             });
 
             Log.Information($"Extracted {totalFiles} file(s), {totalBytes.BytesToString()}, to: {outputRoot}");
-            if (failedFiles > 0) Log.Warning($"{failedFiles} file(s) could not be extracted (see warnings above).");
+            if (failedFiles > 0)
+            {
+                //Non-zero exit so a caller/script can tell a partial extract from a clean one (gh review F17).
+                Log.Warning($"{failedFiles} file(s) could not be extracted (see warnings above).");
+                return ReturnCode.PartialFailure;
+            }
+
+            return ReturnCode.Success;
+        }
+
+        //Both extract modes can map two archive entries onto one host path: --flatten collapses different
+        //directories onto a single filename, and preserve mode collides when a case-SENSITIVE source
+        //filesystem (ext4/xfs) holds names differing only in case, which NTFS treats as one file. Hand
+        //back a unique path (suffixing " (2)", " (3)", ...) so the second writer never silently overwrites
+        //the first (gh review F11). Thread-safe: called from the parallel extract loop.
+        private static string ResolveUniqueDestination(string destination, HashSet<string> taken)
+        {
+            lock (taken)
+            {
+                if (taken.Add(destination)) return destination;
+
+                var dir = Path.GetDirectoryName(destination) ?? "";
+                var stem = Path.GetFileNameWithoutExtension(destination);
+                var ext = Path.GetExtension(destination);
+                for (var i = 2; ; i++)
+                {
+                    var candidate = Path.Combine(dir, $"{stem} ({i}){ext}");
+                    if (taken.Add(candidate)) return candidate;
+                }
+            }
         }
 
         //Skip archive entries that can't be written as a distinct file on the host: NTFS alternate data
@@ -572,7 +623,21 @@ namespace clonezilla_util
             var leaf = Path.GetFileName(archivePath);
             if (leaf is "." or "..") return false;
             if (archivePath.Contains(':')) return false;
+            if (Path.IsPathRooted(archivePath)) return false;   //a rooted archive name would escape the output root
             return true;
+        }
+
+        //True when fullPath is the output root itself or lies within it. Both arguments must already be
+        //fully-qualified. Guards the extract destination against archive names that resolve outside the
+        //output folder (gh review F44).
+        private static bool IsInsideRoot(string fullPath, string fullRoot)
+        {
+            if (string.Equals(fullPath, fullRoot, StringComparison.OrdinalIgnoreCase)) return true;
+
+            var rootWithSep = fullRoot.EndsWith(Path.DirectorySeparatorChar)
+                ? fullRoot
+                : fullRoot + Path.DirectorySeparatorChar;
+            return fullPath.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase);
         }
 
         //Resolve the extract output folder. An explicit -o wins; otherwise default to a new subfolder in the

@@ -328,12 +328,24 @@ namespace libBzip2
             {
                 Log.Information($"Loading bzip2 index from {Path.GetFileName(indexFilename)}.");
 
-                var json = File.ReadAllText(indexFilename);
-                var res = JsonConvert.DeserializeObject<List<Mapping>>(json);
-                if (res != null)
+                try
                 {
-                    return res;
+                    var json = File.ReadAllText(indexFilename);
+                    var res = JsonConvert.DeserializeObject<List<Mapping>>(json);
+                    if (res != null)
+                    {
+                        return res;
+                    }
+                    Log.Warning($"bzip2 index {Path.GetFileName(indexFilename)} was empty; rebuilding it.");
                 }
+                catch (Exception ex)
+                {
+                    //A truncated/corrupt index (e.g. the process was killed mid-write) must NOT make every
+                    //future open of this image throw. Discard it and rebuild below (gh review F4).
+                    Log.Warning($"bzip2 index {Path.GetFileName(indexFilename)} could not be read ({ex.Message}); rebuilding it.");
+                }
+
+                try { File.Delete(indexFilename); } catch { }
             }
 
             Log.Information($"Creating bzip2 index.");
@@ -451,7 +463,12 @@ namespace libBzip2
             if (indexFilename != null)
             {
                 Log.Information($"Finished generating bzip2 index. Saving to final location: {indexFilename}");
-                File.WriteAllText(indexFilename, JsonConvert.SerializeObject(blocks, Formatting.Indented));
+
+                //Write then atomically move into place, so a kill mid-write can't leave a truncated index
+                //(the load path rebuilds on a bad file too, but this stops one being produced) (gh review F4).
+                var tempFilename = indexFilename + ".tmp";
+                File.WriteAllText(tempFilename, JsonConvert.SerializeObject(blocks, Formatting.Indented));
+                File.Move(tempFilename, indexFilename, overwrite: true);
             }
 
             return blocks;

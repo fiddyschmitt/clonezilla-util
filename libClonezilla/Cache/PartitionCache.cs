@@ -83,27 +83,46 @@ namespace libClonezilla.Cache
 
         public List<ArchiveEntry>? GetFileList()
         {
-            List<ArchiveEntry>? result = null;
-
-            if (File.Exists(FileListFilename))
+            if (!File.Exists(FileListFilename))
             {
-                using var fs = File.OpenRead(FileListFilename);
-                result = System.Text.Json.JsonSerializer.Deserialize(fs, ArchiveEntryJsonContext.Default.ListArchiveEntry);
+                return null;
             }
 
-            return result;
+            try
+            {
+                using var fs = File.OpenRead(FileListFilename);
+                return System.Text.Json.JsonSerializer.Deserialize(fs, ArchiveEntryJsonContext.Default.ListArchiveEntry);
+            }
+            catch (Exception ex)
+            {
+                //A truncated or otherwise unreadable cache (a kill mid-write before this was atomic, a
+                //disk-full, a partial file) must NOT leave the partition mounting empty on every future
+                //run. Discard it and return null so the caller re-lists and rewrites it (gh review F3).
+                Log.Warning($"File list cache '{Path.GetFileName(FileListFilename)}' could not be read ({ex.Message}); it will be rebuilt.");
+                try { File.Delete(FileListFilename); } catch { }
+                return null;
+            }
         }
 
         public void SetFileList(List<ArchiveEntry> filenames)
         {
+            //Write to a temp file and atomically move it into place. A reader then only ever sees the old
+            //complete file or the new complete file - never a half-written one - so a crash during the
+            //(multi-second, for a large partition) write can't corrupt the cache (gh review F3).
+            var tempFilename = FileListFilename + ".tmp";
             try
             {
-                using var fs = File.Create(FileListFilename);
-                System.Text.Json.JsonSerializer.Serialize(fs, filenames, ArchiveEntryJsonContext.Default.ListArchiveEntry);
+                using (var fs = File.Create(tempFilename))
+                {
+                    System.Text.Json.JsonSerializer.Serialize(fs, filenames, ArchiveEntryJsonContext.Default.ListArchiveEntry);
+                }
+
+                File.Move(tempFilename, FileListFilename, overwrite: true);
             }
             catch (Exception ex)
             {
                 Log.Warning($"Non-fatal. Error while caching File List to {FileListFilename}: {ex}");
+                try { File.Delete(tempFilename); } catch { }
             }
         }
     }

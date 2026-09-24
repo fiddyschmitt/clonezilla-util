@@ -5,7 +5,6 @@ using libDokan.Processes;
 using libDokan.VFS;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
-using rextractor;
 using Serilog;
 using Serilog.Events;
 using System.Collections.Concurrent;
@@ -808,32 +807,20 @@ namespace libDokan
                 return result;
             }
 
-            var wildcardMatcher = new FindFilesPatternToRegex();
-
             if (fileSystemEntry is Folder folder)
             {
-                //This was too slow for L:\partition1\Windows\WinSxS. External applications would get 'Insufficient resources' timeouts because it took longer than 20 seconds to run.
-                /*
-                result = folder
-                            .Children
-                            .Where(child => FindFilesPatternToRegex.FindFilesEmulator(searchPattern, child.Name))   //This is slow, because it has to compile the Regex object for every single file in the folder
-                            .Where(child => child is not UnlistedFolder)
-                            .Select(entry => entry.ToFileInformation())
-                            .ToList();
-                */
-
-                IList<FileSystemEntry> matchingChildren;
-                if (searchPattern.Equals("*"))
+                //Filter the folder's children by the driver's search pattern. DokanNet's own matcher
+                //implements the exact Win32/NT wildcard semantics the driver hands us here, including the
+                //DOS wildcards the kernel substitutes for the '?', '*.' and '.?' forms ('<', '"', '>').
+                //The old in-house regex converter rejected those three characters outright, and the
+                //callback then returned an EMPTY directory listing for any such pattern (gh review F6).
+                IEnumerable<FileSystemEntry> children = folder.Children;
+                if (searchPattern != "*")
                 {
-                    matchingChildren = folder.Children.ToList();
-                }
-                else
-                {
-                    matchingChildren = FindFilesPatternToRegex
-                                        .FindFilesEmulator(searchPattern, folder.Children, item => item.Name);   //This is much faster, because it only has to compile the Regex object once for the folder
+                    children = children.Where(child => DokanHelper.DokanIsNameInExpression(searchPattern, child.Name, ignoreCase: true));
                 }
 
-                result = matchingChildren
+                result = children
                             .Where(child => child is not UnlistedFolder)
                             .Select(entry => entry.ToFileInformation())
                             .ToList();

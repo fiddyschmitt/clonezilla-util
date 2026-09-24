@@ -22,6 +22,23 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             SetupFromStream(rawDriveStream, partitionImageFiles, partitionsToLoad, processTrailingNulls, wholeFileCacheFolder);
         }
 
+        /// <summary>The leading integer index 7-Zip's MBR/GPT partition-table handlers put before the
+        /// first dot of a partition entry's name ("0.ntfs" -> "0", "0.EFI system partition.fat" -> "0"),
+        /// or null when the entry is not a partition-table entry: a folder, one with no disk Offset, or
+        /// one whose leading token is not an integer (i.e. an ordinary filesystem file). This is the
+        /// signature that tells a whole-drive image apart from a single-partition image.</summary>
+        internal static string? PartitionTableIndex(ArchiveEntry e)
+        {
+            if (e.IsFolder || e.Offset == null) return null;
+
+            var name = Path.GetFileName(e.Path);
+            if (string.IsNullOrEmpty(name)) return null;
+
+            var firstDot = name.IndexOf('.');
+            var token = firstDot >= 0 ? name[..firstDot] : name;
+            return token.Length > 0 && token.All(char.IsAsciiDigit) ? token : null;
+        }
+
         void SetupFromStream(Stream rawDriveStream, List<ArchiveEntry> partitionImageFiles, List<string> partitionsToLoad, bool processTrailingNulls, string? wholeFileCacheFolder)
         {
             if (partitionImageFiles.Count == 0)
@@ -40,10 +57,16 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                                 var length = partitionImageFile.Size;
                                 var endByte = startByte + length;
 
+                                //name by the partition-table index only (never the GPT label): "0.EFI
+                                //system partition.fat" must yield "partition0", not "partition0.EFI system
+                                //partition" (gh review F2). RawImage already validated every entry here.
+                                var index = PartitionTableIndex(partitionImageFile)
+                                            ?? Path.GetFileNameWithoutExtension(partitionImageFile.Path);
+
                                 return new
                                 {
                                     PartitionFilename = partitionImageFile,
-                                    PartitionName = $"partition{Path.GetFileNameWithoutExtension(partitionImageFile.Path)}",
+                                    PartitionName = $"partition{index}",
                                     StartByte = startByte,
                                     PartitionLength = length,
                                     EndByte = endByte

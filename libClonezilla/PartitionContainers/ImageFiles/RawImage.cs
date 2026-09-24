@@ -110,18 +110,21 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
         public void SetupFromStream(Stream rawImageStream, IEnumerable<ArchiveEntry> archiveEntries, bool willPerformRandomSeeking, bool processTrailingNulls)
         {
-            var firstArchiveEntry = archiveEntries.FirstOrDefault();
+            var entries = archiveEntries.ToList();
 
-            //we have to work out if this is a drive image, or a partition image
-
-            var isDriveImage = firstArchiveEntry != null && !firstArchiveEntry.IsFolder && Path.GetFileNameWithoutExtension(firstArchiveEntry.Path).Equals("0") && firstArchiveEntry.Offset != null;
+            //Distinguish a drive image from a single partition image. A drive image's top-level entries
+            //ARE its partitions: each a non-folder blob with a byte Offset into the disk, named with a
+            //leading integer index. 7-Zip's MBR handler names them "0.ntfs", "1.ntfs"; its GPT handler
+            //adds the (possibly present) partition label - "0.EFI system partition.fat" - so the old test
+            //(first entry's name-without-extension equals "0") missed every labelled GPT disk, i.e. every
+            //UEFI Windows disk, and served its partition table as raw blobs (gh review F2). A partition
+            //image is instead a filesystem, whose top level holds folders/files without disk offsets.
+            var isDriveImage = entries.Count > 0 && entries.All(e => RawDriveImage.PartitionTableIndex(e) != null);
 
             PartitionContainer container;
             if (isDriveImage)
             {
-                var partitionImageFiles = archiveEntries.ToList();
-
-                container = new RawDriveImage(ContainerName, PartitionsToLoad, rawImageStream, partitionImageFiles, processTrailingNulls, WholeFileCacheFolder);
+                container = new RawDriveImage(ContainerName, PartitionsToLoad, rawImageStream, entries, processTrailingNulls, WholeFileCacheFolder);
             }
             else
             {
