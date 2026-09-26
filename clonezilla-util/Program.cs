@@ -219,6 +219,11 @@ namespace clonezilla_util
         {
             if (listContentsOptions.InputPaths == null) throw new Exception($"{nameof(listContentsOptions.InputPaths)} not specified.");
 
+            //The listing reads each partition's image stream in-process and never touches a mount, so this
+            //Lazy stays unforced for Clonezilla folders and partclone/uncompressed image files: no drive
+            //letter, no sentinel probe or mount wait, and no Dokan needed (gh review F45 - it used to mount a
+            //temp folder it never read). A COMPRESSED, non-partclone image file (sda.img.gz/.zst/...) still
+            //forces it: CompressedImage serves its decompressed stream through a temp folder (gh review F46).
             var vfs = new Lazy<IVFS>(() =>
             {
                 //null mount point = OnDemandVFS picks a free letter at mount time, minimising the
@@ -237,23 +242,15 @@ namespace clonezilla_util
                                 .OrderBy(container => container.ContainerName)
                                 .ToList();
 
-            var tempFolder = vfs.Value.CreateTempFolder();
-            var mountedContainers = libClonezilla.Utility.PopulateVFS(vfs, tempFolder, containers, DesiredContent.ImageFiles);
+            libClonezilla.Utility.ExitIfNoPartitions(containers, "list");
 
-            var partitions = containers
-                                .SelectMany(container => container.Partitions)
-                                .ToList();
-
-            mountedContainers
-                .ForEach(mountedContainer =>
+            containers
+                .ForEach(container =>
                 {
-                    var mountedPartitions = mountedContainer.MountedPartitions;
-
-                    mountedPartitions
-                        .ForEach(mountedPartition =>
+                    container.Partitions
+                        .ForEach(partition =>
                         {
-                            var container = mountedPartition.Partition.Container;
-                            var partitionName = mountedPartition.Partition.PartitionName;
+                            var partitionName = partition.PartitionName;
 
                             Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
@@ -265,7 +262,7 @@ namespace clonezilla_util
                             try
                             {
                                 List<ArchiveEntry> filesInArchive;
-                                var cachedList = mountedPartition.Partition.PartitionCache?.GetFileList();
+                                var cachedList = partition.PartitionCache?.GetFileList();
                                 if (cachedList != null)
                                 {
                                     filesInArchive = cachedList
@@ -274,19 +271,15 @@ namespace clonezilla_util
                                 }
                                 else
                                 {
-                                    var partitionStream = mountedPartition.Partition.FullPartitionImage
-                                        ?? throw new Exception($"[{container.ContainerName}] [{partitionName}] {nameof(mountedPartition.Partition.FullPartitionImage)} is not initialised.");
-                                    var sharedPartitionStream = new SharedStream(partitionStream);
-
                                     // Listing only enumerates - one worker is enough (mounting uses several for
                                     // concurrent reads).
                                     extractor = DetermineExtractor.FindExtractor(
-                                        sharedPartitionStream.CreateView,
+                                        partition.CreateReaderFactory(),
                                         DetermineExtractor.ListingWorkerCount);
 
                                     if (extractor is IFileListProvider fileListProvider)
                                     {
-                                        filesInArchive = mountedPartition.GetFilesInPartition(fileListProvider).ToList();
+                                        filesInArchive = partition.GetFilesInPartition(fileListProvider).ToList();
                                     }
                                     else
                                     {
@@ -502,14 +495,12 @@ namespace clonezilla_util
                     IExtractor? extractor = null;
                     try
                     {
-                        var partitionStream = partition.FullPartitionImage
-                            ?? throw new Exception($"[{containerName}] [{partitionName}] {nameof(partition.FullPartitionImage)} is not initialised.");
-                        var sharedPartitionStream = new SharedStream(partitionStream);
-
                         //MountWorkerCount (not ListingWorkerCount): the same pool serves the file list AND
-                        //the parallel content reads below.
+                        //the parallel content reads below. The workers read through the same lock-free cursors
+                        //as the mount path (a SharedStream view here made them decode one file at a time - gh
+                        //review F7).
                         extractor = DetermineExtractor.FindExtractor(
-                            sharedPartitionStream.CreateView,
+                            partition.CreateReaderFactory(),
                             DetermineExtractor.MountWorkerCount);
 
                         if (extractor is not IFileListProvider fileListProvider)

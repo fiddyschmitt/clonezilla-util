@@ -49,29 +49,34 @@ namespace libClonezilla
             }
         }
 
-        public static List<MountedContainer> PopulateVFS(Lazy<IVFS> vfs, Folder containersRoot, List<PartitionContainer> containers, DesiredContent desiredContent)
+        /// <summary>Exits (code 1) with a helpful message when the loaded containers hold no partitions to
+        /// <paramref name="action"/> (e.g. "mount", "list"), naming the valid partitions when there are any.</summary>
+        public static void ExitIfNoPartitions(List<PartitionContainer> containers, string action)
         {
             var totalPartitions = containers.Sum(container => container.Partitions.Count);
+            if (totalPartitions > 0) return;
 
-            if (totalPartitions == 0)
+            var availablePartitionNames = containers
+                                            .SelectMany(container => container.AvailablePartitionNames)
+                                            .Distinct()
+                                            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                                            .ToList();
+
+            if (availablePartitionNames.Count > 0)
             {
-                var availablePartitionNames = containers
-                                                .SelectMany(container => container.AvailablePartitionNames)
-                                                .Distinct()
-                                                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-                                                .ToList();
-
-                if (availablePartitionNames.Count > 0)
-                {
-                    Log.Error($"No partitions to mount. Valid partitions are: {string.Join(", ", availablePartitionNames)}. Exiting.");
-                }
-                else
-                {
-                    Log.Error("No partitions to mount. Exiting.");
-                }
-
-                Environment.Exit(1);
+                Log.Error($"No partitions to {action}. Valid partitions are: {string.Join(", ", availablePartitionNames)}. Exiting.");
             }
+            else
+            {
+                Log.Error($"No partitions to {action}. Exiting.");
+            }
+
+            Environment.Exit(1);
+        }
+
+        public static List<MountedContainer> PopulateVFS(Lazy<IVFS> vfs, Folder containersRoot, List<PartitionContainer> containers, DesiredContent desiredContent)
+        {
+            ExitIfNoPartitions(containers, "mount");
 
             var result = containers
                             .Select(container =>
