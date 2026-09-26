@@ -23,9 +23,8 @@ namespace libClonezilla.Partitions
             string originFilename, 
             PartitionContainer container, 
             string partitionName, 
-            Stream compressedPartcloneStream, 
-            long? uncompressedLength, 
-            Compression compressionInUse, 
+            Stream compressedPartcloneStream,
+            Compression compressionInUse,
             IPartitionCache? partitionCache,
             bool willPerformRandomSeeking,
             bool processTrailingNulls) : base(container, partitionName, partitionCache, compressedPartcloneStream)
@@ -33,7 +32,13 @@ namespace libClonezilla.Partitions
             var streamName = $"[{container.ContainerName}] [{partitionName}]";
             Log.Information($"{streamName} Finding optimal decompressor (seekable/sequential)");
 
-            var decompressorSelector = new DecompressorSelector(originFilename, streamName, compressedPartcloneStream, uncompressedLength, compressionInUse, partitionCache, processTrailingNulls);
+            //No length hint. The decompressed stream here is the partclone IMAGE (header + bitmap + used blocks +
+            //checksums), not the partition, so the partition size callers used to pass was the wrong number: for a
+            //partition more than ~99.9% full the image is longer, and the restart-based path (lz4, lzip, or a
+            //failed index build) then read the last data blocks as end-of-file (gh review F8). Without a hint the
+            //restart stream discovers its true length once and persists it; indexed codecs never needed it, and
+            //nothing on the sequential path reads it.
+            var decompressorSelector = new DecompressorSelector(originFilename, streamName, compressedPartcloneStream, null, compressionInUse, partitionCache, processTrailingNulls);
 
             Stream decompressedStream;
             if (willPerformRandomSeeking)

@@ -81,6 +81,8 @@ namespace clonezilla_util_tests.Memory
 
         public int DecodeDelayMs;
         public int ThrowEveryNth;   // 0 = never
+        public long ShortSpanStart = -1;   // a decode starting here returns ShortBy fewer bytes (the source "ended early")
+        public int ShortBy;
         public readonly ConcurrentDictionary<long, int> DecodesPerSpan = new();
 
         public FakePositionalSource(long length) => this.length = length;
@@ -91,6 +93,7 @@ namespace clonezilla_util_tests.Memory
         {
             if (position >= length) return 0;
             int n = (int)Math.Min(count, length - position);
+            if (position == ShortSpanStart) n = Math.Max(0, n - ShortBy);
             long spanStart = position - (position % SpanSize);
             DecodesPerSpan.AddOrUpdate(spanStart, 1, (_, v) => v + 1);
             int idx = Interlocked.Increment(ref decodeCounter);

@@ -101,6 +101,44 @@ namespace clonezilla_util_tests.Memory
         }
 
         [TestMethod]
+        public void ShortDecode_Throws_AndIsNotCachedAsEof()
+        {
+            // A span that decodes short (its source ended early) must fail the read and cache nothing. A cached
+            // truncated slot would answer every later read of the span's tail with end-of-file (review F15).
+            var g = Gov(capSpans: 64);
+            var src = new FakePositionalSource(4L * Span) { ShortSpanStart = Span, ShortBy = 1000 };
+            using (var s = new CachingStream(src, src, "short", g))
+            {
+                var buf = new byte[50];
+                bool threw = false;
+                try { s.ReadAt(Span + 10, buf, 0, buf.Length); } catch (System.IO.IOException) { threw = true; }
+                Assert.IsTrue(threw, "a short decode should throw");
+
+                src.ShortSpanStart = -1;   // the source recovers: the retry must decode afresh and serve the whole span
+                long tail = 2L * Span - buf.Length;
+                Assert.AreEqual(buf.Length, s.ReadAt(tail, buf, 0, buf.Length), "the span's tail was served as end-of-file");
+                for (int i = 0; i < buf.Length; i++) Assert.AreEqual(FakePositionalSource.ByteAt(tail + i), buf[i]);
+            }
+            Assert.AreEqual(0, g.LiveNativeBytes, "the failed decode's reservation must be released");
+        }
+
+        [TestMethod]
+        public void LegacyPath_ReadPastEof_ReturnsZero()
+        {
+            // With no read suggestor the legacy span is clamped to Length, which past EOF made it negative: the read
+            // threw from the buffer pool instead of returning 0 (review F15).
+            var g = Gov(capSpans: 8);
+            var src = new FakeSeekableSource(100_000);
+            using var s = new CachingStream(src, null, "legacy-eof", g);
+            var buf = new byte[10];
+            Assert.AreEqual(0, s.ReadAt(100_000, buf, 0, buf.Length));
+            Assert.AreEqual(0, s.ReadAt(250_000, buf, 0, buf.Length));
+            Assert.AreEqual(10, s.ReadAt(99_990, buf, 0, buf.Length));
+            for (int i = 0; i < buf.Length; i++) Assert.AreEqual(FakePositionalSource.ByteAt(99_990 + i), buf[i]);
+            Assert.AreEqual(s.CachedBytes, g.LiveNativeBytes, "the EOF reads must not leave a reservation behind");
+        }
+
+        [TestMethod]
         public void DisposeDuringReads_ThrowsObjectDisposed_AndFreesBlocks()
         {
             var g = Gov(capSpans: 8);

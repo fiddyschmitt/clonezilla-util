@@ -549,16 +549,15 @@ namespace libDokan
 
                 int DoRead()
                 {
-                    var toRead = Math.Min(stream.FileEntry.Length - offset, buffer.Length);
-                    if (!Environment.Is64BitOperatingSystem)
-                    {
-                        toRead = Math.Min(toRead, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
-                    }
-                    toRead = Math.Min(toRead, Array.MaxLength);
-                    toRead = Math.Max(toRead, 0);   //reads beyond EOF would otherwise produce a negative count
-
+                    //Bounded by the file's end, and read EXACTLY that much. This used to call
+                    //ReadAtLeast(buffer, toRead), which reads into the WHOLE buffer, so none of its clamps ever
+                    //applied and a stream longer than its entry would have served bytes past the file's end (gh
+                    //review F12). The 32-bit cap and Array.MaxLength clamp went with it: both were no-ops, the
+                    //buffer is Dokan's and already allocated, and a short read mid-file looks like end-of-file to
+                    //many clients.
+                    var toRead = (int)Math.Clamp(stream.FileEntry.Length - offset, 0, buffer.Length);   //negative past EOF
                     stream.Stream.Position = offset;
-                    return stream.Stream.ReadAtLeast(buffer, (int)toRead, false);
+                    return FileEntry.ReadFully(stream.Stream, buffer, toRead);
                 }
 
                 //A per-handle stream only needs to guard concurrent reads on the SAME handle, so lock the

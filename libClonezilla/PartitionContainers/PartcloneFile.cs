@@ -21,10 +21,9 @@ namespace libClonezilla.PartitionContainers
             var partitionName = Path.GetFileName(filename);
             AvailablePartitionNames = [partitionName];
 
+            //(The header used to be parsed here too, bitmap and all, only to produce a length hint that was the
+            //partition size rather than the image length - gh review F8. PartcloneStream parses it once.)
             var partcloneStream = File.OpenRead(filename);
-
-            var partcloneInfo = new PartcloneImageInfo(ContainerName, partitionName, partcloneStream);
-            var uncompressedLength = partcloneInfo.Length;
 
             Partitions = [];
 
@@ -35,7 +34,6 @@ namespace libClonezilla.PartitionContainers
                     this,
                     partitionName,
                     partcloneStream,
-                    uncompressedLength,
                     Compression.None,
                     null,
                     willPerformRandomSeeking,

@@ -28,112 +28,75 @@ namespace libClonezilla.PartitionContainers
 
             Partitions = partitionNames
                             .Where(partitionName => partitionsToLoad.Count == 0 || partitionsToLoad.Contains(partitionName))
-                            .Select(partitionName =>
-                            {
-                                var driveName = new string(partitionName.TakeWhile(c => !char.IsNumber(c)).ToArray());
-
-                                var drivePartitionsFilename = Path.Combine(clonezillaArchiveFolder, $"{driveName}-pt.sf");
-
-                                //get the original size of the partition
-                                long? partitionSizeInBytes = null;
-                                try
-                                {
-                                    if (!File.Exists(drivePartitionsFilename))
-                                    {
-                                        throw new Exception($"Could not find the drive partitions file: {drivePartitionsFilename}");
-                                    }
-
-                                    var lines = File.ReadAllLines(drivePartitionsFilename);
-
-                                    var sectorSizeInBytesStr = lines
-                                                                .First(line => line.StartsWith("sector-size"))
-                                                                .Split(':')
-                                                                .Last()
-                                                                .Trim();
-
-                                    var sectorSizeInBytes = int.Parse(sectorSizeInBytesStr);
-
-                                    var partitionSizeInSectorsString = lines
-                                                                        .First(line => line.StartsWith($"/dev/{partitionName}"))
-                                                                        .Split("size=")[1]
-                                                                        .Split(",")[0]
-                                                                        .Trim();
-
-                                    var partitionSizeInSectors = long.Parse(partitionSizeInSectorsString);
-                                    partitionSizeInBytes = partitionSizeInSectors * sectorSizeInBytes;
-                                }
-                                catch
-                                {
-                                    Log.Debug($"Could not get sector size from: {drivePartitionsFilename}");
-                                }
-
-
-                                var partitionCache = cacheManager.GetPartitionCache(partitionName);
-
-
-                                Compression compressionInUse = Compression.None;
-                                var splitFilenames = Directory
-                                                        .GetFiles(clonezillaArchiveFolder, $"{partitionName}.*-ptcl-img*")
-                                                        .OrderBy(filename => filename, StringComparer.OrdinalIgnoreCase)   //GetFiles does not guarantee order; split volumes (.aa, .ab, ...) must be concatenated in sequence
-                                                        .ToList();
-
-                                compressionInUse = GetCompressionInUse(splitFilenames.First());
-
-                                var used_dd = splitFilenames.First().Contains(".dd-ptcl-img");
-
-                                var splitFileStreams = splitFilenames
-                                                        .Select(filename => new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                                                        .ToList();
-
-                                var compressedPartcloneStream = new Multistream(splitFileStreams);
-
-                                Partition? result = null;
-
-                                if (used_dd)
-                                {
-                                    //the partition is stored using dd
-                                    try
-                                    {
-                                        result = new ImageFilePartition(
-                                            clonezillaArchiveFolder, 
-                                            this, 
-                                            partitionName, 
-                                            compressedPartcloneStream, 
-                                            null, 
-                                            compressionInUse, 
-                                            partitionCache, 
-                                            willPerformRandomSeeking,
-                                            processTrailingNulls);
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Log.Error(ex, $"[{ContainerName}] [{partitionName}] Error while opening partition as {nameof(ImageFilePartition)}");
-                                    }
-                                }
-                                else
-                                {
-                                    try
-                                    {
-                                        result = new PartclonePartition(
-                                            clonezillaArchiveFolder, 
-                                            this, partitionName, 
-                                            compressedPartcloneStream, 
-                                            partitionSizeInBytes, 
-                                            compressionInUse,
-                                            partitionCache,
-                                            willPerformRandomSeeking,
-                                            processTrailingNulls);
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Log.Error(ex, $"[{ContainerName}] [{partitionName}] Error while opening partition as {nameof(PartclonePartition)}");
-                                    }
-                                }
-
-                                return result;
-                            })
+                            .Select(partitionName => OpenPartition(clonezillaArchiveFolder, cacheManager, partitionName, willPerformRandomSeeking, processTrailingNulls))
                             .OfType<Partition>()
                             .ToList();
+        }
+
+        //Everything that can fail for one partition - locating its files, identifying the compression, opening
+        //them, and reading the partclone header - happens inside this try, so one bad partition is skipped with a
+        //clear message instead of aborting the whole folder (gh review F9). Clonezilla can also write lzo, lrz and
+        //lzma images, which this tool cannot decode. A failed partition's file handles are released immediately.
+        Partition? OpenPartition(string clonezillaArchiveFolder, IClonezillaCacheManager cacheManager, string partitionName, bool willPerformRandomSeeking, bool processTrailingNulls)
+        {
+            var splitFileStreams = new List<FileStream>();
+            try
+            {
+                var partitionCache = cacheManager.GetPartitionCache(partitionName);
+
+                var splitFilenames = Directory
+                                        .GetFiles(clonezillaArchiveFolder, $"{partitionName}.*-ptcl-img*")
+                                        .OrderBy(filename => filename, StringComparer.OrdinalIgnoreCase)   //GetFiles does not guarantee order; split volumes (.aa, .ab, ...) must be concatenated in sequence
+                                        .ToList();
+                if (splitFilenames.Count == 0)
+                {
+                    throw new FileNotFoundException($"No image files found for partition {partitionName}");
+                }
+
+                var compressionInUse = GetCompressionInUse(splitFilenames[0]);
+                var used_dd = splitFilenames[0].Contains(".dd-ptcl-img");
+
+                foreach (var filename in splitFilenames)
+                {
+                    splitFileStreams.Add(new FileStream(filename, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+                }
+
+                var compressedPartcloneStream = new Multistream(splitFileStreams);
+
+                if (used_dd)
+                {
+                    //the partition is stored using dd
+                    return new ImageFilePartition(
+                        clonezillaArchiveFolder,
+                        this,
+                        partitionName,
+                        compressedPartcloneStream,
+                        null,
+                        compressionInUse,
+                        partitionCache,
+                        willPerformRandomSeeking,
+                        processTrailingNulls);
+                }
+
+                return new PartclonePartition(
+                    clonezillaArchiveFolder,
+                    this,
+                    partitionName,
+                    compressedPartcloneStream,
+                    compressionInUse,
+                    partitionCache,
+                    willPerformRandomSeeking,
+                    processTrailingNulls);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, $"[{ContainerName}] [{partitionName}] Could not open this partition; skipping it.");
+                foreach (var stream in splitFileStreams)
+                {
+                    stream.Dispose();
+                }
+                return null;
+            }
         }
 
         public static List<string> PartitionsInFolder(string clonezillaArchiveFolder)

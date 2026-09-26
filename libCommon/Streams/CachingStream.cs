@@ -33,7 +33,23 @@ namespace libCommon.Streams
         public override bool CanRead => true;
         public override bool CanSeek => true;
         public override bool CanWrite => false;
-        public override long Length => BaseStream.Length;
+        public override long Length => concurrent ? BaseStream.Length : LegacyLength();
+
+        //A restart stream opened without a known length discovers it by decoding the whole stream through the
+        //same stateful cursor the legacy decode path uses. Two first readers doing that at once (or one doing it
+        //while another decodes) would interleave on that cursor and could persist a wrong length, so discovery is
+        //serialised with decodes under decodeLock. Lengths are fixed, so it is read once.
+        long legacyLength = -1;
+        long LegacyLength()
+        {
+            long known = Volatile.Read(ref legacyLength);
+            if (known >= 0) return known;
+            lock (decodeLock)
+            {
+                if (legacyLength < 0) Volatile.Write(ref legacyLength, BaseStream.Length);
+                return legacyLength;
+            }
+        }
 
         long position = 0;
         public override long Position { get => position; set => Seek(value, SeekOrigin.Begin); }
@@ -183,7 +199,7 @@ namespace libCommon.Streams
                     staging = Buffers.BufferPool.Rent(spanLen);
                     int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, staging, 0, spanLen);
                     Interlocked.Increment(ref DecodeProgress);        //watchdog progress signal
-                    if (got <= 0) throw new Exception($"No bytes decoded for span {spanStart:N0}-{spanEnd:N0}");
+                    ThrowIfShortDecode(spanStart, spanEnd, got);
 
                     block = NativeBlock.AllocateReserved(got, governor);   //consumes `got` of the reservation
                     governor.Release(spanLen - got);                       //release the unused tail; block now owns `got`
@@ -235,6 +251,7 @@ namespace libCommon.Streams
             {
                 int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, buff, 0, spanLen);
                 Interlocked.Increment(ref DecodeProgress);
+                ThrowIfShortDecode(spanStart, spanEnd, got);   //returning 0 here would also read as a false end-of-file
                 long bytesLeft = (spanStart + got) - readPosition;
                 if (bytesLeft <= 0) return 0;
                 int toCopy = (int)Math.Min(count, bytesLeft);
@@ -242,6 +259,19 @@ namespace libCommon.Streams
                 return toCopy;
             }
             finally { Buffers.BufferPool.Return(buff); }
+        }
+
+        //ReadAt loops until the span is full or the source ends, so fewer bytes than the span means the source
+        //ended early. A slot is keyed by its span start and answers EVERY read inside the span, so caching a
+        //truncated slot would serve the missing tail as end-of-file for the life of the cache. Fail loudly instead:
+        //this read errors, nothing is cached, and the next read of the span retries (gh review F15).
+        void ThrowIfShortDecode(long spanStart, long spanEnd, int got)
+        {
+            long end = spanStart + got;
+            if (got <= 0 || (end < spanEnd && end < Length))
+            {
+                throw new IOException($"Short decode for span {spanStart:N0}-{spanEnd:N0}: got {got:N0} of {spanEnd - spanStart:N0} bytes before the end of the stream");
+            }
         }
 
         //Copies from a ready slot into the caller's buffer. MUST be called under mapLock: eviction (also
@@ -283,6 +313,7 @@ namespace libCommon.Streams
         int ReadAtLegacy(long readPosition, byte[] buffer, int offset, int count)
         {
             if (disposed) throw new ObjectDisposedException(nameof(CachingStream));
+            if (count <= 0 || readPosition >= Length) return 0;   //past EOF the span below would be negative and reach Admit/Rent (gh review F15)
 
             //Fast hit under the short list lock (never behind a decode).
             lock (listLock)
