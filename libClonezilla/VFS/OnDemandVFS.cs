@@ -110,16 +110,36 @@ namespace libClonezilla.VFS
         /// </summary>
         RootFolder? TryMount(string mountPoint, out string failureReason)
         {
+            //A drive letter ("L:\") or a folder mount point. The caller (Program.TryResolveMountPoint)
+            //normalises letters to that form and has already checked a folder is an existing, empty NTFS
+            //folder that is not a live mount point or link (gh review F51).
+            var isDriveLetter = IsDriveLetter(mountPoint);
+
             //If a live volume currently answers at this letter, it belongs to someone - possibly
             //another clonezilla-util mid-serve. Never RemoveMountPoint it: that destroys the other
             //process's mount out from under its open handles (2026-07-17: a slow ListContents
             //process did exactly this to the suite's L: mount mid-copy - Investigation I2). Report
-            //the letter as unavailable instead; the caller retries elsewhere or fails fast.
+            //the letter as unavailable instead; the caller retries elsewhere or fails fast. (Not for a
+            //folder: an empty folder is exactly what Dokan needs there, so it always "exists".)
             var probeRoot = mountPoint.TrimEnd('\\') + "\\";
-            if (Directory.Exists(probeRoot))
+            if (isDriveLetter && Directory.Exists(probeRoot))
             {
                 failureReason = "a live volume already answers at this mount point; refusing to displace it";
                 return null;
+            }
+
+            //A folder mount point whose process was killed (or crashed) before unmounting stays behind as a dead
+            //volume mount point: the folder can't be opened, and Dokan can't mount there again. Nothing answers
+            //behind it, so turning it back into the plain folder harms nobody - the folder analogue of clearing
+            //a dead Dokan letter below.
+            if (!isDriveLetter && libDokan.Utility.IsDeadVolumeMountPoint(mountPoint))
+            {
+                if (!libDokan.Utility.TryClearVolumeMountPoint(mountPoint, out var clearError))
+                {
+                    failureReason = $"it is a dead mount point left by an earlier run that did not unmount, and clearing it failed: {clearError}";
+                    return null;
+                }
+                Log.Information($"{mountPoint} was a dead mount point left by an earlier run that did not unmount; cleared it.");
             }
 
             //The letter is not answering, but a dead Dokan mount entry can still be registered there
@@ -146,7 +166,7 @@ namespace libClonezilla.VFS
             //Deliberately not disposed: on success the mount (and this handle) live for the process lifetime.
             var stopMount = new ManualResetEvent(false);
 
-            Task.Factory.StartNew(() =>
+            var mountTask = Task.Factory.StartNew(() =>
             {
                 try
                 {
@@ -184,7 +204,9 @@ namespace libClonezilla.VFS
                 }
             }, TaskCreationOptions.LongRunning);
 
-            if (!Utility.WaitForFolderToExist(mountPoint, TimeSpan.FromSeconds(30)))
+            //A drive letter appears only once mounted, so wait for it first. A folder exists before the
+            //mount, so for it the sentinel below appearing is the only sign the mount is up.
+            if (isDriveLetter && !Utility.WaitForFolderToExist(mountPoint, TimeSpan.FromSeconds(30)))
             {
                 failureReason = "the mount point did not appear within 30 seconds (the Dokan mount likely failed; see any errors above)";
                 stopMount.Set();
@@ -192,14 +214,24 @@ namespace libClonezilla.VFS
             }
 
             //the letter exists - but is the volume behind it OURS? Probe the sentinel that only this
-            //VFS instance contains. Briefly retried, in case our own mount is still settling.
+            //VFS instance contains. Briefly retried, in case our own mount is still settling; a folder
+            //mount point gets the full mount wait here instead (see above).
             var mountRoot = mountPoint.TrimEnd('\\') + "\\";
             var sentinelPath = Path.Combine(mountRoot, sentinelName);
+            var sentinelDeadline = DateTime.UtcNow + (isDriveLetter ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(30));
             var sentinelVisible = false;
-            for (var i = 0; i < 20 && !sentinelVisible; i++)
+            while (true)
             {
                 try { sentinelVisible = Directory.Exists(sentinelPath); } catch { }
-                if (!sentinelVisible) Thread.Sleep(100);
+                if (sentinelVisible || DateTime.UtcNow > sentinelDeadline) break;
+                Thread.Sleep(100);
+            }
+
+            if (!sentinelVisible && !isDriveLetter)
+            {
+                failureReason = "the mount did not appear on the folder within 30 seconds (the Dokan mount likely failed; see any errors above)";
+                stopMount.Set();
+                return null;
             }
 
             if (!sentinelVisible)
@@ -217,8 +249,44 @@ namespace libClonezilla.VFS
                 return null;
             }
 
+            activeStopMount = stopMount;
+            activeMountTask = mountTask;
             failureReason = "";
             return root;
+        }
+
+        //Mount points reach here normalised: a letter is always "L:\"; anything else is a folder.
+        static bool IsDriveLetter(string mountPoint) => mountPoint.Length == 3 && mountPoint[1] == ':' && mountPoint[2] == '\\';
+
+        //The live mount's stop signal and serving task (set once TryMount succeeds), for Unmount.
+        ManualResetEvent? activeStopMount;
+        Task? activeMountTask;
+
+        /// <summary>
+        /// Stops serving, waits (up to 15 s) for Dokan to unmount, and leaves a folder mount point as the plain
+        /// folder it was. Process exit drops the volume anyway, but not a FOLDER mount point's reparse point: even a
+        /// clean Dokan unmount leaves that behind when unelevated (observed with Dokan 2.3.1), and the folder then
+        /// can't be opened until the next mount clears it (gh review F51).
+        /// </summary>
+        public void Unmount()
+        {
+            var stopMount = Interlocked.Exchange(ref activeStopMount, null);
+            if (stopMount == null) return;   //never mounted, or already unmounted
+
+            stopMount.Set();
+            if (activeMountTask != null && !activeMountTask.Wait(TimeSpan.FromSeconds(15)))
+            {
+                Log.Warning($"The virtual file system at {MountPoint} did not unmount within 15 seconds; exiting anyway.");
+                return;
+            }
+
+            if (!IsDriveLetter(MountPoint) && libDokan.Utility.IsDeadVolumeMountPoint(MountPoint))
+            {
+                if (libDokan.Utility.TryClearVolumeMountPoint(MountPoint, out var clearError))
+                    Log.Debug($"Unmounted {MountPoint} and restored the plain folder.");
+                else
+                    Log.Warning($"Unmounted {MountPoint}, but could not restore the plain folder ({clearError}); the next mount there will clear it.");
+            }
         }
 
         public string ProgramName

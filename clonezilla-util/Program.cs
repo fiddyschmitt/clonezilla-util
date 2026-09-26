@@ -194,13 +194,11 @@ namespace clonezilla_util
 
                 case MountAsImageFiles mountAsImageOptions:
 
-                    MountAsImageFiles(mountAsImageOptions);
-                    return ReturnCode.Success;
+                    return MountAsImageFiles(mountAsImageOptions);
 
                 case MountAsFiles mountAtFilesOptions:
 
-                    MountAsFiles(mountAtFilesOptions);
-                    return ReturnCode.Success;
+                    return MountAsFiles(mountAtFilesOptions);
 
                 case ExtractPartitionImage extractPartitionImageOptions:
 
@@ -322,15 +320,20 @@ namespace clonezilla_util
             Console.Out.Flush();
         }
 
-        private static void MountAsImageFiles(MountAsImageFiles mountAsImageOptions)
+        private static ReturnCode MountAsImageFiles(MountAsImageFiles mountAsImageOptions)
         {
             if (mountAsImageOptions.InputPaths == null) throw new Exception($"{nameof(mountAsImageOptions.InputPaths)} not specified.");
 
+            if (!TryResolveMountPoint(mountAsImageOptions.MountPoint, out var mountPoint, out var mountPointError))
+            {
+                Log.Error(mountPointError);
+                return ReturnCode.InvalidArguments;
+            }
+
             //only an auto-chosen drive letter may silently fall back to another; a user-chosen one must not.
             //A null mount point stays null: OnDemandVFS picks a free letter at mount time.
-            var mountPointWasAutoSelected = mountAsImageOptions.MountPoint == null;
+            var mountPointWasAutoSelected = mountPoint == null;
 
-            var mountPoint = mountAsImageOptions.MountPoint;
             var vfs = new Lazy<IVFS>(() =>
             {
                 var result = new OnDemandVFS(PROGRAM_NAME, mountPoint, mountPointWasAutoSelected);
@@ -352,19 +355,24 @@ namespace clonezilla_util
             Log.Information($"Mounting complete. Mounted to: {mountedAt}");
             if (!mountAsImageOptions.NoExplorer) Process.Start("explorer.exe", mountedAt);
 
-            Console.WriteLine("Running. Press Enter to exit.");
-            Console.ReadLine();
+            ServeUntilEnter(vfs.Value);
+            return ReturnCode.Success;
         }
 
-        private static void MountAsFiles(MountAsFiles mountAsFilesOptions)
+        private static ReturnCode MountAsFiles(MountAsFiles mountAsFilesOptions)
         {
             if (mountAsFilesOptions.InputPaths == null) throw new Exception($"{nameof(mountAsFilesOptions.InputPaths)} not specified.");
 
+            if (!TryResolveMountPoint(mountAsFilesOptions.MountPoint, out var mountPoint, out var mountPointError))
+            {
+                Log.Error(mountPointError);
+                return ReturnCode.InvalidArguments;
+            }
+
             //only an auto-chosen drive letter may silently fall back to another; a user-chosen one must not.
             //A null mount point stays null: OnDemandVFS picks a free letter at mount time.
-            var mountPointWasAutoSelected = mountAsFilesOptions.MountPoint == null;
+            var mountPointWasAutoSelected = mountPoint == null;
 
-            var mountPoint = mountAsFilesOptions.MountPoint;
             var vfs = new Lazy<IVFS>(() =>
             {
                 var result = new OnDemandVFS(PROGRAM_NAME, mountPoint, mountPointWasAutoSelected);
@@ -386,8 +394,70 @@ namespace clonezilla_util
             Log.Information($"Mounting complete. Mounted to: {mountedAt}");
             if (!mountAsFilesOptions.NoExplorer) Process.Start("explorer.exe", mountedAt);
 
+            ServeUntilEnter(vfs.Value);
+            return ReturnCode.Success;
+        }
+
+        //Serve until Enter (or Ctrl+C), then unmount cleanly. Process exit drops the volume anyway, but only a
+        //clean unmount removes a FOLDER mount point's reparse point; otherwise the folder is left as a dead mount
+        //point until the next mount clears it (gh review F51).
+        private static void ServeUntilEnter(IVFS vfs)
+        {
+            Console.CancelKeyPress += (_, _) => vfs.Unmount();
+
             Console.WriteLine("Running. Press Enter to exit.");
             Console.ReadLine();
+
+            vfs.Unmount();
+        }
+
+        //Validates and normalises a user-supplied --mount value before anything is loaded or mounted (gh review
+        //F51). A drive letter written L, L:, L:\ or L:/ becomes "L:\" (a bare "L:" used to get past the live-volume
+        //probe, mount, then poll a relative path for 30 s before failing). Anything else is a folder mount point,
+        //which Dokan requires to be an existing, empty folder on NTFS - checked here so a bad one fails at once
+        //with the reason. Null (auto-select a letter at mount time) passes through.
+        private static bool TryResolveMountPoint(string? requested, out string? mountPoint, out string error)
+        {
+            mountPoint = null;
+            error = "";
+            if (requested == null) return true;
+
+            var trimmed = requested.Trim();
+            if (trimmed.Length is >= 1 and <= 3
+                && char.IsAsciiLetter(trimmed[0])
+                && (trimmed.Length < 2 || trimmed[1] == ':')
+                && (trimmed.Length < 3 || trimmed[2] is '\\' or '/'))
+            {
+                mountPoint = $"{char.ToUpperInvariant(trimmed[0])}:\\";
+                return true;
+            }
+
+            const string expected = @"A mount point must be a drive letter (e.g. L:\) or an existing, empty folder on an NTFS volume.";
+            try
+            {
+                var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(trimmed));
+
+                //A DEAD mount point (left by a run that was killed before it could unmount) is accepted: the mount
+                //clears it back to the empty folder it was. A live mount point or a link is refused.
+                var deadMountPoint = libDokan.Utility.IsDeadVolumeMountPoint(folder);
+
+                if (!Directory.Exists(folder))
+                    error = $"The mount point folder '{folder}' does not exist. {expected}";
+                else if (!deadMountPoint && File.GetAttributes(folder).HasFlag(FileAttributes.ReparsePoint))
+                    error = $"The mount point folder '{folder}' is already a mount point or link. {expected}";
+                else if (!deadMountPoint && Directory.EnumerateFileSystemEntries(folder).Any())
+                    error = $"The mount point folder '{folder}' is not empty. {expected}";
+                else if (!libCommon.Utility.IsOnNTFS(folder))
+                    error = $"The mount point folder '{folder}' is not on an NTFS volume. {expected}";
+                else
+                    mountPoint = folder;
+            }
+            catch (Exception ex)
+            {
+                error = $"'{requested}' cannot be used as a mount point ({ex.Message}). {expected}";
+            }
+
+            return mountPoint != null;
         }
 
         private static void ExtractPartitionImage(ExtractPartitionImage extractPartitionImageOptions)

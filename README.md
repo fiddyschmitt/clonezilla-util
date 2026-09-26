@@ -21,7 +21,7 @@ Now run the following command:
 
 `clonezilla-util.exe mount --input <clonezilla folder> --mount L:\`
 
-A virtual drive is created, containing all the files in the Clonezilla archive:
+A virtual drive is created, containing all the files in the Clonezilla archive. (`--mount` also accepts an existing, empty folder on an NTFS volume, such as `--mount C:\mnt\backup`. Leave it out to have a free drive letter chosen for you.)
 
 <div style="float:left;margin:100px 50px 50px 0" markdown="1">
 <kbd>

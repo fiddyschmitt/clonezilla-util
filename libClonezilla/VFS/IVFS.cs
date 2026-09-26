@@ -12,5 +12,8 @@ namespace libClonezilla.VFS
         public Folder CreateTempFolder();
 
         public Lazy<RootFolder> RootFolder { get; }
+
+        /// <summary>Unmounts the volume, if it was mounted, and waits (bounded) for that to finish.</summary>
+        public void Unmount();
     }
 }
