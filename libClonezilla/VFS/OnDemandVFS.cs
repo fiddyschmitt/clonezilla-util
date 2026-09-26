@@ -167,8 +167,9 @@ namespace libClonezilla.VFS
                             //Make the per-operation timeout explicit instead of relying on the driver
                             //default (15s). After the Dokan layer fixes, callbacks are fast and
                             //non-blocking, so this is just a safety net before Dokan abandons an IRP
-                            //(which surfaces to the app as 0x800705AA); 20s is generous for one read.
-                            options.TimeOut = TimeSpan.FromSeconds(20);
+                            //(which surfaces to the app as 0x800705AA); 20s is generous for one read. Shared
+                            //with DokanVFS's read watchdog, which extends slow reads by the same amount.
+                            options.TimeOut = TimeSpan.FromMilliseconds(DokanVFS.OperationTimeoutMs);
 
                             //Leave SingleThread at its default (false): Dokan dispatches callbacks on
                             //multiple threads, so concurrent reads/lookups are not serialised.

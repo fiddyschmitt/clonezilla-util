@@ -9,7 +9,18 @@
 #include "../include/lib7znative.h"
 
 #include <cstdio>
+#include <new>
 #define DIAG(...) do { fprintf(stderr, "[lib7zNative] " __VA_ARGS__); fputc('\n', stderr); fflush(stderr); } while (0)
+
+// Every export is a C ABI boundary into .NET. A C++ exception escaping one (7-Zip can throw - notably
+// std::bad_alloc, and this tool runs close to its memory limit by design) would unwind into the managed
+// caller and take the whole process down. So each export body sits inside SHIM_TRY/SHIM_CATCH, which
+// turns any exception into an HRESULT the host already handles (gh review F13).
+#define SHIM_TRY try {
+#define SHIM_CATCH(where) \
+  } \
+  catch (const std::bad_alloc &) { DIAG("%s: out of memory", where); return E_OUTOFMEMORY; } \
+  catch (...) { DIAG("%s: unexpected C++ exception", where); return E_FAIL; }
 
 #include "Common/MyWindows.h"
 #include "Common/MyInitGuid.h"      // defines the IID_* GUIDs - include exactly once per module
@@ -93,6 +104,11 @@ struct ShimArchive
 
 static FString WCharToFString(const wchar_t *s) { return us2fs(UString(s)); }
 
+static void DeleteQuietly(ShimArchive *arc)
+{
+  try { delete arc; } catch (...) {}
+}
+
 static int64_t FileTimeToInt64(const FILETIME &ft)
 {
   return ((int64_t)ft.dwHighDateTime << 32) | (int64_t)ft.dwLowDateTime;
@@ -109,7 +125,11 @@ LIB7Z_API int32_t SevenZip_Open(
   if (!in || !in->read || !in->seek || !sevenZipDllPath || !outHandle)
     return E_INVALIDARG;
 
-  ShimArchive *arc = new ShimArchive();
+  // Not SHIM_TRY: a failure part-way through must also free the half-built archive.
+  ShimArchive *arc = NULL;
+  try
+  {
+  arc = new ShimArchive();
 
   arc->codecs = new CCodecs;
   { ICompressCodecsInfo *unk = arc->codecs; unk->AddRef(); }
@@ -164,16 +184,21 @@ LIB7Z_API int32_t SevenZip_Open(
 
   *outHandle = arc;
   return S_OK;
+  }
+  catch (const std::bad_alloc &) { DIAG("SevenZip_Open: out of memory"); DeleteQuietly(arc); return E_OUTOFMEMORY; }
+  catch (...) { DIAG("SevenZip_Open: unexpected C++ exception"); DeleteQuietly(arc); return E_FAIL; }
 }
 
 LIB7Z_API int32_t SevenZip_GetItemCount(SevenZipArchiveHandle handle, uint32_t* outCount)
 {
   if (!handle || !outCount) return E_INVALIDARG;
+  SHIM_TRY
   ShimArchive *arc = (ShimArchive*)handle;
   UInt32 n = 0;
   const HRESULT hr = arc->link.GetArchive()->GetNumberOfItems(&n);
   *outCount = n;
   return hr;
+  SHIM_CATCH("SevenZip_GetItemCount")
 }
 
 LIB7Z_API int32_t SevenZip_GetItem(
@@ -182,6 +207,7 @@ LIB7Z_API int32_t SevenZip_GetItem(
     wchar_t* pathBuf, uint32_t pathBufChars, uint32_t* outPathChars)
 {
   if (!handle || !outInfo) return E_INVALIDARG;
+  SHIM_TRY
   ShimArchive *arc = (ShimArchive*)handle;
   IInArchive *a = arc->link.GetArchive();
 
@@ -220,6 +246,7 @@ LIB7Z_API int32_t SevenZip_GetItem(
   { NCOM::CPropVariant prop; if (a->GetProperty(index, kpidATime, &prop) == S_OK && prop.vt == VT_FILETIME) outInfo->accessedFileTime = FileTimeToInt64(prop.filetime); }
 
   return S_OK;
+  SHIM_CATCH("SevenZip_GetItem")
 }
 
 // ----------------------------------------------------------------------------
@@ -236,6 +263,7 @@ LIB7Z_API int32_t SevenZip_OpenItemStream(
 {
   if (outStream) *outStream = NULL;
   if (!handle || !outStream) return E_INVALIDARG;
+  SHIM_TRY
   ShimArchive *arc = (ShimArchive*)handle;
 
   CMyComPtr<IInArchiveGetStream> getStream;
@@ -255,6 +283,7 @@ LIB7Z_API int32_t SevenZip_OpenItemStream(
   item->stream = inStream;
   *outStream = item;
   return S_OK;
+  SHIM_CATCH("SevenZip_OpenItemStream")
 }
 
 LIB7Z_API int32_t SevenZip_ItemRead(
@@ -262,32 +291,36 @@ LIB7Z_API int32_t SevenZip_ItemRead(
 {
   if (processed) *processed = 0;
   if (!stream) return E_INVALIDARG;
+  SHIM_TRY
   ShimItemStream *item = (ShimItemStream*)stream;
   UInt32 got = 0;
   const HRESULT hr = item->stream->Read(buf, size, &got);
   if (processed) *processed = got;
   return hr;
+  SHIM_CATCH("SevenZip_ItemRead")
 }
 
 LIB7Z_API int32_t SevenZip_ItemSeek(
     SevenZipItemStreamHandle stream, int64_t offset, uint32_t origin, uint64_t* newPosition)
 {
   if (!stream) return E_INVALIDARG;
+  SHIM_TRY
   ShimItemStream *item = (ShimItemStream*)stream;
   UInt64 newPos = 0;
   const HRESULT hr = item->stream->Seek(offset, origin, &newPos);
   if (newPosition) *newPosition = newPos;
   return hr;
+  SHIM_CATCH("SevenZip_ItemSeek")
 }
 
 LIB7Z_API void SevenZip_ItemClose(SevenZipItemStreamHandle stream)
 {
-  if (stream) delete (ShimItemStream*)stream;
+  try { if (stream) delete (ShimItemStream*)stream; } catch (...) {}
 }
 
 LIB7Z_API void SevenZip_Close(SevenZipArchiveHandle handle)
 {
-  if (handle) delete (ShimArchive*)handle;
+  if (handle) DeleteQuietly((ShimArchive*)handle);
 }
 
 } // extern "C"

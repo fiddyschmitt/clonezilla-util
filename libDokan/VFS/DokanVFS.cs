@@ -314,8 +314,11 @@ namespace libDokan
         //biggest cost of these reads). Instead ONE free-running timer watches a registry of in-flight reads:
         //a fast read enters and leaves the registry between ticks and is never touched, paying only a
         //dictionary insert/remove. The timer only ever extends reads still running at a tick = the slow ones.
-        const int TimeoutWatchdogExtensionMs = 20_000;                                 //push the deadline out by this each tick
-        static readonly TimeSpan TimeoutWatchdogInterval = TimeSpan.FromSeconds(5);    //tick well inside the 20s timeout
+        //Dokan's per-operation timeout. OnDemandVFS creates the mount with options.TimeOut set from this, and the
+        //watchdog extends a slow read by the same amount each tick, so one constant keeps the two in step.
+        public const int OperationTimeoutMs = 20_000;
+        const int TimeoutWatchdogExtensionMs = OperationTimeoutMs;                     //push the deadline out by a full timeout each tick
+        static readonly TimeSpan TimeoutWatchdogInterval = TimeSpan.FromMilliseconds(OperationTimeoutMs / 4);   //tick well inside the timeout
         //Abandon a slow read only after this long with the whole mount decoding nothing. Env override
         //(CLONEZILLA_READ_STUCK_SECONDS) for tuning; the default is generous because the cost of over-waiting
         //is just a stuck op held a little longer, while under-waiting reintroduces gh #87.
@@ -352,7 +355,29 @@ namespace libDokan
         static readonly ConcurrentDictionary<long, InFlightRead> InFlightReads = new();
         static long inFlightReadIdSeq;
 
+        //A Timer callback runs on a pool thread, where an unhandled exception terminates the process. The tick
+        //only extends deadlines and reports, so a failure in it (not just in TryResetTimeout) is logged and
+        //retried on the next tick (gh review F22).
         static readonly Timer TimeoutWatchdog = new(_ =>
+        {
+            try
+            {
+                WatchdogTick();
+            }
+            catch (Exception ex)
+            {
+                var now = Environment.TickCount64;
+                if (now - lastWatchdogFailureLogTick >= 60_000)
+                {
+                    lastWatchdogFailureLogTick = now;
+                    Log.Warning(ex, "The read watchdog's tick failed; it will run again on the next tick.");
+                }
+            }
+        }, null, TimeoutWatchdogInterval, TimeoutWatchdogInterval);
+
+        static long lastWatchdogFailureLogTick = long.MinValue / 2;
+
+        static void WatchdogTick()
         {
             if (InFlightReads.IsEmpty)
             {
@@ -392,7 +417,7 @@ namespace libDokan
                 }
             }
             SlowReadReporting.OnTick(now, inFlight, slow, slowest, slowestElapsed);
-        }, null, TimeoutWatchdogInterval, TimeoutWatchdogInterval);
+        }
 
         //--- slow-read reporting -------------------------------------------------------------------
         //The 2026-08-18 bzip2 golden run lost 191 reads to Dokan timeouts (0x800705AA) in five bursts,
