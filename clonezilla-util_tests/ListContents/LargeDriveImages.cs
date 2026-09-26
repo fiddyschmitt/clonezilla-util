@@ -10,9 +10,12 @@ namespace clonezilla_util_tests.ListContents
     //Dokan supports mounting to a network drive (eg. \\myfs\\fs1). Perhaps mount to one of these dynamic places so that drive letter collisions can be avoided
     [DoNotParallelize]
     [TestClass]
-    public class LargeDriveImages
+    public class LargeDriveImages : ListTestBase
     {
-        [TestMethod]
+        //runaway protection only (~5x headroom): the slowest cold run so far took 50 min (gz, 2026-09-23)
+        const int TimeoutMs = 250 * 60_000;
+
+        [TestMethod, Timeout(TimeoutMs)]
         public void Bzip2()
         {
             if (!Main.RunLargeTests)
@@ -30,7 +33,7 @@ namespace clonezilla_util_tests.ListContents
                 ]);
         }
 
-        [TestMethod]
+        [TestMethod, Timeout(TimeoutMs)]
         public void Gz()
         {
             if (!Main.RunLargeTests)
@@ -48,7 +51,7 @@ namespace clonezilla_util_tests.ListContents
                 ]);
         }
 
-        [TestMethod]
+        [TestMethod, Timeout(TimeoutMs)]
         public void Raw()
         {
             TestUtility.ConfirmContainsStrings(
@@ -60,7 +63,7 @@ namespace clonezilla_util_tests.ListContents
                 ]);
         }
 
-        [TestMethod]
+        [TestMethod, Timeout(TimeoutMs)]
         public void Xz()
         {
             if (!Main.RunLargeTests)
@@ -78,7 +81,7 @@ namespace clonezilla_util_tests.ListContents
                 ]);
         }
 
-        [TestMethod]
+        [TestMethod, Timeout(TimeoutMs)]
         public void Zst()
         {
             TestUtility.ConfirmContainsStrings(

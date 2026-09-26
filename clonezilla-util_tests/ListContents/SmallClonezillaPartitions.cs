@@ -2,9 +2,12 @@ namespace clonezilla_util_tests.ListContents
 {
     [TestClass]
     [DoNotParallelize]
-    public class SmallClonezillaPartitions
+    public class SmallClonezillaPartitions : ListTestBase
     {
-        [TestMethod]
+        //runaway protection only: the slowest cold run so far took 3 s (2026-09-23)
+        const int TimeoutMs = 15 * 60_000;
+
+        [TestMethod, Timeout(TimeoutMs)]
         public void Bzip2()
         {
             TestUtility.ConfirmContainsStrings(
@@ -16,7 +19,7 @@ namespace clonezilla_util_tests.ListContents
                 ]);
         }
 
-        [TestMethod]
+        [TestMethod, Timeout(TimeoutMs)]
         public void gz()
         {
             TestUtility.ConfirmContainsStrings(
@@ -28,7 +31,7 @@ namespace clonezilla_util_tests.ListContents
                 ]);
         }
 
-        [TestMethod]
+        [TestMethod, Timeout(TimeoutMs)]
         public void xz()
         {
             TestUtility.ConfirmContainsStrings(
@@ -40,7 +43,7 @@ namespace clonezilla_util_tests.ListContents
                 ]);
         }
 
-        [TestMethod]
+        [TestMethod, Timeout(TimeoutMs)]
         public void zst()
         {
             TestUtility.ConfirmContainsStrings(
