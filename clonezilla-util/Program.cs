@@ -217,25 +217,15 @@ namespace clonezilla_util
         {
             if (listContentsOptions.InputPaths == null) throw new Exception($"{nameof(listContentsOptions.InputPaths)} not specified.");
 
-            //The listing reads each partition's image stream in-process and never touches a mount, so this
-            //Lazy stays unforced for Clonezilla folders and partclone/uncompressed image files: no drive
-            //letter, no sentinel probe or mount wait, and no Dokan needed (gh review F45 - it used to mount a
-            //temp folder it never read). A COMPRESSED, non-partclone image file (sda.img.gz/.zst/...) still
-            //forces it: CompressedImage serves its decompressed stream through a temp folder (gh review F46).
-            var vfs = new Lazy<IVFS>(() =>
-            {
-                //null mount point = OnDemandVFS picks a free letter at mount time, minimising the
-                //choose-vs-mount window in which another process can take the same letter
-                var result = new OnDemandVFS(PROGRAM_NAME, null, allowMountPointFallback: true);
-                return result;
-            });
-
+            //The listing reads each partition's image stream in-process and never mounts anything, for any input:
+            //no drive letter, no sentinel probe or mount wait, and no Dokan needed. (It used to mount a temp
+            //folder it never read - gh review F45 - and compressed image files were decompressed through a temp
+            //mount - gh review F46.)
             var containers = PartitionContainer.FromPaths(
                 listContentsOptions.InputPaths.ToList(),
                 CacheFolder,
                 listContentsOptions.PartitionsToInspect.ToList(),
                 true,
-                vfs,
                 listContentsOptions.ProcessTrailingNulls)
                                 .OrderBy(container => container.ContainerName)
                                 .ToList();
@@ -345,7 +335,6 @@ namespace clonezilla_util
                 CacheFolder,
                 mountAsImageOptions.PartitionsToMount.ToList(),
                 true,
-                vfs,
                 mountAsImageOptions.ProcessTrailingNulls);
 
             libClonezilla.Utility.PopulateVFS(vfs, vfs.Value.RootFolder.Value, containers, DesiredContent.ImageFiles);
@@ -384,7 +373,6 @@ namespace clonezilla_util
                 CacheFolder,
                 mountAsFilesOptions.PartitionsToMount.ToList(),
                 true,
-                vfs,
                 mountAsFilesOptions.ProcessTrailingNulls);
 
             libClonezilla.Utility.PopulateVFS(vfs, vfs.Value.RootFolder.Value, containers, DesiredContent.Files);
@@ -465,27 +453,16 @@ namespace clonezilla_util
             if (extractPartitionImageOptions.InputPaths == null) throw new Exception($"{nameof(extractPartitionImageOptions.InputPaths)} not specified.");
             if (extractPartitionImageOptions.OutputFolder == null) throw new Exception($"{nameof(extractPartitionImageOptions.OutputFolder)} not specified.");
 
-            if (!Directory.Exists(extractPartitionImageOptions.OutputFolder))
-            {
-                Directory.CreateDirectory(extractPartitionImageOptions.OutputFolder);
-            }
-
-
-            var vfs = new Lazy<IVFS>(() =>
-            {
-                //null mount point = OnDemandVFS picks a free letter at mount time, minimising the
-                //choose-vs-mount window in which another process can take the same letter
-                var result = new OnDemandVFS(PROGRAM_NAME, null, allowMountPointFallback: true);
-                return result;
-            });
-
+            //headless for every input: nothing here mounts (gh review F46)
             var containers = PartitionContainer.FromPaths(
                                 extractPartitionImageOptions.InputPaths.ToList(),
                                 CacheFolder,
                                 extractPartitionImageOptions.PartitionsToExtract.ToList(),
                                 false,
-                                vfs,
                                 extractPartitionImageOptions.ProcessTrailingNulls);
+
+            //created only now that the inputs have loaded, so a bad input leaves no empty folder behind (gh review F58)
+            Directory.CreateDirectory(extractPartitionImageOptions.OutputFolder);
 
             containers
                 .ForEach(container =>
@@ -519,29 +496,21 @@ namespace clonezilla_util
 
             var inputPaths = extractOptions.InputPaths.ToList();
             var outputRoot = ResolveExtractOutputRoot(extractOptions.OutputFolder, inputPaths);
-            Directory.CreateDirectory(outputRoot);
             var outputRootFull = Path.GetFullPath(outputRoot);
 
             var filter = new PathGlobFilter(extractOptions.Include, extractOptions.Exclude);
 
-            var vfs = new Lazy<IVFS>(() =>
-            {
-                //null mount point = OnDemandVFS picks a free letter at mount time. For Clonezilla folders
-                //and partclone/uncompressed image files this Lazy stays unforced - extract enumerates and
-                //copies streams headlessly. A COMPRESSED, non-partclone image file (sda.img.gz/.zst/...) is
-                //the exception: CompressedImage forces a temp folder, which mounts, so Dokan IS required
-                //for those inputs (gh review F46; a future fix feeds the decompressed stream in-process).
-                var result = new OnDemandVFS(PROGRAM_NAME, null, allowMountPointFallback: true);
-                return result;
-            });
-
+            //Headless for every input: extract enumerates and copies streams in-process and never mounts, so Dokan
+            //is not needed. (Compressed image files used to be decompressed through a temp mount - gh review F46.)
             var containers = PartitionContainer.FromPaths(
                                 inputPaths,
                                 CacheFolder,
                                 extractOptions.PartitionsToExtract.ToList(),
                                 true,   //random access: we seek to scattered individual files
-                                vfs,
                                 extractOptions.ProcessTrailingNulls);
+
+            //created only now that the inputs have loaded, so a bad input leaves no empty folder behind (gh review F58)
+            Directory.CreateDirectory(outputRoot);
 
             long totalFiles = 0;
             long totalBytes = 0;
@@ -729,19 +698,39 @@ namespace clonezilla_util
             var firstInput = inputPaths.First().TrimEnd('\\', '/');
             var baseName = Directory.Exists(firstInput)
                 ? new DirectoryInfo(firstInput).Name
-                : Path.GetFileNameWithoutExtension(firstInput);
+                : StripImageExtensions(Path.GetFileName(firstInput));
             if (string.IsNullOrWhiteSpace(baseName)) baseName = "extracted";
 
             var candidate = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), baseName));
 
+            //Never the input itself, a folder inside it, or an existing FILE: stripping one extension turned
+            //sda.img.gz into sda.img, which is often a real file sitting right next to it (gh review F58).
             var inputFull = Path.GetFullPath(firstInput);
             if (candidate.Equals(inputFull, StringComparison.OrdinalIgnoreCase) ||
-                candidate.StartsWith(inputFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                candidate.StartsWith(inputFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                File.Exists(candidate))
             {
                 candidate = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), baseName + "-extracted"));
             }
 
             return candidate;
+        }
+
+        //Compression, split-volume and raw-image extensions, peeled repeatedly from a file name to name its default
+        //extract folder: sda.img.gz -> sda, sda1.ntfs-ptcl-img.gz.aa -> sda1.ntfs-ptcl-img.
+        static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".gz", ".bz2", ".xz", ".zst", ".zstd", ".lz4", ".lzip", ".lz", ".uncomp", ".aa", ".img", ".image", ".dd", ".raw",
+        };
+
+        static string StripImageExtensions(string fileName)
+        {
+            var name = fileName;
+            while (ImageExtensions.Contains(Path.GetExtension(name)) && Path.GetFileNameWithoutExtension(name).Length > 0)
+            {
+                name = Path.GetFileNameWithoutExtension(name);
+            }
+            return name;
         }
 
         private static void TrySetTimestamps(string path, ArchiveEntry entry)

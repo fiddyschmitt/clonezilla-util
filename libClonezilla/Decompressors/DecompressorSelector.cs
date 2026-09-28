@@ -116,6 +116,13 @@ namespace libClonezilla.Decompressors
                     //raw uncompressed local file: serve it directly, no cache layer needed
                     addCacheLayer = false;
                 }
+                else if (CompressionInUse == Compression.None && uncompressedStream is IPositionalReader)
+                {
+                    //Decoded content from an outer layer, already random-access and cache-backed: a compressed
+                    //image file's decompressed stream (or a partclone stream over one), now handed over in-process
+                    //(gh review F46). A second, legacy cache over it would serialise every miss under one decode lock.
+                    addCacheLayer = false;
+                }
             }
 
             //addCacheLayer = false;

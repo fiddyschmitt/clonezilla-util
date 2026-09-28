@@ -23,7 +23,7 @@ namespace libClonezilla.PartitionContainers
 
         public abstract string ContainerName { get; protected set; }
 
-        public static PartitionContainer FromPath(string path, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking, Lazy<IVFS> vfs, bool processTrailingNulls)
+        public static PartitionContainer FromPath(string path, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking, bool processTrailingNulls)
         {
             PartitionContainer? result = null;
 
@@ -39,7 +39,7 @@ namespace libClonezilla.PartitionContainers
             }
             else if (File.Exists(path))
             {
-                result = new ImageFile(path, partitionsToLoad, willPerformRandomSeeking, vfs, processTrailingNulls);
+                result = new ImageFile(path, partitionsToLoad, willPerformRandomSeeking, processTrailingNulls);
             }
             else
             {
@@ -54,10 +54,10 @@ namespace libClonezilla.PartitionContainers
             return result;
         }
 
-        public static List<PartitionContainer> FromPaths(List<string> paths, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking, Lazy<IVFS> vfs, bool processTrailingNulls)
+        public static List<PartitionContainer> FromPaths(List<string> paths, string cacheFolder, List<string> partitionsToLoad, bool willPerformRandomSeeking, bool processTrailingNulls)
         {
             var result = paths
-                            .Select(path => FromPath(path, cacheFolder, partitionsToLoad, willPerformRandomSeeking, vfs, processTrailingNulls))
+                            .Select(path => FromPath(path, cacheFolder, partitionsToLoad, willPerformRandomSeeking, processTrailingNulls))
                             .ToList();
 
             ValidateRequestedPartitions(partitionsToLoad, result);

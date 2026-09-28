@@ -19,10 +19,33 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             ContainerName = containerName;
             WholeFileCacheFolder = wholeFileCacheFolder;
 
-            var archiveEntries = EnumerateTopLevel(filename, wholeFileCacheFolder);
+            List<ArchiveEntry> archiveEntries;
+            using (var enumStream = File.OpenRead(filename))
+            {
+                archiveEntries = EnumerateTopLevel(enumStream, wholeFileCacheFolder);
+            }
 
             var rawImageStream = File.OpenRead(filename);
             SetupFromStream(rawImageStream, archiveEntries, willPerformRandomSeeking, processTrailingNulls);
+        }
+
+        /// <summary>
+        /// An image that exists only as a stream: the decompressed content of a compressed image file, read
+        /// in-process. <paramref name="originName"/> is the file it came from (logs, partition origin). Compressed
+        /// image files used to be published as a hidden file on a Dokan temp mount and re-opened through it by name,
+        /// so list, extract and extract-partition-image needed Dokan for them (gh review F46).
+        /// </summary>
+        public RawImage(Stream imageStream, string originName, List<string> partitionsToLoad, string containerName, bool willPerformRandomSeeking, bool processTrailingNulls, string? wholeFileCacheFolder)
+        {
+            Filename = originName;
+            PartitionsToLoad = partitionsToLoad;
+            ContainerName = containerName;
+            WholeFileCacheFolder = wholeFileCacheFolder;
+
+            var archiveEntries = EnumerateTopLevel(imageStream, wholeFileCacheFolder);
+
+            imageStream.Seek(0, SeekOrigin.Begin);
+            SetupFromStream(imageStream, archiveEntries, willPerformRandomSeeking, processTrailingNulls);
         }
 
         // Lists the top level of the image via the native 7-Zip engine, NON-recursively: for a drive
@@ -32,7 +55,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
         // The result is cached in the whole-file cache folder when one exists: for compressed drive
         // images the scan reads partition-table and filesystem structures through the decompressor,
         // which is expensive to repeat on every open (TEST_ANALYSIS.md #5).
-        static List<ArchiveEntry> EnumerateTopLevel(string filename, string? wholeFileCacheFolder)
+        static List<ArchiveEntry> EnumerateTopLevel(Stream imageStream, string? wholeFileCacheFolder)
         {
             var cacheFilename = wholeFileCacheFolder == null ? null : Path.Combine(wholeFileCacheFolder, "toplevel.json");
 
@@ -56,8 +79,8 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             List<ArchiveEntry> entries;
             try
             {
-                using var enumStream = File.OpenRead(filename);
-                using var arc = new SevenZipNativeArchive(enumStream, SevenZipUtility.SevenZipDll(), ownsStream: false, recursive: false);
+                imageStream.Seek(0, SeekOrigin.Begin);
+                using var arc = new SevenZipNativeArchive(imageStream, SevenZipUtility.SevenZipDll(), ownsStream: false, recursive: false);
                 entries = arc.GetEntries()
                             .Select(e => new ArchiveEntry(e.Path)
                             {
@@ -89,23 +112,6 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             }
 
             return entries;
-        }
-
-        public RawImage(
-            string filename,
-            Stream rawImageStream,
-            List<string> partitionsToLoad,
-            string containerName,
-            IEnumerable<ArchiveEntry> archiveEntries,
-            bool willPerformRandomSeeking,
-            bool processTrailingNulls,
-            string? wholeFileCacheFolder)
-        {
-            Filename = filename;
-            PartitionsToLoad = partitionsToLoad;
-            ContainerName = containerName;
-            WholeFileCacheFolder = wholeFileCacheFolder;
-            SetupFromStream(rawImageStream, archiveEntries, willPerformRandomSeeking, processTrailingNulls);
         }
 
         public void SetupFromStream(Stream rawImageStream, IEnumerable<ArchiveEntry> archiveEntries, bool willPerformRandomSeeking, bool processTrailingNulls)

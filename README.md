@@ -72,8 +72,6 @@ Run the following command:
 
 ## Extract partition images from Clonezilla archive (Dokan not required)
 
-> **Note:** the Dokan driver is not required for Clonezilla folders, partclone streams or uncompressed images. It *is* still required for a compressed single image file (e.g. `sda.img.gz`, `sda.img.zst`), which is decompressed through a temporary mount.
-
 Run the following command:
 
 `clonezilla-util.exe extract-partition-image --input <clonzilla folder> --output <folder to extract to>`
@@ -99,8 +97,6 @@ If the images are extracted to an NTFS drive, they are created as sparse. Meanin
 ## Extract individual files (Dokan not required)
 
 Extract selected files straight to a folder, without mounting a drive:
-
-> **Note:** the Dokan driver is not required for Clonezilla folders, partclone streams or uncompressed images. It *is* still required for a compressed single image file (e.g. `sda.img.gz`, `sda.img.zst`), which is decompressed through a temporary mount.
 
 `clonezilla-util.exe extract --input <clonezilla folder> [--output <folder>] [--include <patterns...>] [--exclude <patterns...>] [--flatten]`
 
