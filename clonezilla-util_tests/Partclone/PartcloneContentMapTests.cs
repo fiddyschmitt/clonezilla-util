@@ -111,6 +111,57 @@ namespace clonezilla_util_tests.Partclone
             }
         }
 
+        [TestMethod]
+        public void V2_ByteBitmap_Typical()
+        {
+            // BM_BYTE: one byte per block in the bitmap. The reader used to assume one BIT per block for every v2
+            // image, read an eighth of this bitmap and took the rest for block content (gh review F33).
+            var pop = Bits(Typical);
+            var (img, exp) = BuildV2(pop, BlockSize, blocksPerChecksum: 4, checksumSize: 4, deviceSize: pop.Length * BlockSize, byteBitmap: true);
+            AssertRestoresTo(img, exp, BlockSize);
+        }
+
+        [TestMethod]
+        public void V2_CorruptHeaderCrc_Throws()
+        {
+            // a damaged header must fail at open, clearly, not later as a nonsensical length or map (gh review F43)
+            var pop = Bits(Typical);
+            var (img, _) = BuildV2(pop, BlockSize, blocksPerChecksum: 4, checksumSize: 4, deviceSize: pop.Length * BlockSize);
+            img[0x40] ^= 0x01;   // inside FileSystemInfoV2, covered by the header CRC
+            AssertOpenThrows<InvalidDataException>(img, "header CRC");
+        }
+
+        [TestMethod]
+        public void V2_CorruptBitmapCrc_Throws()
+        {
+            var pop = Bits(Typical);
+            var (img, _) = BuildV2(pop, BlockSize, blocksPerChecksum: 4, checksumSize: 4, deviceSize: pop.Length * BlockSize);
+            img[0x6E] ^= 0x01;   // first bitmap byte
+            AssertOpenThrows<InvalidDataException>(img, "bitmap CRC");
+        }
+
+        [TestMethod]
+        public void V2_BigEndianMarker_NotSupported()
+        {
+            var pop = Bits(Typical);
+            var (img, _) = BuildV2(pop, BlockSize, blocksPerChecksum: 4, checksumSize: 4, deviceSize: pop.Length * BlockSize, bigEndianMarker: true);
+            AssertOpenThrows<NotSupportedException>(img, "big-endian");
+        }
+
+        static void AssertOpenThrows<TException>(byte[] image, string expectedInMessage) where TException : Exception
+        {
+            try
+            {
+                using var ps = new PartcloneStream("container", "partition", new MemoryStream(image));
+            }
+            catch (TException ex)
+            {
+                Assert.IsTrue(ex.Message.Contains(expectedInMessage), ex.Message);
+                return;
+            }
+            Assert.Fail($"Opening the image should have thrown {typeof(TException).Name}.");
+        }
+
         // ---- assertion: the restored stream must equal the ground-truth bytes ----------------
 
         [TestMethod]
@@ -229,7 +280,7 @@ namespace clonezilla_util_tests.Partclone
             return bytes;
         }
 
-        static (byte[] image, byte[] expected) BuildV2(bool[] populated, int blockSize, int blocksPerChecksum, int checksumSize, long deviceSize)
+        static (byte[] image, byte[] expected) BuildV2(bool[] populated, int blockSize, int blocksPerChecksum, int checksumSize, long deviceSize, bool byteBitmap = false, bool bigEndianMarker = false)
         {
             int totalBlocks = populated.Length;
             ulong used = (ulong)populated.Count(p => p);
@@ -241,7 +292,7 @@ namespace clonezilla_util_tests.Partclone
             bw.Write(Ascii("partclone-image", 16));
             bw.Write(Ascii("2.6.6", 14));
             bw.Write(Ascii("0002", 4));
-            bw.Write((ushort)0xC0DE); // little-endian marker
+            bw.Write(bigEndianMarker ? (ushort)0xDEC0 : (ushort)0xC0DE); // endianness marker, read little-endian
 
             // FileSystemInfoV2 (fs[16] + device[8] + total[8] + superblockUsed[8] + bitmapUsed[8] + blockSize[4])
             bw.Write(Ascii("EXTFS", 16));
@@ -259,17 +310,29 @@ namespace clonezilla_util_tests.Partclone
             bw.Write((ushort)checksumSize);
             bw.Write((uint)blocksPerChecksum);
             bw.Write((byte)0);     // reseed
-            bw.Write((byte)0x01);  // BM_BIT
-            bw.Write((uint)0);     // header CRC (ignored by the reader)
+            bw.Write(byteBitmap ? (byte)0x08 : (byte)0x01);  // BM_BYTE / BM_BIT
 
-            // Bitmap: ceil(totalBlocks/8) bytes, 1 bit/block, LSB-first
-            var bitmap = new byte[(totalBlocks + 7) / 8];
-            for (int b = 0; b < totalBlocks; b++)
+            // header CRC: partclone's CRC-32 over the 0x6A header bytes before it (the reader checks it)
+            bw.Flush();
+            bw.Write(PartcloneCrc32.Compute(ms.ToArray()));
+
+            // Bitmap: BM_BIT = ceil(totalBlocks/8) bytes, 1 bit/block, LSB-first; BM_BYTE = 1 byte/block
+            byte[] bitmap;
+            if (byteBitmap)
             {
-                if (populated[b]) bitmap[b >> 3] |= (byte)(1 << (b & 7));
+                bitmap = new byte[totalBlocks];
+                for (int b = 0; b < totalBlocks; b++) bitmap[b] = (byte)(populated[b] ? 1 : 0);
+            }
+            else
+            {
+                bitmap = new byte[(totalBlocks + 7) / 8];
+                for (int b = 0; b < totalBlocks; b++)
+                {
+                    if (populated[b]) bitmap[b >> 3] |= (byte)(1 << (b & 7));
+                }
             }
             bw.Write(bitmap);
-            bw.Write((uint)0);     // bitmap CRC (ignored by the reader)
+            bw.Write(PartcloneCrc32.Compute(bitmap));   // bitmap CRC (checked by the reader)
 
             WriteContent(bw, populated, blockSize, blocksPerChecksum, checksumSize);
 
