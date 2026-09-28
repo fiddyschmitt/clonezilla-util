@@ -212,20 +212,7 @@ namespace clonezilla_util_tests.Mount.AsFiles
             //that leak is exactly what poisoned the 2026-08-15 warm run
         }
 
-        static void WaitForDriveGone(TimeSpan maxWait)
-        {
-            var waited = Stopwatch.StartNew();
-            while (Directory.Exists($@"L:\{Partition}") && waited.Elapsed < maxWait)
-            {
-                Thread.Sleep(1000);
-            }
-            //not fatal if it lingers - the "Mounting complete" gate protects the next mount -
-            //but note it, because a stuck letter usually means an orphaned mount process
-            if (Directory.Exists($@"L:\{Partition}"))
-            {
-                Console.WriteLine($@"warning: L:\{Partition} still present after {maxWait} - stale mount?");
-            }
-        }
+        static void WaitForDriveGone(TimeSpan maxWait) => TestUtility.WaitForMountGone($@"L:\{Partition}", maxWait);
 
         static void ProbeRead(string path, TimeSpan maxWait)
         {

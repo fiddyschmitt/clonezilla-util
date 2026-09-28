@@ -26,6 +26,8 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <!-- builds the synthetic multi-stream (pbzip2-style) image in Synthetic/ParallelBzip2Tests; same version as the product -->
+    <PackageReference Include="SharpCompress" Version="0.50.0" />
   </ItemGroup>
 
   <ItemGroup>

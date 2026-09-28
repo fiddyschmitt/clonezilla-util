@@ -23,6 +23,28 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
         }
 
         [TestMethod]
+        public void Bzip2()
+        {
+            TestUtility.ConfirmFilesExist(
+                Main.ExeUnderTest,
+                """mount-as-image-files --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-16-22-img_pb-devops1_bzip2" -p sda1 -m L:\ """,
+                [
+                    new FileDetails(@"L:\sda1.img", "d9a64d07801cb9f5878a72da4c5d53fd"),
+                ]);
+        }
+
+        [TestMethod]
+        public void Xz()
+        {
+            TestUtility.ConfirmFilesExist(
+                Main.ExeUnderTest,
+                """mount-as-image-files --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-17-12-img_pb-devops1_xz" -p sda1 -m L:\ """,
+                [
+                    new FileDetails(@"L:\sda1.img", "d9a64d07801cb9f5878a72da4c5d53fd"),
+                ]);
+        }
+
+        [TestMethod]
         public void Partclone()
         {
             //partclone image

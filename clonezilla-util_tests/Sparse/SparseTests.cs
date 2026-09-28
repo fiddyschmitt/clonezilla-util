@@ -12,7 +12,7 @@ using Windows.Win32;
 namespace clonezilla_util_tests.Sparse
 {
     [TestClass]
-    public class SparseTests
+    public class SparseTests : ExeTestBase
     {
         //sda1 of the gz image: small, and its MD5 is already pinned by ImageFileTests.Gz, which serves the same
         //partition image through a mount. This test used to check only that the output was sparse, so the
@@ -24,35 +24,30 @@ namespace clonezilla_util_tests.Sparse
         //allocated (measured 2026-09-24: 418 MB of 576 MB); an output that wrote its zeros is 100%.
         const double MaxAllocatedFraction = 0.9;
 
-        //Registered so [TestCleanup] can kill it: a [Timeout] abandons the test without running finally blocks.
-        static Process? current;
-
-        [TestCleanup]
-        public void KillLeakedExe()
-        {
-            var process = Interlocked.Exchange(ref current, null);
-            try { if (process != null && !process.HasExited) process.Kill(entireProcessTree: true); } catch { }
-        }
-
         //runaway protection only: 35 s warm (2026-09-24)
         [TestMethod, Timeout(20 * 60_000)]
         public void ExtractAndSparsifyFile()
         {
-            var outputFolder = Directory.CreateTempSubdirectory().FullName;
+            var allocatedFraction = ExtractSda1AndMeasure([]);
+            Assert.IsTrue(allocatedFraction < MaxAllocatedFraction, $"Size on disk is {allocatedFraction:P1} of the file size; the output is not sparse");
+        }
+
+        //--no-sparse-output: the same bytes, written in full (every cluster allocated)
+        [TestMethod, Timeout(20 * 60_000)]
+        public void ExtractWithoutSparse_WritesEveryByte()
+        {
+            var allocatedFraction = ExtractSda1AndMeasure(["--no-sparse-output"]);
+            Assert.IsTrue(allocatedFraction > 0.99, $"Size on disk is only {allocatedFraction:P1} of the file size; --no-sparse-output still produced a sparse file");
+        }
+
+        //Extracts sda1, checks its content, and returns its size on disk as a fraction of its length.
+        double ExtractSda1AndMeasure(string[] extraArgs)
+        {
+            var outputFolder = NewTempFolder();
             try
             {
-                var args = @$"extract-partition-image --input ""{Input}"" --output ""{outputFolder}"" -p sda1";
-
-                var psi = new ProcessStartInfo(Main.ExeUnderTest, args)
-                {
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                using var process = Process.Start(psi) ?? throw new Exception($"Could not start {Main.ExeUnderTest}");
-                current = process;
-                process.WaitForExit();
-                Interlocked.CompareExchange(ref current, null, process);
-                Assert.AreEqual(0, process.ExitCode, "extract-partition-image exited with a non-zero code");
+                RunExe(["extract-partition-image", "--input", Input, "--output", outputFolder, "-p", "sda1", .. extraArgs])
+                    .AssertSucceeded("extract-partition-image");
 
                 var extractedFilename = Path.Combine(outputFolder, "sda1.img");
                 Assert.IsTrue(File.Exists(extractedFilename), $"missing {extractedFilename}");
@@ -60,12 +55,11 @@ namespace clonezilla_util_tests.Sparse
 
                 var fileSize = new FileInfo(extractedFilename).Length;
                 var sizeOnDisk = GetFileSizeOnDisk(extractedFilename);
-                var allocatedFraction = sizeOnDisk / (double)fileSize;
-                Assert.IsTrue(allocatedFraction < MaxAllocatedFraction, $"Size on disk is {allocatedFraction:P1} of the file size; the output is not sparse");
+                return sizeOnDisk / (double)fileSize;
             }
             finally
             {
-                Directory.Delete(outputFolder, true);
+                TryDeleteFolder(outputFolder);
             }
         }
 
