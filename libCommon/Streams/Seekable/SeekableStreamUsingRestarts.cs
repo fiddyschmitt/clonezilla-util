@@ -106,9 +106,14 @@ namespace libCommon.Streams.Seekable
 
             if (position < oldPosition)
             {
-                //The original stream can't go backwards. So we need to start over
+                //The original stream can't go backwards. So we need to start over. The decoder being replaced is
+                //disposed, not just dropped: it holds decoder state (native, for zstd) and buffers (gh review F41).
+                //That is safe because decoders read a NonClosingStream view of the shared compressed stream, so
+                //disposing one leaves the input open for its replacement.
                 Log.Debug($"Restarting stream. Need to seek from beginning to position {position.BytesToString()}");
+                var abandoned = underlyingStream;
                 underlyingStream = StreamFactory.Invoke();
+                try { abandoned.Dispose(); } catch { }
                 underlyingStream.CopyTo(Null, position, Buffers.ARBITRARY_SMALL_SIZE_BUFFER);
             }
             else
@@ -118,17 +123,6 @@ namespace libCommon.Streams.Seekable
                 if (toSeek > 0)
                 {
                     Log.Debug($"Was asked to seek from position {oldPosition:N0} to {position:N0}. To get there, need to read {toSeek.BytesToString()}");
-
-                    /*
-                    if (toSeek > Buffers.ARBITRARY_HUGE_SIZE_BUFFER)
-                    {
-                        //Experiment
-
-                        //7-Zip didn't like us doing this? Why? It's fine in SiphonStream
-                        toSeek = Buffers.ARBITRARY_HUGE_SIZE_BUFFER;
-                        Log.Debug($"That's a bit far. How about a {toSeek.BytesToString()} seek instead?");
-                    }
-                    */
 
                     var seeked = underlyingStream.CopyTo(Null, toSeek, Buffers.ARBITRARY_SMALL_SIZE_BUFFER);
 
@@ -142,6 +136,15 @@ namespace libCommon.Streams.Seekable
         public override void SetLength(long value)
         {
             throw new NotImplementedException();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                try { underlyingStream.Dispose(); } catch { }
+            }
+            base.Dispose(disposing);
         }
 
         public override void Write(byte[] buffer, int offset, int count)

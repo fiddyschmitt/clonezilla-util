@@ -1,6 +1,7 @@
 ﻿using libBzip2;
 using libClonezilla.Cache;
 using libCommon;
+using libCommon.Streams;
 using Serilog;
 using SharpCompress.Compressors.BZip2;
 using System;
@@ -34,7 +35,7 @@ namespace libClonezilla.Decompressors
             //concatenated bzip2 streams into one file; with this false, decoding stopped after the first
             //stream and produced a truncated image (extract-partition-image feeds through this sequential
             //path). It is a no-op for a single-stream file - decoding stops cleanly at EOF (gh review F5).
-            var result = BZip2Stream.Create(CompressedStream, SharpCompress.Compressors.CompressionMode.Decompress, true);
+            var result = BZip2Stream.Create(new NonClosingStream(CompressedStream), SharpCompress.Compressors.CompressionMode.Decompress, true);
 
             return result;
         }

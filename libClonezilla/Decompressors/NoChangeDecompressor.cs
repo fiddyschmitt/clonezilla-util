@@ -1,4 +1,5 @@
-﻿using System;
+﻿using libCommon.Streams;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -22,7 +23,7 @@ namespace libClonezilla.Decompressors
         public override Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
-            return CompressedStream;
+            return new NonClosingStream(CompressedStream);   //a consumer disposing its "decoder" must not close the shared file
         }
     }
 }

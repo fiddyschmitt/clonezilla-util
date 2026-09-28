@@ -147,8 +147,10 @@ namespace libClonezilla.Decompressors
                 return wholeFileCacheFolder;
             }
 
-            var streamForHashing = Decompressor.GetSequentialStream();
-            wholeFileCacheFolder = WholeFileCacheManager.GetCacheFolder(streamForHashing, StreamName, CompressedStream.Length);
+            using (var streamForHashing = Decompressor.GetSequentialStream())   //a throwaway decoder; disposing it leaves CompressedStream open (gh review F40)
+            {
+                wholeFileCacheFolder = WholeFileCacheManager.GetCacheFolder(streamForHashing, StreamName, CompressedStream.Length);
+            }
 
             //hashing consumed part of the compressed stream; downstream consumers expect to
             //start at 0

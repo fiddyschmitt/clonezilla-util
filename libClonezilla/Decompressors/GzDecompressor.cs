@@ -1,6 +1,7 @@
 using GzipSeekable;
 using libClonezilla.Cache;
 using libCommon;
+using libCommon.Streams;
 using Serilog;
 using System;
 using System.IO;
@@ -70,7 +71,7 @@ namespace libClonezilla.Decompressors
         public override Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
-            var uncompressedStream = new GZipStream(CompressedStream, CompressionMode.Decompress);
+            var uncompressedStream = new GZipStream(new NonClosingStream(CompressedStream), CompressionMode.Decompress);
             return uncompressedStream;
         }
     }

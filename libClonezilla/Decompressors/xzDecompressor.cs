@@ -37,14 +37,34 @@ namespace libClonezilla.Decompressors
                 Log.Information($"xz: serving random access from the native block index ({indexed.Container.BlockCount} blocks).");
                 return new SeekableXzStream(indexed, indexed.GetRecommendation, indexed.CreateView);
             }
-            catch (XzFormatException)
+            catch (XzFormatException openError)
             {
-                //single-block: no native index. Build the checkpoint index if we have a cache folder.
-                return GetSeekableStreamViaCheckpointIndex();
+                //Open refuses a single-block stream (its Index has one record) and a corrupt one alike. Only the
+                //former should get a checkpoint index: building one over a corrupt file just fails later, after a
+                //long decode (gh review F39). Parsing the framing tells them apart cheaply - a single-block stream
+                //has one Block header to read.
+                try
+                {
+                    CompressedStream.Seek(0, SeekOrigin.Begin);
+                    var container = XzContainer.Parse(CompressedStream);
+                    if (container.BlockCount == 1)
+                    {
+                        //single-block: no native index. Build the checkpoint index if we have a cache folder.
+                        return GetSeekableStreamViaCheckpointIndex();
+                    }
+
+                    Log.Warning($"xz: the native block index could not be opened ({openError.Message}) although the stream has {container.BlockCount} blocks. Falling back to sequential decoding.");
+                    return null;
+                }
+                catch (XzFormatException parseError)
+                {
+                    Log.Warning($"xz: this is not a readable xz stream ({parseError.Message}); it may be corrupt or truncated. Falling back to sequential decoding.");
+                    return null;
+                }
             }
             catch (Exception ex)
             {
-                Log.Warning($"xz: could not open the native block index ({ex.Message}). Falling back to extraction.");
+                Log.Warning($"xz: could not open the native block index ({ex.Message}). Falling back to sequential decoding.");
                 return null;
             }
         }
@@ -53,7 +73,7 @@ namespace libClonezilla.Decompressors
         {
             if (PartitionCache == null)
             {
-                return null;   //nowhere to persist an index -> extraction fallback
+                return null;   //nowhere to persist an index -> sequential (restart-based) fallback
             }
 
             try
@@ -78,12 +98,12 @@ namespace libClonezilla.Decompressors
                 var index = XzIndex.LoadOrBuild(CompressedStream, indexFilename, options, new XzBuildProgressLogger());
 
                 //serving-quality gate (mirrors ZstdDecompressor): if points are somehow too sparse to
-                //serve efficiently, prefer the extraction fallback. For single-block xz this never
+                //serve efficiently, prefer the sequential fallback. For single-block xz this never
                 //fires (LZMA2 chunks are <=2 MB, so points land ~every TargetSpanBytes).
                 var maxGap = MaxPointGap(index);
                 if (maxGap > 4 * options.TargetSpanBytes)
                 {
-                    Log.Warning($"xz index for {Path.GetFileName(indexFilename)} is too sparse to serve efficiently (largest gap {maxGap.BytesToString()}). Extracting instead.");
+                    Log.Warning($"xz index for {Path.GetFileName(indexFilename)} is too sparse to serve efficiently (largest gap {maxGap.BytesToString()}). Falling back to sequential decoding.");
                     index.Dispose();
                     return null;
                 }
@@ -97,7 +117,7 @@ namespace libClonezilla.Decompressors
             }
             catch (Exception ex)
             {
-                Log.Warning($"xz: could not build a checkpoint index ({ex.Message}). Falling back to extraction.");
+                Log.Warning($"xz: could not build a checkpoint index ({ex.Message}). Falling back to sequential decoding.");
                 return null;
             }
         }
@@ -116,7 +136,7 @@ namespace libClonezilla.Decompressors
         public override Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
-            var result = new XZStream(CompressedStream);
+            var result = new XZStream(new NonClosingStream(CompressedStream));
             return result;
         }
     }

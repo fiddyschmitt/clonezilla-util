@@ -1,4 +1,5 @@
-﻿using K4os.Compression.LZ4.Streams;
+﻿using libCommon.Streams;
+using K4os.Compression.LZ4.Streams;
 using SharpCompress.Compressors.LZMA;
 using System;
 using System.Collections.Generic;
@@ -23,7 +24,7 @@ namespace libClonezilla.Decompressors
         public override Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
-            var result = LZipStream.Create(CompressedStream, SharpCompress.Compressors.CompressionMode.Decompress);
+            var result = LZipStream.Create(new NonClosingStream(CompressedStream), SharpCompress.Compressors.CompressionMode.Decompress);
             return result;
         }
     }
