@@ -11,23 +11,30 @@ namespace lib7Zip.Native
     ///
     /// NOT thread-safe, and reads drive the owning archive's single input stream, so only one
     /// NativeItemStream may be alive per <see cref="SevenZipNativeArchive"/> at a time. The caller
-    /// (the extractor pool) enforces this by checking out one archive per open stream.
+    /// (the extractor pool) enforces this: a read borrows a worker, opens an item stream on it, and
+    /// disposes the item stream before returning the worker.
     ///
-    /// <paramref name="onDispose"/> runs after the native item stream is closed - used to return the
-    /// owning worker to the pool.
+    /// <paramref name="onDispose"/> runs after the native item stream is closed by an explicit Dispose.
+    /// A stream that is never disposed is still closed by its SafeHandle's finalizer, but the callback
+    /// does not run then: it would call back into its owner from the finalizer thread.
     /// </summary>
     public sealed class NativeItemStream : Stream
     {
-        IntPtr handle;
+        readonly ItemStreamHandle handle;
         readonly long length;
         long position;
         readonly Action? onDispose;
 
-        internal NativeItemStream(IntPtr itemStreamHandle, long length, Action? onDispose)
+        //The archive's Read/Seek callbacks are delegates it owns; the native archive calls them for as long as
+        //this item stream can read, so the managed archive must stay reachable until this stream is gone.
+        readonly SevenZipNativeArchive owner;
+
+        internal NativeItemStream(ItemStreamHandle itemStreamHandle, long length, Action? onDispose, SevenZipNativeArchive owner)
         {
             handle = itemStreamHandle;
             this.length = length;
             this.onDispose = onDispose;
+            this.owner = owner;
         }
 
         public override bool CanRead => true;
@@ -43,15 +50,19 @@ namespace lib7Zip.Native
 
         public override unsafe int Read(byte[] buffer, int offset, int count)
         {
-            if (handle == IntPtr.Zero) throw new ObjectDisposedException(nameof(NativeItemStream));
-            if (count <= 0) return 0;
+            //The native side writes `count` bytes at the pinned address, so a count past the buffer's end would
+            //corrupt the heap rather than throw - check it here (gh review F32).
+            ValidateBufferArguments(buffer, offset, count);
+            ObjectDisposedException.ThrowIf(handle.IsClosed, this);
+            if (count == 0) return 0;
 
             uint processed;
             int hr;
-            fixed (byte* p = &buffer[offset])
+            fixed (byte* p = buffer)
             {
-                hr = SevenZip_ItemRead(handle, (IntPtr)p, (uint)count, out processed);
+                hr = SevenZip_ItemRead(handle, (IntPtr)(p + offset), (uint)count, out processed);
             }
+            GC.KeepAlive(owner);   //its Read/Seek callbacks ran during the native call
             if (hr != 0) throw new IOException($"lib7zNative SevenZip_ItemRead failed: 0x{hr:X8}");
 
             position += (int)processed;
@@ -60,7 +71,7 @@ namespace lib7Zip.Native
 
         public override long Seek(long offset, SeekOrigin origin)
         {
-            if (handle == IntPtr.Zero) throw new ObjectDisposedException(nameof(NativeItemStream));
+            ObjectDisposedException.ThrowIf(handle.IsClosed, this);
             uint o = origin switch
             {
                 SeekOrigin.Begin => 0u,
@@ -69,6 +80,7 @@ namespace lib7Zip.Native
                 _ => 0u
             };
             int hr = SevenZip_ItemSeek(handle, offset, o, out ulong newPos);
+            GC.KeepAlive(owner);
             if (hr != 0) throw new IOException($"lib7zNative SevenZip_ItemSeek failed: 0x{hr:X8}");
             position = (long)newPos;
             return position;
@@ -80,10 +92,9 @@ namespace lib7Zip.Native
 
         protected override void Dispose(bool disposing)
         {
-            if (handle != IntPtr.Zero)
+            if (!handle.IsClosed)
             {
-                SevenZip_ItemClose(handle);
-                handle = IntPtr.Zero;
+                handle.Dispose();
                 onDispose?.Invoke();
             }
             base.Dispose(disposing);

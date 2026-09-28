@@ -1,3 +1,4 @@
+using Microsoft.Win32.SafeHandles;
 using System;
 using System.Runtime.InteropServices;
 
@@ -39,29 +40,73 @@ namespace lib7Zip.Native
         }
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
-        public static extern int SevenZip_Open(in InStreamCallbacks callbacks, IntPtr ctx, string sevenZipDllPath, byte recursive, out IntPtr handle);
+        public static extern int SevenZip_Open(in InStreamCallbacks callbacks, IntPtr ctx, string sevenZipDllPath, byte recursive, out ArchiveHandle handle);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int SevenZip_GetItemCount(IntPtr handle, out uint count);
+        public static extern int SevenZip_GetItemCount(ArchiveHandle handle, out uint count);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
-        public static extern int SevenZip_GetItem(IntPtr handle, uint index, out ItemInfo info,
+        public static extern int SevenZip_GetItem(ArchiveHandle handle, uint index, out ItemInfo info,
             [Out] char[] pathBuf, uint pathBufChars, out uint pathChars);
 
         // On-demand seekable per-item stream (no extraction / no temp file)
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int SevenZip_OpenItemStream(IntPtr handle, uint index, out IntPtr itemStream);
+        public static extern int SevenZip_OpenItemStream(ArchiveHandle handle, uint index, out ItemStreamHandle itemStream);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int SevenZip_ItemRead(IntPtr itemStream, IntPtr buf, uint size, out uint processed);
+        public static extern int SevenZip_ItemRead(ItemStreamHandle itemStream, IntPtr buf, uint size, out uint processed);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int SevenZip_ItemSeek(IntPtr itemStream, long offset, uint origin, out ulong newPosition);
+        public static extern int SevenZip_ItemSeek(ItemStreamHandle itemStream, long offset, uint origin, out ulong newPosition);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void SevenZip_ItemClose(IntPtr itemStream);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void SevenZip_Close(IntPtr handle);
+    }
+
+    // SafeHandles give the native handles a finalizer backstop: an archive or item stream that is never
+    // disposed is still closed, instead of leaking its native state (gh review F37). Everything is disposed
+    // explicitly today; this only matters for a future leak.
+
+    /// <summary>A lib7zNative archive handle (SevenZip_Close).</summary>
+    internal sealed class ArchiveHandle : SafeHandleZeroOrMinusOneIsInvalid
+    {
+        public ArchiveHandle() : base(ownsHandle: true) { }
+
+        protected override bool ReleaseHandle()
+        {
+            SevenZipNativeInterop.SevenZip_Close(handle);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// A lib7zNative item stream handle (SevenZip_ItemClose). It holds a reference on its archive's handle
+    /// for its whole life, so SafeHandle's ref-counting defers the archive's close until this stream is
+    /// closed, whatever order the two are disposed or finalized in. The order matters: closing the archive
+    /// releases 7-Zip's codecs (CCodecs::CloseLibs), and an item stream closed after that would run on
+    /// unloaded handler code. Finalizers alone guarantee no order.
+    /// </summary>
+    internal sealed class ItemStreamHandle : SafeHandleZeroOrMinusOneIsInvalid
+    {
+        ArchiveHandle? archive;
+
+        public ItemStreamHandle() : base(ownsHandle: true) { }
+
+        internal void AttachTo(ArchiveHandle owner)
+        {
+            var added = false;
+            owner.DangerousAddRef(ref added);
+            if (added) archive = owner;
+        }
+
+        protected override bool ReleaseHandle()
+        {
+            SevenZipNativeInterop.SevenZip_ItemClose(handle);
+            archive?.DangerousRelease();
+            return true;
+        }
     }
 }

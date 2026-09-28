@@ -28,7 +28,7 @@ namespace lib7Zip.Native
     {
         readonly Stream stream;
         readonly bool ownsStream;
-        IntPtr handle;
+        readonly ArchiveHandle handle;
 
         // These delegates are handed to native code as function pointers and must stay alive
         // for as long as the native archive handle exists.
@@ -50,9 +50,15 @@ namespace lib7Zip.Native
             int hr = SevenZip_Open(in cb, IntPtr.Zero, sevenZipDllPath, (byte)(recursive ? 1 : 0), out handle);
             const int S_FALSE = 1;
             if (hr == S_FALSE)
+            {
+                handle.Dispose();
                 throw new NotAnArchiveException(); //the stream has no filesystem/archive 7-Zip recognises (e.g. a raw bios_grub partition)
-            if (hr != 0 || handle == IntPtr.Zero)
+            }
+            if (hr != 0 || handle.IsInvalid)
+            {
+                handle.Dispose();
                 throw new IOException($"lib7zNative SevenZip_Open failed: 0x{hr:X8}");
+            }
         }
 
         int Read(IntPtr ctx, IntPtr buf, uint size, out uint processed)
@@ -117,16 +123,21 @@ namespace lib7Zip.Native
         /// <summary>
         /// Opens a single item as a seekable, read-only stream (no extraction, no temp file). Reads
         /// pull data on demand via 7-Zip's IInArchiveGetStream. Only ONE item stream may be open per
-        /// archive at a time (it drives this archive's single input stream); the caller serialises
-        /// this by checking out one archive per open stream. <paramref name="onDispose"/> runs when
-        /// the returned stream is disposed (e.g. to return the worker to its pool).
+        /// archive at a time (it drives this archive's single input stream); the extractor pool ensures
+        /// it by lending each worker (one archive) to a single read, which opens an item stream and disposes
+        /// it before returning the worker. <paramref name="onDispose"/> runs when the returned stream is
+        /// explicitly disposed.
         /// </summary>
         public NativeItemStream OpenItemStream(uint index, long length, Action? onDispose = null)
         {
-            int hr = SevenZip_OpenItemStream(handle, index, out IntPtr itemHandle);
-            if (hr != 0 || itemHandle == IntPtr.Zero)
+            int hr = SevenZip_OpenItemStream(handle, index, out ItemStreamHandle itemHandle);
+            if (hr != 0 || itemHandle.IsInvalid)
+            {
+                itemHandle.Dispose();
                 throw new IOException($"lib7zNative SevenZip_OpenItemStream({index}) failed: 0x{hr:X8}");
-            return new NativeItemStream(itemHandle, length, onDispose);
+            }
+            itemHandle.AttachTo(handle);   //the archive's native close now waits for this item stream (see ItemStreamHandle)
+            return new NativeItemStream(itemHandle, length, onDispose, this);
         }
 
         static DateTime? FileTimeOrNull(long ft)
@@ -137,11 +148,7 @@ namespace lib7Zip.Native
 
         public void Dispose()
         {
-            if (handle != IntPtr.Zero)
-            {
-                SevenZip_Close(handle);
-                handle = IntPtr.Zero;
-            }
+            handle.Dispose();   //idempotent; deferred while an item stream from this archive is still open
             if (ownsStream) stream.Dispose();
         }
     }

@@ -15,7 +15,8 @@ namespace libClonezilla.Extractors
     /// <see cref="NativeExtractorPool"/> - never lazily inside a Dokan callback.
     ///
     /// Not thread-safe: one open archive drives one input stream, so only one item stream may be
-    /// alive at a time. The pool enforces this by checking out one worker per open stream.
+    /// alive at a time. The pool enforces this by lending a worker to one read at a time (see
+    /// <see cref="PooledNativeItemStream"/>), which disposes its item stream before returning it.
     /// </summary>
     public sealed class SevenZipExtractorUsingNative : IDisposable
     {
