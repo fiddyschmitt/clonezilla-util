@@ -7,7 +7,6 @@ using System.IO;
 using libCommon.Streams;
 using libCommon;
 using libClonezilla.Cache;
-using libClonezilla.Cache.FileSystem;
 using Serilog;
 using libCommon.Streams.Sparse;
 using ZstdNet;

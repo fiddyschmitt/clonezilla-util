@@ -504,7 +504,6 @@ namespace clonezilla_util
                                 outputFilename = Path.Combine(extractPartitionImageOptions.OutputFolder, $"{container.ContainerName}.{partition.PartitionName}.img");
                             }
 
-                            //TestFullCopy(partition.FullPartitionImage, Stream.Null, File.OpenRead(@"E:\Temp\2022-08-16-20-img_luks_test_6GB_ext4_zst\ocs_luks_0Yy.ext4.img_from_real_partclone"));
 
                             var makeSparse = !extractPartitionImageOptions.NoSparseOutput;
                             partition.ExtractToFile(outputFilename, makeSparse);
@@ -808,59 +807,6 @@ namespace clonezilla_util
             Log.Error(msg);
 
             return ReturnCode.InvalidArguments;
-        }
-
-        public static void TestFullCopy(Stream partcloneStream, Stream outputStream, Stream compareStream)
-        {
-            var chunkSizes = 10 * 1024 * 1024;
-            var buffer1 = Buffers.BufferPool.Rent(chunkSizes);
-            var buffer2 = Buffers.BufferPool.Rent(chunkSizes);
-
-            var lastReport = DateTime.MinValue;
-            var totalRead = 0UL;
-
-            //using (var compareStream = File.Open(@"E:\3_raw_cz.img", FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite))
-            {
-                while (true)
-                {
-                    Array.Clear(buffer1);
-                    Array.Clear(buffer2);
-
-                    var bytesRead1 = partcloneStream.Read(buffer1, 0, chunkSizes);
-
-                    var bytesRead2 = compareStream.Read(buffer2, 0, chunkSizes);
-
-                    if (bytesRead1 != bytesRead2)
-                    {
-                        throw new Exception("Different read sizes");
-                    }
-
-                    if (!buffer1.IsEqualTo(buffer2))
-                    {
-                        throw new Exception("Not equal");
-                    }
-
-
-
-                    if (bytesRead1 == 0)
-                    {
-                        break;
-                    }
-
-                    totalRead += (ulong)bytesRead1;
-
-                    if ((DateTime.Now - lastReport).TotalMilliseconds > 1000)
-                    {
-                        Log.Information($"{totalRead.BytesToString()}");
-                        lastReport = DateTime.Now;
-                    }
-
-                    outputStream.Write(buffer1, 0, bytesRead1);
-                }
-            }
-
-            Buffers.BufferPool.Return(buffer1);
-            Buffers.BufferPool.Return(buffer2);
         }
     }
 }

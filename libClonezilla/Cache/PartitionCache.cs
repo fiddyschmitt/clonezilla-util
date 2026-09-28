@@ -1,5 +1,4 @@
-﻿using libClonezilla.Cache.FileSystem;
-using System.Linq;
+﻿using System.Linq;
 using libClonezilla.Partitions;
 using System;
 using System.Collections.Generic;
@@ -65,7 +64,11 @@ namespace libClonezilla.Cache
             return result;
         }
 
-
+        public string GetUncompressedLengthFilename()
+        {
+            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.uncompressed_length.txt");
+            return result;
+        }
 
         //System.Text.Json over the raw UTF-8 stream: profiling (TEST_ANALYSIS.md #2) showed the
         //old Newtonsoft + ReadAllText path spending ~25 s per 721k-file partition on every open
@@ -74,13 +77,6 @@ namespace libClonezilla.Cache
         //JsonSerializer is stripped by the trimmed publish (the exe crashed on type load with
         //FileNotFoundException for System.Text.Json). The JSON shape is unchanged, so caches
         //written by the old code still load; new files are written compact (no indentation).
-
-        public string GetUncompressedLengthFilename()
-        {
-            var result = Path.Combine(ClonezillaCacheFolder, $"{PartitionName}.uncompressed_length.txt");
-            return result;
-        }
-
         public List<ArchiveEntry>? GetFileList()
         {
             if (!File.Exists(FileListFilename))

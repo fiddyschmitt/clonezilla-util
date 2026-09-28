@@ -89,31 +89,6 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
                                 var partitionStream = new SubStream(sharedDriveStream.CreateView(), partitionInfo.StartByte, partitionInfo.EndByte);
 
-                                //Stream stream = new SeekableStreamUsingRestarts(() =>
-                                //{
-                                //    //Unfortunately, this is not fast enough because when listing the files in sda.img\1.ntfs, 7-Zip asks us to seek from 3G to 12GB position, which takes longer than 20 seconds.
-                                //    //We need a faster way of seeking inside drive images.
-                                //    var stream = SevenZipUtility.ExtractFileFromArchive(filename, partitionImageFile.Path);
-
-                                //    //Don't use this, because it'll just read until the process is complete (generating a huge temp file).
-                                //    //Consider adding a feature to SiphonStream where it only uses the pump when in WaitForPositionToBeAvailable()
-                                //    /*
-                                //    var tempFilename = TempUtility.GetTempFilename(true);
-                                //    var tempFileStream = new FileStream(tempFilename, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
-                                //    result = new SiphonStream(result, tempFileStream);
-                                //    */
-
-                                //    //result = new PositionTrackerStream(result);
-
-                                //    return stream;
-                                //}, partitionImageFile.Size);
-
-                                //var totalSystemRAMInBytes = libCommon.Utility.GetTotalRamSizeBytes();
-                                //var totalSystemRAMInMegabytes = (int)(totalSystemRAMInBytes / (double)(1024 * 1024));
-                                //var maxCacheSizeInMegabytes = totalSystemRAMInMegabytes / 4;
-
-                                //stream = new CachingStream(stream, null, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
-
                                 //partitions inside a bare image file have no clonezilla-style cache
                                 //folder; the image's whole-file identity folder stands in, so they
                                 //still get cached file lists and serving decisions (TEST_ANALYSIS.md #5)
