@@ -14,6 +14,10 @@ namespace libPartclone.Metadata
         public ImageOptionsV2? ImageOptionsV2;
         public uint CRC;
 
+        //On disk: head 0x24 + file system info 0x34 + options 0x12 + CRC 4. The CRC covers the first 0x6A bytes.
+        public const int Size = 0x6E;
+        public const int CrcCoveredBytes = 0x6A;
+
         public ImageDescV2()
         {
 

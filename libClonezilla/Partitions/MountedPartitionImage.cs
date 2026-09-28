@@ -72,26 +72,10 @@ namespace libClonezilla.Partitions
             Log.Information($"[{container.ContainerName}] [{partitionName}] Retrieving a list of files.");
 
             // Feed the native engine the partition's in-process decompressed stream directly (NOT the
-            // Dokan path) - reading our own mount in-process risks a Dokan callback-thread deadlock.
-            var partitionStream = Partition.FullPartitionImage
-                ?? throw new Exception($"[{container.ContainerName}] [{partitionName}] {nameof(Partition.FullPartitionImage)} is not initialised.");
-
-            // Each native 7z worker gets its own independent cursor over the partition's decompressed
-            // stream. When that stream is positional (the compressed serving path: PartcloneStream over a
-            // CachingStream), the workers read via lock-free ReadAt - no SharedStream gate held across the
-            // whole decode, no PartcloneStream.streamLock on the serving path, so the workers finally
-            // decode in parallel (the CachingStream cache lock still serializes misses until S3). A
-            // non-positional stream (e.g. a raw uncompressed image file) keeps the gated shared-view feeder.
-            Func<Stream> partitionStreamFactory;
-            if (partitionStream is IPositionalReader positionalPartition)
-            {
-                partitionStreamFactory = () => new PositionalCursorStream(positionalPartition);
-            }
-            else
-            {
-                var sharedPartitionStream = new SharedStream(partitionStream);
-                partitionStreamFactory = sharedPartitionStream.CreateView;
-            }
+            // Dokan path) - reading our own mount in-process risks a Dokan callback-thread deadlock. Each
+            // native 7z worker gets its own independent cursor over it (lock-free on the compressed serving
+            // path, so the workers decode in parallel - see Partition.CreateReaderFactory).
+            var partitionStreamFactory = Partition.CreateReaderFactory();
 
             IExtractor extractor;
             List<ArchiveEntry> filesInArchive;
@@ -104,7 +88,7 @@ namespace libClonezilla.Partitions
 
                 if (extractor is IFileListProvider fileListProvider)
                 {
-                    filesInArchive = GetFilesInPartition(fileListProvider).ToList();
+                    filesInArchive = Partition.GetFilesInPartition(fileListProvider).ToList();
 
                     //S4: no Stream.Synchronized wrapper here. Every consumer of these streams already
                     //serialises: DokanVFS.ReadFile locks the per-handle stream's ReadLock (each handle
@@ -149,34 +133,6 @@ namespace libClonezilla.Partitions
             var tree = CreateTree(container.ContainerName, partitionName, filesInArchive, extractor);
 
             return tree;
-        }
-
-        public IEnumerable<ArchiveEntry> GetFilesInPartition(IFileListProvider fileListProvider)
-        {
-            var partitionCache = Partition.PartitionCache;
-            IEnumerable<ArchiveEntry>? archiveFiles = partitionCache?.GetFileList();
-
-            bool saveToCache = false;
-            if (archiveFiles == null)
-            {
-                archiveFiles = fileListProvider.GetFileList();
-                saveToCache = true;
-            }
-
-            var fullListOfFiles = new List<ArchiveEntry>();
-
-            foreach (var archiveEntry in archiveFiles)
-            {
-                if (Path.GetFileName(archiveEntry.Path).Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)) continue; //a micro-optimisation to stop Windows from requesting this file and causing a lot of unecessary IO
-
-                fullListOfFiles.Add(archiveEntry);
-                yield return archiveEntry;
-            }
-
-            if (saveToCache)
-            {
-                partitionCache?.SetFileList(fullListOfFiles);
-            }
         }
 
         protected static List<FileSystemEntry> CreateTree(string containerName, string partitionName, List<ArchiveEntry> allEntries, IExtractor extractor)
@@ -247,28 +203,39 @@ namespace libClonezilla.Partitions
 
             folderLookup.Add("", null);
 
+            //A folder the listing never mentions (a handler may list only files) is synthesised, with any missing
+            //ancestors, so its children keep their place. They used to be promoted to the partition root under their
+            //leaf names (gh review F27).
+            var synthesisedFolders = new List<Folder>();
+            Folder? GetOrCreateFolder(string folderPath)
+            {
+                if (folderLookup.TryGetValue(folderPath, out var existing)) return existing;
+
+                var folder = new Folder(Path.GetFileName(folderPath), null);
+                folderLookup[folderPath] = folder;
+                synthesisedFolders.Add(folder);
+                folder.Parent = GetOrCreateFolder(Path.GetDirectoryName(folderPath) ?? "");
+                return folder;
+            }
+
             Log.Debug($"[{containerName}] [{partitionName}] Establishing parent/child relationships.");
             entries
                 .Select(entry => entry.NewEntry)
                 .Cast<FileSystemEntry>()
                 .ForEach(fileSystemEntry =>
                 {
-                    var parentFolder = pathLookup[fileSystemEntry];
-
-                    if (folderLookup.TryGetValue(parentFolder, out Folder? value))
-                    {
-                        fileSystemEntry.Parent = value;
-                    }
-                    else
-                    {
-                        Log.Error($"Error while finding parent of {fileSystemEntry}");
-                        Log.Error($"Could not find {parentFolder} in {nameof(folderLookup)}");
-                    }
+                    fileSystemEntry.Parent = GetOrCreateFolder(pathLookup[fileSystemEntry]);
                 });
+
+            if (synthesisedFolders.Count > 0)
+            {
+                Log.Information($"[{containerName}] [{partitionName}] {synthesisedFolders.Count:N0} folder(s) were missing from the listing; created them so their contents keep their paths.");
+            }
 
             var tree = entries
                             .Select(entry => entry.NewEntry)
                             .Cast<FileSystemEntry>()
+                            .Concat(synthesisedFolders)
                             .Where(entry => entry.Parent == null)
                             .ToList();
 

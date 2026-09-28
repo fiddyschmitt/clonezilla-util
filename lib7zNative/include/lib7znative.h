@@ -72,7 +72,7 @@ LIB7Z_API int32_t SevenZip_GetItem(
 // Opens the item's data as a seekable read-only stream via IInArchiveGetStream. Reads pull data
 // directly from the archive's input stream on demand (e.g. cluster-mapped NTFS data over the
 // partition). Only ONE item stream may be open per archive handle at a time (it drives the same
-// underlying input stream); the host serialises this by checking out one archive handle per stream.
+// underlying input stream); the host ensures it by lending each archive handle to one read at a time.
 typedef void* SevenZipItemStreamHandle;
 
 LIB7Z_API int32_t SevenZip_OpenItemStream(

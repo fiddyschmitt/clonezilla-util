@@ -29,18 +29,25 @@ mkdir -p "$OUT"
 O="$OUT/suite-summary.txt"
 cd "$REPO"
 
-# name|filter  - ordered fast-first so problems surface early; bleed-stress last (~55 min,
+# name|hang|filter  - ordered fast-first so problems surface early; bleed-stress last (~55 min,
 # 4 codecs x kill-bursts + DOP-24 verify)
+#
+# hang = the chunk's --blame-hang-timeout: if any ONE test runs longer, the test host (and the exe under
+# it) is killed and the chunk reports "Test Run Aborted", so a hung exe can no longer stall the detached
+# run forever (gh review F52). Runaway protection only - several times the slowest cold test in the chunk
+# (2026-09-23 cold run: mount-small's Partclone.dd 90 min, list-large's gz drive image 50 min), and above
+# any [Timeout] in the chunk so a test's own timeout + [TestCleanup] gets the first chance to clean up
+# (list-small 90m > the bzip2 self-heal test's 60; extract 150m > the per-codec and ext4 extracts' 120).
 CHUNKS=(
-  "unit|FullyQualifiedName~PartcloneContentMapTests|FullyQualifiedName~SparseTests"
-  "list-small|FullyQualifiedName~ListContents.SmallPartitionImages|FullyQualifiedName~ListContents.SmallClonezillaPartitions|FullyQualifiedName~ListContents.Partclone"
-  "mount-small|FullyQualifiedName~Mount.AsFiles.SmallPartitionImages|FullyQualifiedName~Mount.AsFiles.SmallClonezillaPartitions|FullyQualifiedName~Mount.AsFiles.Misc|FullyQualifiedName~Mount.AsFiles.Ext4|FullyQualifiedName~Mount.AsFiles.UbuntuFileSystems|FullyQualifiedName~Mount.AsFiles.Partclone"
-  "mount-luks|FullyQualifiedName~Mount.AsFiles.LuksClonezillaImages|FullyQualifiedName~Mount.AsFiles.LuksParcloneImages"
-  "image-files|FullyQualifiedName~Mount.AsImageFiles.ImageFileTests"
-  "mount-large|FullyQualifiedName~Mount.AsFiles.LargeClonezillaImages|FullyQualifiedName~Mount.AsFiles.LargeDriveImages"
-  "list-large|FullyQualifiedName~ListContents.LargeClonezillaPartitions|FullyQualifiedName~ListContents.LargeDriveImages"
-  "extract|FullyQualifiedName~clonezilla_util_tests.Extract."
-  "bleed-stress|FullyQualifiedName~Mount.AsFiles.ConcurrentBleedStress"
+  "unit|60m|FullyQualifiedName~PartcloneContentMapTests|FullyQualifiedName~SparseTests|FullyQualifiedName~clonezilla_util_tests.Memory."
+  "list-small|90m|FullyQualifiedName~ListContents.SmallPartitionImages|FullyQualifiedName~ListContents.SmallClonezillaPartitions|FullyQualifiedName~ListContents.Partclone|FullyQualifiedName~ListContents.OutputFormat|FullyQualifiedName~clonezilla_util_tests.Cache.|FullyQualifiedName~clonezilla_util_tests.ErrorExits."
+  "mount-small|300m|FullyQualifiedName~Mount.AsFiles.SmallPartitionImages|FullyQualifiedName~Mount.AsFiles.SmallClonezillaPartitions|FullyQualifiedName~Mount.AsFiles.Misc|FullyQualifiedName~Mount.AsFiles.Ext4|FullyQualifiedName~Mount.AsFiles.UbuntuFileSystems|FullyQualifiedName~Mount.AsFiles.Partclone|FullyQualifiedName~Mount.AsFiles.SearchPatterns"
+  "mount-luks|60m|FullyQualifiedName~Mount.AsFiles.LuksClonezillaImages|FullyQualifiedName~Mount.AsFiles.LuksParcloneImages"
+  "image-files|60m|FullyQualifiedName~Mount.AsImageFiles.ImageFileTests"
+  "mount-large|60m|FullyQualifiedName~Mount.AsFiles.LargeClonezillaImages|FullyQualifiedName~Mount.AsFiles.LargeDriveImages"
+  "list-large|300m|FullyQualifiedName~ListContents.LargeClonezillaPartitions|FullyQualifiedName~ListContents.LargeDriveImages|FullyQualifiedName~ListContents.OtherFormats"
+  "extract|150m|FullyQualifiedName~clonezilla_util_tests.Extract.|FullyQualifiedName~clonezilla_util_tests.Synthetic."
+  "bleed-stress|200m|FullyQualifiedName~Mount.AsFiles.ConcurrentBleedStress"
 )
 
 rm -f "$OUT"/chunk-*.txt "$OUT"/suite-done.txt
@@ -52,7 +59,9 @@ rm -f "$OUT"/chunk-*.txt "$OUT"/suite-done.txt
 
 for entry in "${CHUNKS[@]}"; do
   name="${entry%%|*}"
-  filter="${entry#*|}"
+  rest="${entry#*|}"
+  hang="${rest%%|*}"
+  filter="${rest#*|}"
   out="$OUT/chunk-$name.txt"
 
   # clean slate per chunk: stray mounts from a crashed chunk, and OUR stale test hosts only
@@ -63,6 +72,7 @@ for entry in "${CHUNKS[@]}"; do
   echo "" >> "$O"
   echo "######## $name  ($(date +%H:%M:%S)) ########" >> "$O"
   dotnet test "$PROJ" -c Release --nologo --filter "$filter" \
+      --blame-hang-timeout "$hang" --blame-hang-dump-type none \
       --logger "console;verbosity=detailed" > "$out" 2>&1
   code=$?
 

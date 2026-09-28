@@ -16,23 +16,23 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 {
     public class CompressedImage : PartitionContainer
     {
-        public CompressedImage(string filename, List<string> partitionsToLoad, bool willPerformRandomSeeking, Folder tempFolder, bool processTrailingNulls)
+        public CompressedImage(string filename, List<string> partitionsToLoad, bool willPerformRandomSeeking, bool processTrailingNulls)
         {
             ContainerName = Path.GetFileNameWithoutExtension(filename);
 
-            var currentFilename = filename;
+            //Peel the layers in-process: each decompressed (or partclone-decoded) stream is the input of the next
+            //inspection, and the innermost is handed to RawImage as a stream. Every layer used to be published as a
+            //hidden file on a Dokan temp mount and re-opened through the mount by name, so the headless verbs needed
+            //Dokan for compressed image files, and the exe read its own mount in-process (gh review F46).
+            Stream current = Stream.Synchronized(File.OpenRead(filename));   //protect the file stream from concurrent access
             string? wholeFileCacheFolder = null;
 
             while (true)
             {
-                Stream streamToInspect = File.OpenRead(currentFilename);
+                current.Seek(0, SeekOrigin.Begin);   //IsPartclone reads from the current position
+                var isPartcloneStream = PartcloneImageInfo.IsPartclone(current);
 
-                //protect this stream from concurrent access
-                streamToInspect = Stream.Synchronized(streamToInspect);
-
-                var isPartcloneStream = PartcloneImageInfo.IsPartclone(streamToInspect);
-
-                var compression = Decompressor.GetCompressionType(streamToInspect);
+                var compression = Decompressor.GetCompressionType(current);
 
                 if (compression == Compression.None && !isPartcloneStream)
                 {
@@ -44,7 +44,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
 
                 if (isPartcloneStream)
                 {
-                    decompressedStream = new PartcloneStream("", "", streamToInspect);
+                    decompressedStream = new PartcloneStream("", "", current);
                     //keep the previous compression layer's identity folder: the partclone-decoded
                     //content is a pure function of that layer's content, so the key stays stable
                     //and unique - and nulling it here cost bare-partclone mounts their toplevel and
@@ -52,7 +52,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                 }
                 else
                 {
-                    var decompressorSelector = new DecompressorSelector(filename, ContainerName, streamToInspect, null, compression, null, processTrailingNulls);
+                    var decompressorSelector = new DecompressorSelector(filename, ContainerName, current, null, compression, null, processTrailingNulls);
                     decompressedStream = decompressorSelector.GetSeekableStream();
 
                     //identity folder of this decompressed content - it lets the partitions inside
@@ -70,13 +70,10 @@ namespace libClonezilla.PartitionContainers.ImageFiles
                     }
                 }
 
-                var tempName = Path.GetFileNameWithoutExtension(Path.GetFileName(TempUtility.GetTempFilename(false)));
-                var virtualDecompressedFile = new StreamBackedFileEntry(tempName, tempFolder, decompressedStream);
-
-                currentFilename = virtualDecompressedFile.FullPath;
+                current = decompressedStream;
             }
 
-            var container = new RawImage(currentFilename, partitionsToLoad, ContainerName, willPerformRandomSeeking, processTrailingNulls, wholeFileCacheFolder);
+            var container = new RawImage(current, filename, partitionsToLoad, ContainerName, willPerformRandomSeeking, processTrailingNulls, wholeFileCacheFolder);
 
             Partitions = container.Partitions;
             AvailablePartitionNames = container.AvailablePartitionNames;

@@ -10,7 +10,7 @@ namespace clonezilla_util.CL.Verbs
     [Verb("mount", HelpText = "Serve the file contents as using a Virtual File System. Requires Dokan to be installed. https://dokan-dev.github.io/")]
     public class MountAsFiles : BaseVerb
     {
-        [Option('m', "mount", HelpText = "The drive to mount to, where the files will be presented. If not provided, a drive letter will automatically be chosen.", Required = false)]
+        [Option('m', "mount", HelpText = "Where the files will be presented: a drive letter (eg. L:\\) or an existing, empty folder on an NTFS volume. If not provided, a drive letter will automatically be chosen.", Required = false)]
         public string? MountPoint { get; set; }
 
         [Option('p', "partitions", HelpText = "The partition(s) to serve. Eg. sda1. If not provided, all partitions will be served.", Required = false)]

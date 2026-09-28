@@ -18,8 +18,14 @@ namespace libPartclone.Metadata
         /// Image's version
         public string? ImageVersion;
 
-        /// 0xC0DE = little-endian, 0xDEC0 = big-endian
-        public bool BigEndian;
+        /// Partclone writes ENDIAN_MAGIC (0xC0DE) in the writing machine's byte order. Read little-endian, that is
+        /// 0xC0DE for an image written on a little-endian machine and 0xDEC0 for one written big-endian; anything
+        /// else is not a v2 header. (This used to be decoded backwards, as BigEndian = marker == 0xC0DE, which only
+        /// ever reached a debug log line.)
+        public ushort EndiannessMarker;
+
+        public const ushort LittleEndianMarker = 0xC0DE;
+        public const ushort BigEndianMarker = 0xDEC0;
 
         public ImageHeadV2()
         {
@@ -31,19 +37,23 @@ namespace libPartclone.Metadata
             Magic = Encoding.ASCII.GetString(binaryReader.ReadBytes(16)).TrimEnd('\0');
             PartcloneVersion = Encoding.ASCII.GetString(binaryReader.ReadBytes(14)).TrimEnd('\0');
             ImageVersion = Encoding.ASCII.GetString(binaryReader.ReadBytes(4)).TrimEnd('\0');
-
-            ushort endianess = binaryReader.ReadUInt16();
-            //ushort endianess = BitConverter.ToUInt16(binaryReader.ReadBytes(2).Reverse().ToArray(), 0);
-            BigEndian = endianess == 0xC0DE;
+            EndiannessMarker = binaryReader.ReadUInt16();
         }
 
         public override string ToString()
         {
+            var endianness = EndiannessMarker switch
+            {
+                LittleEndianMarker => "Little Endian",
+                BigEndianMarker => "Big Endian",
+                _ => $"invalid marker 0x{EndiannessMarker:X4}",
+            };
+
             string[] lines = [
                 $"Magic: {Magic}",
                 $"PartcloneVersion: {PartcloneVersion}",
                 $"ImageVersion: {ImageVersion}",
-                $"Endianess: {(BigEndian ? "Big Endian" : "Little Endian")}"
+                $"Endianess: {endianness}"
                 ];
 
             string result = lines.ToString(Environment.NewLine);

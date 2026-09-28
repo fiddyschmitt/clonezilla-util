@@ -1,39 +1,66 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
+using libCommon;
 using Windows.Win32;
 
 namespace clonezilla_util_tests.Sparse
 {
     [TestClass]
-    public class SparseTests
+    public class SparseTests : ExeTestBase
     {
-        [TestMethod]
+        //sda1 of the gz image: small, and its MD5 is already pinned by ImageFileTests.Gz, which serves the same
+        //partition image through a mount. This test used to check only that the output was sparse, so the
+        //sparsify path could have zeroed real data and still passed (gh review F53).
+        const string Input = @"E:\clonezilla-util-test resources\clonezilla images\2022-07-17-16-img_pb-devops1_gz";
+        const string Sda1Md5 = "d9a64d07801cb9f5878a72da4c5d53fd";
+
+        //Size on disk / file size. sda1 is mostly a WinRE image, so even perfectly sparse output is 72.6%
+        //allocated (measured 2026-09-24: 418 MB of 576 MB); an output that wrote its zeros is 100%.
+        const double MaxAllocatedFraction = 0.9;
+
+        //runaway protection only: 35 s warm (2026-09-24)
+        [TestMethod, Timeout(20 * 60_000)]
         public void ExtractAndSparsifyFile()
         {
-            var outputFolder = Directory.CreateTempSubdirectory().FullName;
+            var allocatedFraction = ExtractSda1AndMeasure([]);
+            Assert.IsTrue(allocatedFraction < MaxAllocatedFraction, $"Size on disk is {allocatedFraction:P1} of the file size; the output is not sparse");
+        }
 
-            var args = @$"extract-partition-image --input ""E:\clonezilla-util-test resources\clonezilla images\2022-07-17-16-img_pb-devops1_gz"" --output ""{outputFolder}"" -p sda2";
+        //--no-sparse-output: the same bytes, written in full (every cluster allocated)
+        [TestMethod, Timeout(20 * 60_000)]
+        public void ExtractWithoutSparse_WritesEveryByte()
+        {
+            var allocatedFraction = ExtractSda1AndMeasure(["--no-sparse-output"]);
+            Assert.IsTrue(allocatedFraction > 0.99, $"Size on disk is only {allocatedFraction:P1} of the file size; --no-sparse-output still produced a sparse file");
+        }
 
-            var psi = new ProcessStartInfo(Main.ExeUnderTest, args)
+        //Extracts sda1, checks its content, and returns its size on disk as a fraction of its length.
+        double ExtractSda1AndMeasure(string[] extraArgs)
+        {
+            var outputFolder = NewTempFolder();
+            try
             {
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            var process = Process.Start(psi);
-            process?.WaitForExit();
+                RunExe(["extract-partition-image", "--input", Input, "--output", outputFolder, "-p", "sda1", .. extraArgs])
+                    .AssertSucceeded("extract-partition-image");
 
-            var extractedFilename = Directory.GetFiles(outputFolder).First();
-            var fileSize = new FileInfo(extractedFilename).Length;
-            var sizeOnDisk = GetFileSizeOnDisk(extractedFilename);
-            Directory.Delete(outputFolder, true);
+                var extractedFilename = Path.Combine(outputFolder, "sda1.img");
+                Assert.IsTrue(File.Exists(extractedFilename), $"missing {extractedFilename}");
+                Assert.AreEqual(Sda1Md5, Utility.CalculateMD5(extractedFilename), "the extracted partition image has the wrong content");
 
-            var success = sizeOnDisk / (double)fileSize < 0.5;
-            Assert.IsTrue(success, "Size On Disk is not smaller than file size");
+                var fileSize = new FileInfo(extractedFilename).Length;
+                var sizeOnDisk = GetFileSizeOnDisk(extractedFilename);
+                return sizeOnDisk / (double)fileSize;
+            }
+            finally
+            {
+                TryDeleteFolder(outputFolder);
+            }
         }
 
         public static long GetFileSizeOnDisk(string file)

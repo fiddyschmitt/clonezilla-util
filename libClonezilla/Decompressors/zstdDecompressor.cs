@@ -1,6 +1,7 @@
 ﻿using libClonezilla.Cache;
 using libCommon;
 using libCommon.Streams.Seekable;
+using libCommon.Streams;
 using Serilog;
 using ZstdSeekable;
 using System;
@@ -28,7 +29,7 @@ namespace libClonezilla.Decompressors
             {
                 //in-memory random access via the ZstdSeekable package: an index of verified resume
                 //points (window snapshots) instead of extracting the whole stream to an on-disk
-                //cache. Returns null (falling through to the extraction path) if this particular
+                //cache. Returns null (falling through to the sequential, restart-based path) if this particular
                 //stream can't be indexed usefully.
                 var indexFilename = PartitionCache.GetZstdIndexFilename();
                 try
@@ -44,11 +45,11 @@ namespace libClonezilla.Decompressors
                     //serving-quality gate: on a pathological stream the package degrades to
                     //frame-start-only points - always CORRECT, but for a huge single-frame stream
                     //that means decode-from-the-start seeks, which serves a mount far worse than
-                    //the extraction fallback does. Only serve from an index with usable density.
+                    //the sequential fallback does. Only serve from an index with usable density.
                     var maxGap = MaxPointGap(index);
                     if (maxGap > 4 * options.TargetSpanBytes)
                     {
-                        Log.Warning($"zstd index for {Path.GetFileName(indexFilename)} is too sparse to serve efficiently (largest resume gap {maxGap.BytesToString()}). Extracting instead.");
+                        Log.Warning($"zstd index for {Path.GetFileName(indexFilename)} is too sparse to serve efficiently (largest resume gap {maxGap.BytesToString()}). Falling back to sequential decoding.");
                         index.Dispose();
                         return null;
                     }
@@ -58,47 +59,13 @@ namespace libClonezilla.Decompressors
                 }
                 catch (Exception ex)
                 {
-                    Log.Warning($"Could not build a zstd random-access index ({ex.Message}). Falling back to extraction.");
+                    Log.Warning($"Could not build a zstd random-access index ({ex.Message}). Falling back to sequential decoding.");
                 }
             }
 
             return null;
-            //For now, let's extract it to a file so that we can have fast seeking
-            /*
-            Log.Information($"Zstandard doesn't support random seeking. Extracting to a temporary file.");
-
-            var decompressor = new DecompressionStream(CompressedStream);
-
-            var tempFilename = TempUtility.GetTempFilename(true);
-            var tempFileStream = new FileStream(tempFilename, FileMode.Open, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
-
-            decompressor.CopyTo(tempFileStream, Buffers.ARBITRARY_HUGE_SIZE_BUFFER,
-                totalCopied =>
-                {
-                    var totalCopiedStr = libCommon.Extensions.BytesToString(totalCopied);
-                    Log.Information($"Extracted {totalCopiedStr} of Zstandard-compressed file to {tempFilename}.");
-                });
-
-            return tempFileStream;
-            */
-
-
-            //FPS 04/01/2021: An experiment to park partially processed streams all over the file. Unfortunately this was still too slow
-            /*
-            var zstdDecompressorGenerator = new Func<Stream>(() =>
-            {
-                var compressedStream = compressedStreamGenerator();
-                var zstdDecompressorStream = new DecompressionStream(compressedStream);
-
-                //the Zstandard decompressor doesn't track position in stream, so we have to do it for them
-                var positionTrackerStream = new PositionTrackerStream(zstdDecompressorStream);
-
-                return positionTrackerStream;
-            });
-
-            uncompressedStream = new SeekableStreamUsingNearestActioner(zstdDecompressorGenerator, totalLength, 1 * 1024 * 1024);   //stations should be within one second of an actioner.
-            */
         }
+
         static long MaxPointGap(ZstdIndex index)
         {
             var maxGap = 0L;
@@ -113,7 +80,7 @@ namespace libClonezilla.Decompressors
         public override Stream GetSequentialStream()
         {
             CompressedStream.Seek(0, SeekOrigin.Begin);
-            var uncompressedStream = new DecompressionStream(CompressedStream);
+            var uncompressedStream = new DecompressionStream(new NonClosingStream(CompressedStream));
             return uncompressedStream;
         }
     }

@@ -1,11 +1,9 @@
 using DokanNet;
 using libCommon;
 using libCommon.Streams;
-using libDokan.Processes;
 using libDokan.VFS;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
-using rextractor;
 using Serilog;
 using Serilog.Events;
 using System.Collections.Concurrent;
@@ -32,11 +30,6 @@ namespace libDokan
         private const FileAccess DataWriteAccess = FileAccess.WriteData | FileAccess.AppendData |
                                                    FileAccess.Delete |
                                                    FileAccess.GenericWrite;
-
-        protected static string GetPath(string fileName)
-        {
-            return fileName;
-        }
 
         protected static NtStatus Trace(string method, string? fileName, IDokanFileInfo? info, NtStatus result, params object?[] parameters)
         {
@@ -65,6 +58,29 @@ namespace libDokan
             return result;
         }
 
+        //ReadFile's trace. Its arguments are formatted only when Debug is on: building them before Trace's own level
+        //check cost two string allocations on every read (gh review F25).
+        static NtStatus TraceRead(string fileName, IDokanFileInfo info, NtStatus result, int bytesRead, long offset)
+        {
+            if (!Log.IsEnabled(LogEventLevel.Debug)) return result;
+            return Trace(nameof(ReadFile), fileName, info, result, "out " + bytesRead.ToString(), offset.ToString(CultureInfo.InvariantCulture));
+        }
+
+        //True when `entry` is the entry at `path` (Dokan's "\folder\file" form): every path segment is compared with
+        //the entry's parent chain, leaf first, without allocating. The L11 context guards used to compare only the
+        //leaf name, so a context for a same-named file in another folder passed them (gh review F25).
+        static bool IsEntryAtPath(FileSystemEntry entry, string path)
+        {
+            var remaining = path.AsSpan().TrimEnd('\\');
+            for (FileSystemEntry? current = entry; current is not null and not RootFolder; current = current.Parent)
+            {
+                var separator = remaining.LastIndexOf('\\');
+                if (!remaining[(separator + 1)..].Equals(current.Name, StringComparison.OrdinalIgnoreCase)) return false;
+                remaining = separator >= 0 ? remaining[..separator] : ReadOnlySpan<char>.Empty;
+            }
+            return remaining.TrimStart('\\').IsEmpty;   //both reached the root together
+        }
+
         const long STATUS_FILE_IS_A_DIRECTORY = 0xC00000BAL;
         const FileOptions FileNonDirectoryFile = (FileOptions)0x40;
 
@@ -72,7 +88,7 @@ namespace libDokan
             FileOptions options, FileAttributes attributes, IDokanFileInfo info)
         {
             var result = DokanResult.Success;
-            var filePath = GetPath(fileName);
+            var filePath = fileName;
 
             //L11 defense-in-depth: start every open with a provably-clean context. Forensics
             //(2026-08-08, TEST_ANALYSIS.md "L11 CAUSE") showed contexts never actually arrive at
@@ -85,24 +101,32 @@ namespace libDokan
             if (ContextForensics.Enabled) ContextForensics.OnCreateEntry(info, fileName);
             DokanRawContext.TryZero(info);
 
+            //This volume is read-only. Every disposition that would create or overwrite fails the way it does on
+            //read-only media; one that merely opens an existing entry (Open, or OpenOrCreate when it exists) is an
+            //open. Create and truncate dispositions used to fall through to Success, hidden only by the driver's
+            //write-protect flag (gh review F23).
             if (info.IsDirectory)
             {
                 try
                 {
+                    var entry = Root.GetEntryFromPath(filePath);
                     switch (mode)
                     {
                         case FileMode.Open:
-                            if (Root.GetEntryFromPath(filePath, info.ProcessId) is not Folder)
-                            {
-                                return Trace(nameof(CreateFile), fileName, info, access, share, mode, options,
-                                    attributes, DokanResult.PathNotFound);
-                            }
-
-                            break;
+                        case FileMode.OpenOrCreate:
+                            if (entry is Folder) break;
+                            return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
+                                entry != null ? DokanResult.NotADirectory                  //a file opened as a directory
+                                : mode == FileMode.Open ? DokanResult.PathNotFound
+                                : DokanResult.AccessDenied);                               //would create it
 
                         case FileMode.CreateNew:
-                            return Trace(nameof(CreateFile), fileName, info, access, share, mode, options,
-                                    attributes, DokanResult.NotImplemented);
+                            return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
+                                entry != null ? DokanResult.FileExists : DokanResult.AccessDenied);
+
+                        default:   //Create, Truncate, Append: would create or overwrite
+                            return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
+                                DokanResult.AccessDenied);
                     }
                 }
                 catch (UnauthorizedAccessException)
@@ -119,7 +143,7 @@ namespace libDokan
                 var readWriteAttributes = (access & DataAccess) == 0;
                 var readAccess = (access & DataWriteAccess) == 0;
 
-                var fileSystemEntry = Root.GetEntryFromPath(filePath, info.ProcessId);
+                var fileSystemEntry = Root.GetEntryFromPath(filePath);
                 pathExists = fileSystemEntry != null;
                 pathIsDirectory = fileSystemEntry is Folder;
 
@@ -145,6 +169,7 @@ namespace libDokan
                 switch (mode)
                 {
                     case FileMode.Open:
+                    case FileMode.OpenOrCreate:   //an existing entry opens exactly as with Open
 
                         if (pathExists)
                         {
@@ -168,21 +193,21 @@ namespace libDokan
                         else
                         {
                             return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
-                                DokanResult.FileNotFound);
+                                mode == FileMode.Open ? DokanResult.FileNotFound : DokanResult.AccessDenied);
                         }
                         break;
 
                     case FileMode.CreateNew:
-                        if (pathExists)
-                            return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
-                                DokanResult.FileExists);
-                        break;
+                        return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
+                            pathExists ? DokanResult.FileExists : DokanResult.AccessDenied);
 
                     case FileMode.Truncate:
-                        if (!pathExists)
-                            return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
-                                DokanResult.FileNotFound);
-                        break;
+                        return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
+                            pathExists ? DokanResult.AccessDenied : DokanResult.FileNotFound);
+
+                    default:   //Create (overwrite or create), Append: would create or overwrite
+                        return Trace(nameof(CreateFile), fileName, info, access, share, mode, options, attributes,
+                            DokanResult.AccessDenied);
                 }
 
                 try
@@ -240,8 +265,7 @@ namespace libDokan
                 //nothing frees early), neither dispose nor free it - it may be another open's LIVE
                 //stream, and DokanNet's setter would GCHandle.Free it. Zero-without-free instead;
                 //ReadFile's by-name path correctly serves any straggler operations.
-                if (!string.Equals(fileName.AsSpan(fileName.LastIndexOf('\\') + 1).ToString(),
-                                   fileEntryStream.FileEntry.Name, StringComparison.OrdinalIgnoreCase))
+                if (!IsEntryAtPath(fileEntryStream.FileEntry, fileName))
                 {
                     Log.Warning($"CloseFile context mismatch: '{fileName}' holds a stream for "
                               + $"'{fileEntryStream.FileEntry.Name}'. Dropping it without dispose/free.");
@@ -315,8 +339,11 @@ namespace libDokan
         //biggest cost of these reads). Instead ONE free-running timer watches a registry of in-flight reads:
         //a fast read enters and leaves the registry between ticks and is never touched, paying only a
         //dictionary insert/remove. The timer only ever extends reads still running at a tick = the slow ones.
-        const int TimeoutWatchdogExtensionMs = 20_000;                                 //push the deadline out by this each tick
-        static readonly TimeSpan TimeoutWatchdogInterval = TimeSpan.FromSeconds(5);    //tick well inside the 20s timeout
+        //Dokan's per-operation timeout. OnDemandVFS creates the mount with options.TimeOut set from this, and the
+        //watchdog extends a slow read by the same amount each tick, so one constant keeps the two in step.
+        public const int OperationTimeoutMs = 20_000;
+        const int TimeoutWatchdogExtensionMs = OperationTimeoutMs;                     //push the deadline out by a full timeout each tick
+        static readonly TimeSpan TimeoutWatchdogInterval = TimeSpan.FromMilliseconds(OperationTimeoutMs / 4);   //tick well inside the timeout
         //Abandon a slow read only after this long with the whole mount decoding nothing. Env override
         //(CLONEZILLA_READ_STUCK_SECONDS) for tuning; the default is generous because the cost of over-waiting
         //is just a stuck op held a little longer, while under-waiting reintroduces gh #87.
@@ -353,7 +380,29 @@ namespace libDokan
         static readonly ConcurrentDictionary<long, InFlightRead> InFlightReads = new();
         static long inFlightReadIdSeq;
 
+        //A Timer callback runs on a pool thread, where an unhandled exception terminates the process. The tick
+        //only extends deadlines and reports, so a failure in it (not just in TryResetTimeout) is logged and
+        //retried on the next tick (gh review F22).
         static readonly Timer TimeoutWatchdog = new(_ =>
+        {
+            try
+            {
+                WatchdogTick();
+            }
+            catch (Exception ex)
+            {
+                var now = Environment.TickCount64;
+                if (now - lastWatchdogFailureLogTick >= 60_000)
+                {
+                    lastWatchdogFailureLogTick = now;
+                    Log.Warning(ex, "The read watchdog's tick failed; it will run again on the next tick.");
+                }
+            }
+        }, null, TimeoutWatchdogInterval, TimeoutWatchdogInterval);
+
+        static long lastWatchdogFailureLogTick = long.MinValue / 2;
+
+        static void WatchdogTick()
         {
             if (InFlightReads.IsEmpty)
             {
@@ -393,7 +442,7 @@ namespace libDokan
                 }
             }
             SlowReadReporting.OnTick(now, inFlight, slow, slowest, slowestElapsed);
-        }, null, TimeoutWatchdogInterval, TimeoutWatchdogInterval);
+        }
 
         //--- slow-read reporting -------------------------------------------------------------------
         //The 2026-08-18 bzip2 golden run lost 191 reads to Dokan timeouts (0x800705AA) in five bursts,
@@ -496,7 +545,7 @@ namespace libDokan
 
             if (contextObj == null) // memory mapped read
             {
-                var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId);
+                var fileSystemEntry = Root.GetEntryFromPath(fileName);
                 if (fileSystemEntry is FileEntry file)
                 {
                     //paging reads have no handle context; FileEntry keeps one reusable stream for them
@@ -525,8 +574,7 @@ namespace libDokan
                 //the file being requested, and if it does not, serve the file by NAME instead.
                 //That turns what was silent cross-file corruption into a correct (marginally
                 //slower) read, which is the right trade in a filesystem.
-                if (!string.Equals(fileName.AsSpan(fileName.LastIndexOf('\\') + 1).ToString(),
-                                   stream.FileEntry.Name, StringComparison.OrdinalIgnoreCase))
+                if (!IsEntryAtPath(stream.FileEntry, fileName))
                 {
                     if (ContextForensics.Enabled) ContextForensics.OnForeignRead(info, fileName, stream.FileEntry.Name);
                     Log.Warning($"ReadFile context mismatch: '{fileName}' was handed a stream for "
@@ -539,27 +587,25 @@ namespace libDokan
                     //CloseFileProxy finally-block no longer double-frees it at close.
                     DokanRawContext.TryZero(info);
 
-                    if (Root.GetEntryFromPath(GetPath(fileName), info.ProcessId) is FileEntry byName)
+                    if (Root.GetEntryFromPath(fileName) is FileEntry byName)
                     {
                         bytesRead = byName.ReadForMemoryMap(buffer, offset, buffer.Length);
-                        return Trace(nameof(ReadFile), fileName, info, DokanResult.Success,
-                            "out " + bytesRead.ToString(), offset.ToString(CultureInfo.InvariantCulture));
+                        return TraceRead(fileName, info, DokanResult.Success, bytesRead, offset);
                     }
                     return Trace(nameof(ReadFile), fileName, info, DokanResult.FileNotFound);
                 }
 
                 int DoRead()
                 {
-                    var toRead = Math.Min(stream.FileEntry.Length - offset, buffer.Length);
-                    if (!Environment.Is64BitOperatingSystem)
-                    {
-                        toRead = Math.Min(toRead, Buffers.ARBITRARY_MEDIUM_SIZE_BUFFER);
-                    }
-                    toRead = Math.Min(toRead, Array.MaxLength);
-                    toRead = Math.Max(toRead, 0);   //reads beyond EOF would otherwise produce a negative count
-
+                    //Bounded by the file's end, and read EXACTLY that much. This used to call
+                    //ReadAtLeast(buffer, toRead), which reads into the WHOLE buffer, so none of its clamps ever
+                    //applied and a stream longer than its entry would have served bytes past the file's end (gh
+                    //review F12). The 32-bit cap and Array.MaxLength clamp went with it: both were no-ops, the
+                    //buffer is Dokan's and already allocated, and a short read mid-file looks like end-of-file to
+                    //many clients.
+                    var toRead = (int)Math.Clamp(stream.FileEntry.Length - offset, 0, buffer.Length);   //negative past EOF
                     stream.Stream.Position = offset;
-                    return stream.Stream.ReadAtLeast(buffer, (int)toRead, false);
+                    return FileEntry.ReadFully(stream.Stream, buffer, toRead);
                 }
 
                 //A per-handle stream only needs to guard concurrent reads on the SAME handle, so lock the
@@ -571,8 +617,7 @@ namespace libDokan
                     bytesRead = DoRead();
                 }
             }
-            return Trace(nameof(ReadFile), fileName, info, DokanResult.Success, "out " + bytesRead.ToString(),
-                offset.ToString(CultureInfo.InvariantCulture));
+            return TraceRead(fileName, info, DokanResult.Success, bytesRead, offset);
             }
             catch (Exception ex)
             {
@@ -591,21 +636,10 @@ namespace libDokan
                 offset.ToString(CultureInfo.InvariantCulture));
         }
 
+        //A read-only volume has nothing to flush. Flushing the backing streams could also throw
+        //NotImplementedException (CachingStream, SubStream), which escaped the old IOException catch (gh review F21).
         public NtStatus FlushFileBuffers(string fileName, IDokanFileInfo info)
-        {
-            try
-            {
-                if (info.Context is FileEntryStream fileEntry)
-                {
-                    fileEntry.Stream.Flush();
-                }
-                return Trace(nameof(FlushFileBuffers), fileName, info, DokanResult.Success);
-            }
-            catch (IOException)
-            {
-                return Trace(nameof(FlushFileBuffers), fileName, info, DokanResult.DiskFull);
-            }
-        }
+            => Trace(nameof(FlushFileBuffers), fileName, info, DokanResult.Success);
 
         public NtStatus GetFileInformation(string fileName, out FileInformation fileInfo, IDokanFileInfo info)
         {
@@ -615,7 +649,7 @@ namespace libDokan
 
             fileInfo = default;
 
-            var fileSystemEntry = Root.GetEntryFromPath(fileName, info.ProcessId);
+            var fileSystemEntry = Root.GetEntryFromPath(fileName);
             if (fileSystemEntry == null)
             {
                 return Trace(nameof(GetFileInformation), fileName, info, DokanResult.FileNotFound);
@@ -632,7 +666,7 @@ namespace libDokan
             // Return DokanResult.NotImplemented in FindFilesWithPattern to make FindFiles called
             try
             {
-                files = FindFilesHelper(fileName, "*", info.ProcessId);
+                files = FindFilesHelper(fileName, "*");
                 return Trace(nameof(FindFiles), fileName, info, DokanResult.Success);
             }
             catch (Exception ex)
@@ -780,60 +814,32 @@ namespace libDokan
             return Trace(nameof(Unmounted), null, info, DokanResult.Success);
         }
 
-        public NtStatus FindStreams(string fileName, IntPtr enumContext, out string streamName, out long streamSize,
-            IDokanFileInfo info)
-        {
-            streamName = string.Empty;
-            streamSize = 0;
-            return Trace(nameof(FindStreams), fileName, info, DokanResult.NotImplemented, enumContext.ToString(),
-                "out " + streamName, "out " + streamSize.ToString());
-        }
-
         public NtStatus FindStreams(string fileName, out IList<FileInformation> streams, IDokanFileInfo info)
         {
             streams = Array.Empty<FileInformation>();
             return Trace(nameof(FindStreams), fileName, info, DokanResult.NotImplemented);
         }
 
-        public IList<FileInformation> FindFilesHelper(string fileName, string searchPattern, int requestingPID)
+        public IList<FileInformation> FindFilesHelper(string fileName, string searchPattern)
         {
-            //Console.WriteLine($"FindFilesHelper: {fileName}                     {searchPattern}");
-
-            var fileSystemEntry = Root.GetEntryFromPath(fileName, requestingPID);
+            var fileSystemEntry = Root.GetEntryFromPath(fileName);
 
             var result = new List<FileInformation>();
 
-            if (fileSystemEntry != null && !fileSystemEntry.IsAccessibleToProcess(requestingPID))
-            {
-                return result;
-            }
-
-            var wildcardMatcher = new FindFilesPatternToRegex();
-
             if (fileSystemEntry is Folder folder)
             {
-                //This was too slow for L:\partition1\Windows\WinSxS. External applications would get 'Insufficient resources' timeouts because it took longer than 20 seconds to run.
-                /*
-                result = folder
-                            .Children
-                            .Where(child => FindFilesPatternToRegex.FindFilesEmulator(searchPattern, child.Name))   //This is slow, because it has to compile the Regex object for every single file in the folder
-                            .Where(child => child is not UnlistedFolder)
-                            .Select(entry => entry.ToFileInformation())
-                            .ToList();
-                */
-
-                IList<FileSystemEntry> matchingChildren;
-                if (searchPattern.Equals("*"))
+                //Filter the folder's children by the driver's search pattern. DokanNet's own matcher
+                //implements the exact Win32/NT wildcard semantics the driver hands us here, including the
+                //DOS wildcards the kernel substitutes for the '?', '*.' and '.?' forms ('<', '"', '>').
+                //The old in-house regex converter rejected those three characters outright, and the
+                //callback then returned an EMPTY directory listing for any such pattern (gh review F6).
+                IEnumerable<FileSystemEntry> children = folder.Children;
+                if (searchPattern != "*")
                 {
-                    matchingChildren = folder.Children.ToList();
-                }
-                else
-                {
-                    matchingChildren = FindFilesPatternToRegex
-                                        .FindFilesEmulator(searchPattern, folder.Children, item => item.Name);   //This is much faster, because it only has to compile the Regex object once for the folder
+                    children = children.Where(child => DokanHelper.DokanIsNameInExpression(searchPattern, child.Name, ignoreCase: true));
                 }
 
-                result = matchingChildren
+                result = children
                             .Where(child => child is not UnlistedFolder)
                             .Select(entry => entry.ToFileInformation())
                             .ToList();
@@ -853,7 +859,7 @@ namespace libDokan
         {
             try
             {
-                files = FindFilesHelper(fileName, searchPattern, info.ProcessId);
+                files = FindFilesHelper(fileName, searchPattern);
                 return Trace(nameof(FindFilesWithPattern), fileName, info, DokanResult.Success);
             }
             catch (Exception ex)
@@ -862,44 +868,6 @@ namespace libDokan
                 files = Array.Empty<FileInformation>();
                 return Trace(nameof(FindFilesWithPattern), fileName, info, DokanResult.Error);
             }
-        }
-
-        public static void Test()
-        {
-            var rootFolder = new RootFolder(@"X:\");
-            var subfolder1 = new Folder("2021-12-28-13-img_PB-DEVOPS1_gz", rootFolder);
-            var subfolder2 = new Folder("extracted", subfolder1);
-
-            var files = Directory
-                        .GetFiles(@"E:\_img\3 - restored using clonezilla-util")
-                        .Select(filename =>
-                        {
-                            var fi = new FileInfo(filename);
-
-                            var file = new StreamBackedFileEntry(
-                                fi.Name,
-                                subfolder2,
-                                () =>
-                                {
-                                    var stream = File.OpenRead(filename);
-                                    return stream;
-                                },
-                                fi.Length
-                                )
-                            {
-                                Length = fi.Length,
-                                Created = fi.CreationTime,
-                                Accessed = fi.LastAccessTime,
-                                Modified = fi.LastWriteTime
-                            };
-
-                            return file;
-                        })
-                        .ToList();
-
-
-            var testFS = new DokanVFS("DokanVFS", rootFolder);
-            //testFS.Mount(rootFolder.MountPoint);
         }
     }
 

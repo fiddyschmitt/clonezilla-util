@@ -2,6 +2,7 @@
 using System.Buffers;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 
 namespace libCommon
 {
@@ -24,6 +25,36 @@ namespace libCommon
         //See: https://adamsitnik.com/Array-Pool/
         //Always remember to return the array back into the pool.
         //Never trust buffer.Length
-        public static readonly ArrayPool<byte> BufferPool = ArrayPool<byte>.Create(ARBITRARY_LARGE_SIZE_BUFFER + 1, 50);
+        //
+        //maxArraysPerBucket lowered 50 -> 16: these arrays are now only TRANSIENT staging for the
+        //native-memory cache slots (decode into staging, memcpy into a NativeBlock, return staging), so the
+        //pool only has to cover the peak concurrent stagers (~8 serving workers + 8 mount-time opens). At 50
+        //the 32/64 MB buckets alone could retain multiple GB that never trims (ConfigurableArrayPool has no
+        //Gen2 trim). The wrapper below exposes the outstanding rented bytes as governor telemetry (`pool out`).
+        public static readonly CountedArrayPool BufferPool = new(ArrayPool<byte>.Create(ARBITRARY_LARGE_SIZE_BUFFER + 1, 16));
+
+        /// <summary>Bytes currently rented out of <see cref="BufferPool"/> (staging in flight).</summary>
+        public static long RentedOutBytes => BufferPool.RentedOutBytes;
+    }
+
+    /// <summary>An ArrayPool that tracks outstanding rented capacity, so the memory governor can report
+    /// how much transient staging is in flight. Delegates everything else to the wrapped pool.</summary>
+    public sealed class CountedArrayPool(ArrayPool<byte> inner) : ArrayPool<byte>
+    {
+        long rentedOut;
+        public long RentedOutBytes => Interlocked.Read(ref rentedOut);
+
+        public override byte[] Rent(int minimumLength)
+        {
+            var array = inner.Rent(minimumLength);
+            Interlocked.Add(ref rentedOut, array.Length);
+            return array;
+        }
+
+        public override void Return(byte[] array, bool clearArray = false)
+        {
+            if (array != null) Interlocked.Add(ref rentedOut, -array.Length);
+            inner.Return(array!, clearArray);
+        }
     }
 }

@@ -781,6 +781,8 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
 ### Two root problems
 1. **Cache budget**: the layer-4 `CachingStream` is sized at ¼ system RAM **per partition**; with N mounted
    partitions the total is N×¼ RAM → exhaustion (≈¾ RAM on a 3-partition mount) → `0x800705AA`.
+   **Fixed** by (A) 2026-07-10; the whole fixed-fraction design is superseded by (A′), the MemoryGovernor
+   (2026-09-18), which sizes the cache to *available* memory.
 2. **Decompress-and-discard on scattered reads**: a fragmented file scatters NTFS clusters across the whole
    partition → scattered seeks into the gz stream → each seek decompresses from the nearest gztool checkpoint
    and throws the skipped part away. This is *both* the slowness *and* the transient-allocation/LOH-frag churn.
@@ -800,12 +802,93 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
 [ 1] FileStream × N (sda2.…ptcl-img.gz.aa/.ab/…)
 ```
 
-- [x] **(A) Global cache budget** — **DONE 2026-07-10 (awaiting suite).** `CachingStream` now tracks a
-  process-wide count of live `LimitByRAMUsage` instances; each caps itself at
-  `CacheLimitValue ÷ liveCount` (all callers pass ¼ RAM, so the TOTAL stays ≤ ¼ RAM regardless of
-  partition count — was N×¼). No cross-instance locking (each instance evicts only its own LRU);
-  never-Close()d instances err toward LESS memory. Fixes root #1 (exhaustion → paging → 0x800705AA /
-  machine unusability). Tension stands: shrinks each cache → more misses → leans on (B)/(E).
+- [x] **(A) Global cache budget** — **SUPERSEDED 2026-09-18 by the MemoryGovernor (see below).** Original
+  (DONE 2026-07-10): `CachingStream` tracked a process-wide count of live `LimitByRAMUsage` instances; each
+  capped itself at `CacheLimitValue ÷ liveCount` (all callers passed ¼ RAM, so the TOTAL stayed ≤ ¼ RAM
+  regardless of partition count — was N×¼). Fixed root #1 (exhaustion → paging → 0x800705AA). Its flaw:
+  the budget was ¼ of *total* RAM (ignores what is actually free — oversubscribes a busy box → pages), split
+  *evenly* per partition (the golden sda2 leg ran through a 5.3 GB share while sda1/sdb1 held idle thirds),
+  and eviction happened only inside a cache miss (an idle partition never gave memory back). This is why the
+  golden quartet's wall-clock swung 340↔966 min on identical code (2026-09-16 investigation).
+
+- [x] **(A′) MemoryGovernor** — **DONE 2026-09-18 (`7bb2aa9`), validated 2026-09-23.** Replaces (A).
+  **Results:** golden quartet warm 338.6 min (2.10.1) and 483.9 min (pre-governor, 09-18) → **146.9 and
+  124.0 min** on two governor runs (09-19, 09-23); xz 138→30 min, zst 105→32 min; all four codecs
+  byte-exact. Full suite cold 107/107 twice (09-23: 266.7 min, the fastest recorded; bleed stress 22.3 min,
+  0 mismatches). The governor held the 5.1 GB reserve with zero over-reserve events. On this box the cache
+  peaked at only ~3 GB because ~50 GB is committed even at idle (see the nonpaged-pool note), so the win is
+  a cache that *stays resident*, not a bigger one: the old nominal 16 GB budget oversubscribed RAM and paged.
+  A 09-19 cold-ListContents slowdown (bzip2 drive image 13 → 41 min) did not reproduce on 09-23 (11.5 min):
+  cold-disk noise, not the governor. Design: `libCommon/Memory/`:
+  a process-wide governor samples `GlobalMemoryStatusEx` every 1 s and grows the caches until the machine's
+  *available* physical memory (min of free RAM and free commit) reaches a **reserve** = max(1 GB, 8% of RAM),
+  sheds **globally-oldest** spans (across all partitions) when anything else needs memory, and admits a
+  reader's own span even at the floor rather than stall it. Cache slots moved to **native memory**
+  (`NativeBlock`, VirtualAlloc-backed) so a free returns pages to the OS immediately (the governor can then
+  measure the effect) with exact accounting and no LOH churn / pool retention. Legacy `ReadInternal` path
+  split into `listLock` (hits) + `decodeLock` (the stateful seek+read) so a minutes-long restart seek no
+  longer stalls a hit or the governor. Knobs: `--memory-reserve` / `CLONEZILLA_MEMORY_RESERVE_MB`,
+  `--cache-max` / `CLONEZILLA_CACHE_MAX_MB`. Telemetry: a `MEM …` log line (state change / 30 s / 10 min)
+  with avail, cache size, in-flight, pool-out, hit/miss/evict/redecode counts — the memory instrumentation
+  the earlier `[diag]` snapshots used to provide. GC `System.GC.HighMemoryPercent=95` so the 8% reserve
+  (≈92% load) does not trip the GC's aggressive high-memory mode (the managed heap is small once slots are
+  native). Fixed-cost trims shipped alongside: `Buffers.BufferPool` bucket cap 50→16, restart-seek skip
+  buffer 50 MB→1 MB, and `PartcloneImageInfo.Bitmap` released after packing (−64 MiB per 2 TB partition).
+  In-process unit tests cover admit/evict/shrink/cap/floor and parallel served-bytes + native alloc/free
+  balance on both paths. Removes the (A) "shrinks each cache → more misses" tension: the cache is now as
+  large as free RAM allows.
+- [x] **Nonpaged-pool growth investigated (2026-09-24) — not Dokan.** On 2026-09-18 (8 days' uptime) the box
+  carried 13.7 GB of nonpaged pool and ~62 GB committed, which is what capped the governor's headroom.
+  Measured after the 09-19 reboot with a poolmon equivalent (`NtQuerySystemInformation(SystemPoolTagInformation)`,
+  which works unelevated, so the Driver Kit is not needed):
+  - **Dokan (`DOKA`, only in dokan2.sys) is not leaking materially.** ~403 M pool allocations since boot,
+    across two golden runs and a full suite, with only ~11.9 K outstanding (2.65 MB). A controlled loop
+    (20× mount, read 28 files, kill) leaves ~128 allocations (~26 KB) per mount killed with fresh handles;
+    mounts killed after sitting idle leave ~0. Real but negligible (≈2.6 MB per full suite). At the time the
+    product never disposed its `DokanInstance` (it lives on a background task), so even a normal exit left
+    the teardown to the driver. Since review F51 (2026-09-24) Enter/Ctrl+C unmount cleanly (`IVFS.Unmount`);
+    the suite still kills its mounts, so its teardown remains the driver's.
+  - **The largest nonpaged consumer is VAD structures** (`VadS`/`Vad`/`VadF`): ~920 MB, ~8.9 M outstanding
+    and still growing, held by a protected or system process. Every openable user process together holds only
+    ~58 K allocations, flat across the window. Naming the owner needs an elevated address-space walk.
+  - **File-system cache metadata** (`FMsc`, `File`, `MmCa`, NTFS and Defender tags) grows with any file
+    activity (+250 MB in 17 min during unrelated file searching). Reclaimable cache, not a leak.
+  So the 09-18 figure was most likely the VAD grower over 8 days plus cache metadata from the golden runs'
+  millions of file opens; neither is in this product. For clean measurements, reboot before a golden run, and
+  snapshot pool tags before and after a run to see what grows.
+- [ ] **Watch: the governor vs the OS file cache (2026-09-24).** In the Batch 2 suite run the zst bleed-stress leg
+  took 17.4 min (6.1 on 09-23, 7.6 on 08-26; the other three legs were 17–34 % slower than 09-23). Measured
+  mid-leg: decoded cache 19 GB and growing, 6.1 GB available, 6.2 GB standby cache, so the 18.5 GB zst image
+  could not stay in the file cache. E: (Seagate ST4000DM004, SMR HDD) was serving the span decodes' random
+  reads at 16.8 MB/s, 51 ms/read, queue 5, while the exe used ~0.3 of 12 cores; misses ran at ~0.5–1 span/s.
+  Correctness unaffected (8,790 files verified, 0 errors). I read this as the file-cache trade-off listed in
+  (A′)'s risks, but the diagnosis is **confounded**: until 2026-09-26 E: also held the Windows pagefile
+  (moved to C: that day), so part of that E: traffic may have been paging. Why 09-23 escaped it is not
+  established either (that run's free RAM wasn't recorded; on 09-24 two VMs and an unrelated 3.3 GB job were
+  also running). Re-measure before acting. Options if it recurs with the pagefile off E:: count the
+  compressed inputs in the reserve (`min(Σ compressed input, 25 % RAM)`), or `--memory-reserve`.
+  First data point after the move (golden, 2026-09-26): xz 26.4 and zst 24.1 min, the fastest on record.
+  Second (golden, 2026-09-27): xz 41.7, zst 31.5 - confounded again, the other way. The move left C:\pagefile.sys
+  at 2 GB initial (20 GB max), so the commit limit is RAM + 2 GB = 65.9 GB, and the governor's avail is
+  min(physical available, commit headroom). Other processes held ~39.5 GB of commit (two VirtualBox VMs' guest
+  RAM, 14 GB, is charged to commit but to no process; plus WinDirStat, Claude sessions, VS), so our exe stopped
+  at ~21 GB private - cache ~14.7 GB vs ~28 GB on 09-26 - with ~6 GB of physical memory still unused. Windows
+  never grows the page file, because the governor never lets commit headroom fall below its reserve. Re-measure
+  with a 16-20 GB initial page file and the VMs off; the MEM line should also say which limit binds.
+- [x] **Golden 2026-09-26: bzip2 56.2 min (37.2 on 09-23) was external load, not Batch 2.** Its first 18 min
+  ran at exactly the 09-23 decode rate (11–12 k span decodes per 3 min), then collapsed to 1.6–7.5 k from
+  16:00 to 16:30 with starvation signatures (every in-flight read slow at once; the harness's own reads in
+  flight fell from 16 to 1–5; ~7.5 GB of RAM taken by another process while ours stayed flat outside the
+  cache), then recovered. The `wireshark-ci` VirtualBox VM (8 vCPUs, 12 GB) started at 16:08:54, the run
+  having begun 7 min after a reboot. gz/xz/zst in the same run were level or faster than ever.
+  **For timed runs:** after a reboot, let the box settle; keep the CI VM and other heavy jobs stopped.
+- [x] **Batch 3 runs, 2026-09-27: all green; the timing changes were environmental.** Golden 141.4 min (133.3 on
+  09-26): xz 26.5 -> 41.7 and zst 24.2 -> 31.5 are the commit cap above (xz leg: 290 GB evicted vs 27 GB, 19 k
+  misses vs 3.5 k, the same 13.5 M reads served); gz level; bzip2 41.6 (37.3 on 09-23). Cold suite (index cache
+  cleared) 188/188 in 292.1 min vs 277.1 for 109 tests: about +10 min is the new tests; about -8 min is F46
+  (compressed partclone/image files now open in-process - the 500 GB LUKS partclone mounts went 3.3 -> 0.5 min,
+  7-Zip worker open 139 s -> 11 s); about +21 min is an outside CPU-contention window, 09:30-10:25, that slowed
+  the gz, xz and drive-image bzip2 index builds (the I/O-bound zst build inside it ran fast; no event-log trace).
 - [x] **(B) Denser gztool checkpoints** — **DONE 2026-07-10 (awaiting suite).** Index span 10 → 4 MiB
   (`gztool -s 4` in `GZipStreamSeekable`): average cold-seek discard ~5 MB → ~2 MB (~2.5× less decode
   per scattered read), compounding with I0's in-process reads. Cost: ~2.5× bigger on-disk index

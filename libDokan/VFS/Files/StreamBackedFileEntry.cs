@@ -9,8 +9,8 @@ namespace libDokan.VFS.Files
 {
     public class StreamBackedFileEntry : FileEntry
     {
-        readonly Stream? Stream;
-        readonly Func<Stream>? StreamFactory;
+        //one shared stream serves every handle (a stream-factory variant, used only by a removed test harness, is gone)
+        readonly Stream Stream;
 
         public StreamBackedFileEntry(string name, Folder? folder, Stream stream) : base(name, folder)
         {
@@ -18,29 +18,8 @@ namespace libDokan.VFS.Files
             Length = stream.Length;
         }
 
-        public StreamBackedFileEntry(string name, Folder? folder, Func<Stream> streamFactory, long fileSize) : base(name, folder)
-        {
-            StreamFactory = streamFactory;
-            Length = fileSize;
-        }
+        public override bool CreatesNewStreamPerCall => false;
 
-        public override bool CreatesNewStreamPerCall => StreamFactory != null;
-
-        public override Stream GetStream()
-        {
-            Stream? result = null;
-
-            if (Stream != null)
-            {
-                result = Stream;
-            } else if (StreamFactory != null)
-            {
-                result = StreamFactory();
-            }
-
-            if (result == null) throw new Exception($"Could not retrieve a stream for {Name}");
-
-            return result;
-        }
+        public override Stream GetStream() => Stream;
     }
 }

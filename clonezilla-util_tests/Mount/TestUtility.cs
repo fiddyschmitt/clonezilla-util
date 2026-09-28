@@ -14,53 +14,10 @@ namespace clonezilla_util_tests.Mount
     {
         public static void ConfirmFilesExist(string exeUnderTest, string args, IEnumerable<FileDetails> expectedFiles, TimeSpan? timeout = null)
         {
-            var psi = new ProcessStartInfo(exeUnderTest, $"{args} --no-explorer")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                //own the exe's stdio (2026-08-15): stdout is watched for the readiness signal below,
-                //and stdin must be redirected AND HELD OPEN because the mount verb exits on stdin EOF
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                RedirectStandardInput = true
-            };
-            var mountingComplete = new ManualResetEventSlim(false);
-            var process = Process.Start(psi);
-            if (process != null)
-            {
-                process.OutputDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
-                process.ErrorDataReceived += (_, _) => { };
-                process.BeginOutputReadLine();
-                process.BeginErrorReadLine();
-            }
+            var mountRoot = expectedFiles.Select(f => Path.GetPathRoot(f.FullPath)).FirstOrDefault(root => !string.IsNullOrEmpty(root));
 
-            //cold index builds for the large drive images legitimately take hours; this only guards
-            //against waiting forever (e.g. the exe's mount was destroyed and the files never appear)
-            var maxWait = timeout ?? TimeSpan.FromHours(6);
-            var waited = Stopwatch.StartNew();
-
-            //the exe must always be killed - even when an assert or an IO error (e.g. the mount
-            //vanishing mid-copy) throws - or it lingers, holding GBs and its Dokan mounts (2026-07-17)
-            try
+            WhileMounted(exeUnderTest, args, mountRoot, mount =>
             {
-                //Gate on the exe's OWN "Mounting complete" before checking any file. Without this, a
-                //stale mount left at the same drive letter by an earlier crashed/timed-out test can
-                //satisfy the file checks while OUR exe dies behind the scenes ("a live volume already
-                //answers at this mount point") - the 2026-08-15 warm run false-passed several tests
-                //exactly that way.
-                while (!mountingComplete.IsSet)
-                {
-                    if (process?.HasExited ?? true)
-                    {
-                        Assert.Fail($"The exe under test exited (code {(process != null ? process.ExitCode.ToString() : "unknown")}) before the mount appeared. (A leftover mount squatting on the drive letter produces exit code 1: 'a live volume already answers at this mount point'.)");
-                    }
-                    if (waited.Elapsed > maxWait)
-                    {
-                        Assert.Fail($"Timed out after {waited.Elapsed} waiting for the exe to report 'Mounting complete'.");
-                    }
-                    Thread.Sleep(1000);
-                }
-
                 //Once the exe reports "Mounting complete" its tree is fully built and every file it
                 //will ever serve is already visible, so an expected file still MISSING after a short
                 //grace is never coming (wrong listing, or a partition that failed to open) - fail
@@ -75,9 +32,9 @@ namespace clonezilla_util_tests.Mount
                 {
                     allSuccessful = true;
 
-                    if (process?.HasExited ?? true)
+                    if (mount.Process.HasExited)
                     {
-                        Assert.Fail($"The exe under test exited (code {(process != null ? process.ExitCode.ToString() : "unknown")}) before all expected files were served.");
+                        Assert.Fail($"The exe under test exited (code {mount.Process.ExitCode}) before all expected files were served.");
                     }
 
                     foreach (var expectedFile in expectedFiles)
@@ -102,7 +59,7 @@ namespace clonezilla_util_tests.Mount
 
                             // 13/04/2024: 40 seconds
                             using var virtualFile = File.OpenRead(expectedFile.FullPath);
-                            using var tempFile = File.Create(TempUtility.GetTempFilename(false), 4096, FileOptions.DeleteOnClose);
+                            using var tempFile = File.Create(Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()), 4096, FileOptions.DeleteOnClose);
 
                             if (expectedFile.LengthForMd5 == null)
                             {
@@ -138,13 +95,76 @@ namespace clonezilla_util_tests.Mount
                         Assert.Fail($"The exe reported 'Mounting complete' but '{firstMissing}' is still absent after {mountExposureGrace.TotalSeconds:N0}s. "
                                   + "A file missing after mount completion will never appear - check the exe log (bin\\...\\logs\\clonezilla-util-*.log) for a partition that failed to open or a listing error.");
                     }
-                    if (waited.Elapsed > maxWait)
+                    if (mount.SinceLaunch.Elapsed > mount.MaxWait)
                     {
-                        Assert.Fail($"Timed out after {waited.Elapsed} waiting for the expected files to be served. First missing: {firstMissing ?? "(all exist)"}");
+                        Assert.Fail($"Timed out after {mount.SinceLaunch.Elapsed} waiting for the expected files to be served. First missing: {firstMissing ?? "(all exist)"}");
                     }
 
                     Thread.Sleep(1000);
                 } while (!allSuccessful);
+            }, timeout);
+        }
+
+        /// <summary>The exe while its mount is up: handed to the check a test runs against the live mount.</summary>
+        public sealed record LiveMount(Process Process, Stopwatch SinceLaunch, TimeSpan MaxWait);
+
+        /// <summary>
+        /// Runs a mount verb (<paramref name="args"/>, plus --no-explorer), waits for the exe's own "Mounting complete",
+        /// then runs <paramref name="whileMounted"/> against the live mount. However that ends, the exe is killed and the
+        /// mount at <paramref name="mountRoot"/> waited out, so the next test finds the drive letter free.
+        /// </summary>
+        public static void WhileMounted(string exeUnderTest, string args, string? mountRoot, Action<LiveMount> whileMounted, TimeSpan? timeout = null)
+        {
+            var psi = new ProcessStartInfo(exeUnderTest, $"{args} --no-explorer")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                //own the exe's stdio (2026-08-15): stdout is watched for the readiness signal below,
+                //and stdin must be redirected AND HELD OPEN because the mount verb exits on stdin EOF
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = true
+            };
+            var mountingComplete = new ManualResetEventSlim(false);
+            var process = Process.Start(psi);
+            if (process != null)
+            {
+                //"Mounting complete" is a log line, which the exe now writes to stderr, so watch BOTH
+                //streams for it. Draining both also stops a full pipe buffer from blocking the exe.
+                process.OutputDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
+                process.ErrorDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+            }
+
+            //cold index builds for the large drive images legitimately take hours; this only guards
+            //against waiting forever (e.g. the exe's mount was destroyed and the files never appear)
+            var maxWait = timeout ?? TimeSpan.FromHours(6);
+            var waited = Stopwatch.StartNew();
+
+            //the exe must always be killed - even when an assert or an IO error (e.g. the mount
+            //vanishing mid-copy) throws - or it lingers, holding GBs and its Dokan mounts (2026-07-17)
+            try
+            {
+                //Gate on the exe's OWN "Mounting complete" before checking anything. Without this, a
+                //stale mount left at the same drive letter by an earlier crashed/timed-out test can
+                //satisfy the file checks while OUR exe dies behind the scenes ("a live volume already
+                //answers at this mount point") - the 2026-08-15 warm run false-passed several tests
+                //exactly that way.
+                while (!mountingComplete.IsSet)
+                {
+                    if (process?.HasExited ?? true)
+                    {
+                        Assert.Fail($"The exe under test exited (code {(process != null ? process.ExitCode.ToString() : "unknown")}) before the mount appeared. (A leftover mount squatting on the drive letter produces exit code 5: 'a live volume already answers at this mount point'.)");
+                    }
+                    if (waited.Elapsed > maxWait)
+                    {
+                        Assert.Fail($"Timed out after {waited.Elapsed} waiting for the exe to report 'Mounting complete'.");
+                    }
+                    Thread.Sleep(1000);
+                }
+
+                whileMounted(new LiveMount(process!, waited, maxWait));
             }
             finally
             {
@@ -157,6 +177,26 @@ namespace clonezilla_util_tests.Mount
                 {
                     //the process may already have exited
                 }
+
+                if (mountRoot != null) WaitForMountGone(mountRoot, TimeSpan.FromSeconds(90));
+            }
+        }
+
+        //Waits for a killed mount to disappear. Dokan tears a mount down asynchronously after its process dies, so
+        //a test that returns at once can leave the next test a drive letter that still answers, and that test's
+        //mount then refuses it ("a live volume already answers at this mount point") (gh review F57).
+        public static void WaitForMountGone(string path, TimeSpan maxWait)
+        {
+            var waited = Stopwatch.StartNew();
+            while (Directory.Exists(path) && waited.Elapsed < maxWait)
+            {
+                Thread.Sleep(250);
+            }
+            //not fatal if it lingers - the "Mounting complete" gate protects the next mount -
+            //but note it, because a stuck letter usually means an orphaned mount process
+            if (Directory.Exists(path))
+            {
+                Console.WriteLine($"warning: {path} still present after {maxWait} - stale mount?");
             }
         }
 

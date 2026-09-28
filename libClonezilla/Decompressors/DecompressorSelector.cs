@@ -10,7 +10,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Management;
 using System.Text;
 using System.Threading.Tasks;
 using ZstdNet;
@@ -116,19 +115,23 @@ namespace libClonezilla.Decompressors
                     //raw uncompressed local file: serve it directly, no cache layer needed
                     addCacheLayer = false;
                 }
+                else if (CompressionInUse == Compression.None && uncompressedStream is IPositionalReader)
+                {
+                    //Decoded content from an outer layer, already random-access and cache-backed: a compressed
+                    //image file's decompressed stream (or a partclone stream over one), now handed over in-process
+                    //(gh review F46). A second, legacy cache over it would serialise every miss under one decode lock.
+                    addCacheLayer = false;
+                }
             }
 
             //addCacheLayer = false;
             if (addCacheLayer)
             {
-                //add a cache layer
+                //add a cache layer. Its RAM is now managed process-wide by MemoryGovernor (the cache grows
+                //until system-available memory reaches a reserve, and sheds globally-oldest spans under
+                //pressure) - there is no per-instance ¼-RAM budget any more.
                 var readSuggestor = uncompressedStream as IReadSuggestor;
-
-                var totalSystemRAMInBytes = libCommon.Utility.GetTotalRamSizeBytes();
-                var totalSystemRAMInMegabytes = (int)(totalSystemRAMInBytes / (double)(1024 * 1024));
-                var maxCacheSizeInMegabytes = totalSystemRAMInMegabytes / 4;
-
-                uncompressedStream = new CachingStream(uncompressedStream, readSuggestor, EnumCacheType.LimitByRAMUsage, maxCacheSizeInMegabytes, null);
+                uncompressedStream = new CachingStream(uncompressedStream, readSuggestor, StreamName);
             }
 
             return uncompressedStream;
@@ -150,8 +153,10 @@ namespace libClonezilla.Decompressors
                 return wholeFileCacheFolder;
             }
 
-            var streamForHashing = Decompressor.GetSequentialStream();
-            wholeFileCacheFolder = WholeFileCacheManager.GetCacheFolder(streamForHashing, StreamName, CompressedStream.Length);
+            using (var streamForHashing = Decompressor.GetSequentialStream())   //a throwaway decoder; disposing it leaves CompressedStream open (gh review F40)
+            {
+                wholeFileCacheFolder = WholeFileCacheManager.GetCacheFolder(streamForHashing, StreamName, CompressedStream.Length);
+            }
 
             //hashing consumed part of the compressed stream; downstream consumers expect to
             //start at 0

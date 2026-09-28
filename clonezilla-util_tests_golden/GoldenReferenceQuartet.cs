@@ -60,9 +60,9 @@ namespace clonezilla_util_tests.Mount.AsFiles
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                //watch the exe's stdout for its own "Mounting complete" readiness signal (see
-                //WaitForMount); stdin is redirected and held open because the mount verb exits on
-                //stdin EOF
+                //watch the exe for its own "Mounting complete" readiness signal (see WaitForMount); it is a
+                //log line, now written to stderr, so both streams are watched below. stdin is redirected and
+                //held open because the mount verb exits on stdin EOF
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 RedirectStandardInput = true
@@ -72,7 +72,7 @@ namespace clonezilla_util_tests.Mount.AsFiles
             if (process != null)
             {
                 process.OutputDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
-                process.ErrorDataReceived += (_, _) => { };
+                process.ErrorDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
             }

@@ -43,7 +43,7 @@ namespace libDokan.VFS.Files
                 {
                     memoryMappedStream ??= GetStream();
                     memoryMappedStream.Position = offset;
-                    return memoryMappedStream.Read(buffer, 0, count);
+                    return ReadFully(memoryMappedStream, buffer, count);
                 }
             }
 
@@ -52,8 +52,26 @@ namespace libDokan.VFS.Files
             {
                 var stream = GetStream();
                 stream.Position = offset;
-                return stream.Read(buffer, 0, count);
+                return ReadFully(stream, buffer, count);
             }
+        }
+
+        //The streams backing a served .img legitimately return short mid-file: CachingStream stops at a
+        //cached-span boundary, PartcloneStream at one content-map run, SubStream after one base read. A
+        //single Read here would hand a paging read a truncated count, which the memory manager treats as
+        //end-of-data and zero-fills - serving wrong bytes in a mapped view. Loop to a full read (or EOF).
+        //Reads EXACTLY `count` bytes at most: the handle-based path (DokanVFS.ReadFile) shares this, since
+        //ReadAtLeast could fill the whole Dokan buffer and serve bytes past the file's end (gh review F12).
+        internal static int ReadFully(Stream stream, byte[] buffer, int count)
+        {
+            var total = 0;
+            while (total < count)
+            {
+                var read = stream.Read(buffer, total, count - total);
+                if (read <= 0) break;
+                total += read;
+            }
+            return total;
         }
 
         public FileEntry(string name, Folder? parent) : base(name, parent)

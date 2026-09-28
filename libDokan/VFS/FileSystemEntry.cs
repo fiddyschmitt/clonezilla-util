@@ -1,6 +1,5 @@
 ﻿using DokanNet;
 using libCommon;
-using libDokan.Processes;
 using libDokan.VFS.Folders;
 using System;
 using System.Collections.Generic;
@@ -60,27 +59,6 @@ namespace libDokan.VFS
 
                 return ancestors;
             }
-        }
-
-        public bool IsAccessibleToProcess(int requestPID)
-        {
-            //check if any of the ancestors are restricted. Walk the parent chain directly and
-            //only build a ProcInfo if there's actually a restricted ancestor to test against
-            //(this runs per FindFiles call; the common case has no restricted ancestors at all).
-            ProcInfo? procInfo = null;
-            for (FileSystemEntry? node = this; node != null; node = node.Parent)
-            {
-                if (node is RestrictedFolderByPID restricted)
-                {
-                    procInfo ??= new ProcInfo(requestPID);
-                    if (!restricted.IsProcessPermitted(procInfo))
-                    {
-                        return false;
-                    }
-                }
-            }
-
-            return true;
         }
 
         public string FullPath

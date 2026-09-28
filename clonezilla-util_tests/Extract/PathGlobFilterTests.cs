@@ -28,6 +28,36 @@ namespace clonezilla_util_tests.Extract
         [TestMethod] public void EmptyInclude_MatchesEverything() => Assert.IsTrue(Match(null, Id));
         [TestMethod] public void QuestionMark_MatchesOneChar() => Assert.IsTrue(Match("CB?.log", Id));
         [TestMethod] public void QuestionMark_IsExactlyOneChar() => Assert.IsFalse(Match("C?.log", Id));
+        [TestMethod] public void LeadingSeparator_Ignored() => Assert.IsTrue(Match(@"\Windows\Logs\CBS.log", Id));
+        [TestMethod] public void LeadingForwardSlash_Ignored() => Assert.IsTrue(Match("/Windows/Logs/CBS.log", Id));
+        [TestMethod] public void TrailingSeparator_MeansEverythingUnder() => Assert.IsTrue(Match(@"Windows\Logs\", Id));
+        [TestMethod] public void TrailingSeparator_StillScoped() => Assert.IsFalse(Match(@"Program Files\", Id));
+
+        [TestMethod]
+        public void CaseInsensitive_UnderTurkishCulture()
+        {
+            // under tr-TR "I" folds to dotless "ı", so culture-sensitive IgnoreCase made *.LOG miss cbs.log (gh review F34)
+            var previous = System.Globalization.CultureInfo.CurrentCulture;
+            try
+            {
+                System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("tr-TR");
+                Assert.IsTrue(new PathGlobFilter(new[] { "*.LOG" }, null).Matches(@"c\sda2\Windows\Logs\cbs.log"));
+                Assert.IsTrue(new PathGlobFilter(new[] { "*.ini" }, null).Matches(@"c\sda2\BOOT.INI"));
+            }
+            finally
+            {
+                System.Globalization.CultureInfo.CurrentCulture = previous;
+            }
+        }
+
+        [TestMethod]
+        public void UnmatchedIncludes_ReportsOnlyPatternsThatMatchedNothing()
+        {
+            var f = new PathGlobFilter(new[] { "*.log", "*.nosuch" }, null);
+            f.Matches(Id);
+            f.Matches(@"c\sda2\Program\app.exe");
+            CollectionAssert.AreEqual(new[] { "*.nosuch" }, f.UnmatchedIncludes().ToArray());
+        }
 
         [TestMethod]
         public void ScopedGlob_DoesNotMatchOtherDirectory()

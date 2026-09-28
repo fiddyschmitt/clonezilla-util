@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Management;
 using System.Text;
 using System.Linq;
 using System.IO;
@@ -10,25 +9,23 @@ namespace libCommon
 {
     public static class Utility
     {
-        public static long GetTotalRamSizeBytes()
-        {
-            var gcMemoryInfo = GC.GetGCMemoryInfo();
-            return gcMemoryInfo.TotalAvailableMemoryBytes;
-        }
-
         public static bool IsOnNTFS(string filename)
         {
-            //Get all the drives on the local machine.
-            var allDrives = DriveInfo.GetDrives();
+            //Ask the drive holding the path directly. This used to scan every drive for a root name equal to
+            //GetPathRoot's, case-sensitively, so "r:\out.img" never matched "R:\" and a relative path matched
+            //nothing - extraction then wrote every zero instead of a sparse file (gh review F16).
+            try
+            {
+                var pathRoot = Path.GetPathRoot(Path.GetFullPath(filename));
+                if (string.IsNullOrEmpty(pathRoot)) return false;
 
-            //Get the path root.
-            var pathRoot = Path.GetPathRoot(filename);
-            //Find the drive based on the path root.
-            var driveBasedOnPath = allDrives.FirstOrDefault(d => d.RootDirectory.Name.Equals(pathRoot));
-            //Determine if NTFS  
-            var isNTFS = driveBasedOnPath != null && driveBasedOnPath.DriveFormat == "NTFS";
-
-            return isNTFS;
+                var drive = new DriveInfo(pathRoot);   //throws for a UNC root, which we treat as "not NTFS"
+                return drive.IsReady && drive.DriveFormat.Equals("NTFS", StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception)
+            {
+                return false;   //a probe: when in doubt, write a normal file
+            }
         }
 
         public static string Absolutify(string relativePath)

@@ -19,10 +19,33 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             ContainerName = containerName;
             WholeFileCacheFolder = wholeFileCacheFolder;
 
-            var archiveEntries = EnumerateTopLevel(filename, wholeFileCacheFolder);
+            List<ArchiveEntry> archiveEntries;
+            using (var enumStream = File.OpenRead(filename))
+            {
+                archiveEntries = EnumerateTopLevel(enumStream, wholeFileCacheFolder);
+            }
 
             var rawImageStream = File.OpenRead(filename);
             SetupFromStream(rawImageStream, archiveEntries, willPerformRandomSeeking, processTrailingNulls);
+        }
+
+        /// <summary>
+        /// An image that exists only as a stream: the decompressed content of a compressed image file, read
+        /// in-process. <paramref name="originName"/> is the file it came from (logs, partition origin). Compressed
+        /// image files used to be published as a hidden file on a Dokan temp mount and re-opened through it by name,
+        /// so list, extract and extract-partition-image needed Dokan for them (gh review F46).
+        /// </summary>
+        public RawImage(Stream imageStream, string originName, List<string> partitionsToLoad, string containerName, bool willPerformRandomSeeking, bool processTrailingNulls, string? wholeFileCacheFolder)
+        {
+            Filename = originName;
+            PartitionsToLoad = partitionsToLoad;
+            ContainerName = containerName;
+            WholeFileCacheFolder = wholeFileCacheFolder;
+
+            var archiveEntries = EnumerateTopLevel(imageStream, wholeFileCacheFolder);
+
+            imageStream.Seek(0, SeekOrigin.Begin);
+            SetupFromStream(imageStream, archiveEntries, willPerformRandomSeeking, processTrailingNulls);
         }
 
         // Lists the top level of the image via the native 7-Zip engine, NON-recursively: for a drive
@@ -32,7 +55,7 @@ namespace libClonezilla.PartitionContainers.ImageFiles
         // The result is cached in the whole-file cache folder when one exists: for compressed drive
         // images the scan reads partition-table and filesystem structures through the decompressor,
         // which is expensive to repeat on every open (TEST_ANALYSIS.md #5).
-        static List<ArchiveEntry> EnumerateTopLevel(string filename, string? wholeFileCacheFolder)
+        static List<ArchiveEntry> EnumerateTopLevel(Stream imageStream, string? wholeFileCacheFolder)
         {
             var cacheFilename = wholeFileCacheFolder == null ? null : Path.Combine(wholeFileCacheFolder, "toplevel.json");
 
@@ -56,8 +79,8 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             List<ArchiveEntry> entries;
             try
             {
-                using var enumStream = File.OpenRead(filename);
-                using var arc = new SevenZipNativeArchive(enumStream, SevenZipUtility.SevenZipDll(), ownsStream: false, recursive: false);
+                imageStream.Seek(0, SeekOrigin.Begin);
+                using var arc = new SevenZipNativeArchive(imageStream, SevenZipUtility.SevenZipDll(), ownsStream: false, recursive: false);
                 entries = arc.GetEntries()
                             .Select(e => new ArchiveEntry(e.Path)
                             {
@@ -91,37 +114,23 @@ namespace libClonezilla.PartitionContainers.ImageFiles
             return entries;
         }
 
-        public RawImage(
-            string filename,
-            Stream rawImageStream,
-            List<string> partitionsToLoad,
-            string containerName,
-            IEnumerable<ArchiveEntry> archiveEntries,
-            bool willPerformRandomSeeking,
-            bool processTrailingNulls,
-            string? wholeFileCacheFolder)
-        {
-            Filename = filename;
-            PartitionsToLoad = partitionsToLoad;
-            ContainerName = containerName;
-            WholeFileCacheFolder = wholeFileCacheFolder;
-            SetupFromStream(rawImageStream, archiveEntries, willPerformRandomSeeking, processTrailingNulls);
-        }
-
         public void SetupFromStream(Stream rawImageStream, IEnumerable<ArchiveEntry> archiveEntries, bool willPerformRandomSeeking, bool processTrailingNulls)
         {
-            var firstArchiveEntry = archiveEntries.FirstOrDefault();
+            var entries = archiveEntries.ToList();
 
-            //we have to work out if this is a drive image, or a partition image
-
-            var isDriveImage = firstArchiveEntry != null && !firstArchiveEntry.IsFolder && Path.GetFileNameWithoutExtension(firstArchiveEntry.Path).Equals("0") && firstArchiveEntry.Offset != null;
+            //Distinguish a drive image from a single partition image. A drive image's top-level entries
+            //ARE its partitions: each a non-folder blob with a byte Offset into the disk, named with a
+            //leading integer index. 7-Zip's MBR handler names them "0.ntfs", "1.ntfs"; its GPT handler
+            //adds the (possibly present) partition label - "0.EFI system partition.fat" - so the old test
+            //(first entry's name-without-extension equals "0") missed every labelled GPT disk, i.e. every
+            //UEFI Windows disk, and served its partition table as raw blobs (gh review F2). A partition
+            //image is instead a filesystem, whose top level holds folders/files without disk offsets.
+            var isDriveImage = entries.Count > 0 && entries.All(e => RawDriveImage.PartitionTableIndex(e) != null);
 
             PartitionContainer container;
             if (isDriveImage)
             {
-                var partitionImageFiles = archiveEntries.ToList();
-
-                container = new RawDriveImage(ContainerName, PartitionsToLoad, rawImageStream, partitionImageFiles, processTrailingNulls, WholeFileCacheFolder);
+                container = new RawDriveImage(ContainerName, PartitionsToLoad, rawImageStream, entries, processTrailingNulls, WholeFileCacheFolder);
             }
             else
             {

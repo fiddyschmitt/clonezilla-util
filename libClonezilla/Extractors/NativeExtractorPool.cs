@@ -78,7 +78,10 @@ namespace libClonezilla.Extractors
             pathToItem = new Dictionary<string, (uint, long)>(entries.Count, StringComparer.Ordinal);
             foreach (var e in entries)
             {
-                pathToItem[e.Path] = (e.Index, e.Size);
+                //The first entry for a path wins, as it does in the mount's tree (CreateTree keeps each path's first
+                //entry). This kept the last, so a duplicated path could show one entry's size and serve another's
+                //bytes; the list drops the duplicate too, so list, extract and mount agree (gh review F28).
+                if (!pathToItem.TryAdd(e.Path, (e.Index, e.Size))) continue;
                 fileList.Add(new ArchiveEntry(e.Path)
                 {
                     IsFolder = e.IsDir,
@@ -107,22 +110,52 @@ namespace libClonezilla.Extractors
 
         //Borrow a worker for a single read. Blocks only while every worker is mid-read (brief), never
         //while files are merely open. Used by PooledNativeItemStream.
-        internal SevenZipExtractorUsingNative TakeWorker() => available.Take();
-
-        internal void ReturnWorker(SevenZipExtractorUsingNative worker)
+        internal SevenZipExtractorUsingNative TakeWorker()
         {
             try
             {
-                available.Add(worker);
+                return available.Take();
             }
-            catch (ObjectDisposedException) { } //pool torn down (unmount) while a read was in flight
-            catch (InvalidOperationException) { } //adding has been marked complete
+            catch (InvalidOperationException) when (available.IsAddingCompleted)
+            {
+                throw new ObjectDisposedException(nameof(NativeExtractorPool));   //torn down while this reader waited
+            }
         }
 
+        internal void ReturnWorker(SevenZipExtractorUsingNative worker)
+        {
+            lock (disposeLock)
+            {
+                if (!disposed)
+                {
+                    available.Add(worker);
+                    return;
+                }
+            }
+
+            //The pool was torn down while this read held the worker. Dispose left it open for us - freeing it
+            //then would have pulled the native archive out from under the read - so free it now.
+            worker.Dispose();
+        }
+
+        readonly object disposeLock = new();
+        bool disposed;
+
+        //Frees only the idle workers: a worker borrowed by an in-flight read is freed by ReturnWorker when that
+        //read finishes (gh review F29). CompleteAdding wakes any reader blocked in TakeWorker with
+        //ObjectDisposedException. The BlockingCollection itself is left to the GC: disposing it would race
+        //readers still inside Take.
         public void Dispose()
         {
-            available.Dispose();
-            workers.ForEach(w => w.Dispose());
+            var idle = new List<SevenZipExtractorUsingNative>();
+            lock (disposeLock)
+            {
+                if (disposed) return;
+                disposed = true;
+                available.CompleteAdding();
+                while (available.TryTake(out var worker)) idle.Add(worker);
+            }
+            idle.ForEach(w => w.Dispose());
         }
     }
 }
