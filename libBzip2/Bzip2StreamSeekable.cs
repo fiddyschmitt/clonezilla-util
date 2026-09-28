@@ -10,10 +10,49 @@ using libCommon.Streams.Sparse;
 
 namespace libBzip2
 {
-    public class Bzip2StreamSeekable : SeekableDecompressingStream, IPositionalReader
+    //Once derived from a SeekableDecompressingStream base whose Read and GetRecommendation it overrode, leaving the
+    //base's own versions (and MappingComparer/BinarySearch behind them) unreachable; the live members moved here and
+    //the base was removed as dead code (gh review, dead code).
+    public class Bzip2StreamSeekable : Stream, IReadSuggestor, IPositionalReader
     {
         readonly LazyList<Mapping> blocks;
-        public override IList<Mapping> Blocks => blocks;
+        public IList<Mapping> Blocks => blocks;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => UncompressedTotalLength;
+
+        long position = 0;
+        public override long Position
+        {
+            get => position;
+            set => Seek(value, SeekOrigin.Begin);
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            switch (origin)
+            {
+                case SeekOrigin.Begin:
+                    position = offset;
+                    break;
+
+                case SeekOrigin.Current:
+                    position += offset;
+                    break;
+
+                case SeekOrigin.End:
+                    position = Length + offset;
+                    break;
+            }
+
+            return position;
+        }
+
+        public override void Flush() => throw new NotImplementedException();
+        public override void SetLength(long value) => throw new NotImplementedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotImplementedException();
 
         public Stream CompressedInputStream { get; }
         public bool ProcessTrailingNulls { get; }
@@ -76,7 +115,7 @@ namespace libBzip2
         //forced ~10-30x over-decode on the scattered reads that dominate fragmented-file serving - the
         //gh#87 case. Multi-block parallelism still kicks in for any single ReadAt whose range spans
         //blocks; see ReadAtCore's Parallel.For.)
-        public override (long Start, long End) GetRecommendation(long start)
+        public (long Start, long End) GetRecommendation(long start)
         {
             var index = FindBlockIndex(start);
             if (index < 0) throw new Exception($"Could not find the bzip2 block which contains position {start:N0}");
@@ -173,9 +212,7 @@ namespace libBzip2
             return -1;
         }
 
-        //public override long UncompressedTotalLength => Blocks.Last().UncompressedEndByte;
-
-        public override long UncompressedTotalLength
+        public long UncompressedTotalLength
         {
             get
             {
@@ -193,11 +230,6 @@ namespace libBzip2
         }
 
         readonly SharedStream sharedSource;
-        public override int ReadFromChunk(Mapping block, byte[] buffer, int offset, int count)
-        {
-            var positionInBlock = Position - block.UncompressedStartByte;
-            return DecodeBlock(block, positionInBlock, buffer, offset, count);
-        }
 
         /// <summary>
         /// Decodes one index entry: reconstructs a standalone single-block .bz2 image in memory
@@ -236,20 +268,15 @@ namespace libBzip2
         }
 
         /// <summary>Absolute [startBit, endBit) of an entry's compressed bits, clamped to the stream.
-        /// Byte-aligned entries (gzip-style / old bzip2 indexes) have zero bit-in-byte offsets, so this
-        /// degenerates to whole-byte bounds. Pre-CompressedEndByte indexes fall back to the old
-        /// generous UncompressedEndByte bound.</summary>
+        /// Byte-aligned entries have zero bit-in-byte offsets, so this degenerates to whole-byte bounds. Every
+        /// entry of a v2 index records its end; the old fallback for entries without one (a generous bound from
+        /// UncompressedEndByte, for pre-v2 indexes, which are never loaded) was unreachable and is gone.</summary>
         static (long StartBit, long EndBit) BlockBitRange(Mapping block, long streamLengthBytes)
         {
             var startBit = block.CompressedStartByte * 8L + block.CompressedStartBitInByte;
-
-            long endBit;
-            var hasEnd = block.CompressedEndByte > block.CompressedStartByte
-                || (block.CompressedEndByte == block.CompressedStartByte && block.CompressedEndBitInByte > block.CompressedStartBitInByte);
-            if (hasEnd)
-                endBit = block.CompressedEndByte * 8L + block.CompressedEndBitInByte;
-            else
-                endBit = block.UncompressedEndByte * 8L;   //ancient-index fallback (generous; clamped below)
+            var endBit = block.CompressedEndByte * 8L + block.CompressedEndBitInByte;
+            if (endBit <= startBit)
+                throw new InvalidDataException($"bzip2 index entry at uncompressed {block.UncompressedStartByte:N0} has no compressed extent; the index is corrupt.");
 
             endBit = Math.Min(endBit, streamLengthBytes * 8L);
             return (startBit, endBit);
@@ -373,6 +400,10 @@ namespace libBzip2
             //heuristic. The finder is sequential, so the producer sees the run in order.
             var duplicateOf = new Dictionary<int, int>();
 
+            //A decoder that faults cancels the rest. Without this, once every decoder had failed nothing drained the
+            //bounded queue, so the finder blocked in Add forever, holding its view of the file (gh review F41).
+            using var cancel = new CancellationTokenSource();
+
             var producer = Task.Factory.StartNew(() =>
             {
                 try
@@ -392,12 +423,16 @@ namespace libBzip2
                         }
                         else
                         {
-                            queue.Add((seq, standalone, block.IsLast));
+                            queue.Add((seq, standalone, block.IsLast), cancel.Token);
                             prevStandalone = standalone;
                             prevDistinctSeq = seq;
                         }
                         seq++;
                     }
+                }
+                catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+                {
+                    //a decoder failed; its exception is the one reported below
                 }
                 finally
                 {
@@ -411,31 +446,51 @@ namespace libBzip2
 
             var consumers = Enumerable.Range(0, dop).Select(_ => Task.Run(() =>
             {
-                foreach (var item in queue.GetConsumingEnumerable())
+                try
                 {
-                    using var decompressor = BZip2Stream.Create(new MemoryStream(item.Standalone), SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
-
-                    var blockUncompressedLength = MeasureBlockLength(decompressor, item.IsLast);
-                    lengths[item.Seq] = blockUncompressedLength;
-
-                    var runningTotal = Interlocked.Add(ref totalDecoded, blockUncompressedLength);
-                    if (runningTotal >= Volatile.Read(ref nextProgressAt))
+                    foreach (var item in queue.GetConsumingEnumerable(cancel.Token))
                     {
-                        lock (progressLock)
+                        using var decompressor = BZip2Stream.Create(new MemoryStream(item.Standalone), SharpCompress.Compressors.CompressionMode.Decompress, false, tolerateTruncatedStream: true);
+
+                        var blockUncompressedLength = MeasureBlockLength(decompressor, item.IsLast);
+                        lengths[item.Seq] = blockUncompressedLength;
+
+                        var runningTotal = Interlocked.Add(ref totalDecoded, blockUncompressedLength);
+                        if (runningTotal >= Volatile.Read(ref nextProgressAt))
                         {
-                            if (runningTotal >= nextProgressAt)
+                            lock (progressLock)
                             {
-                                var m = metadata[item.Seq];
-                                var percentThroughCompressedSource = (double)(m.EndBit >> 3) / streamLength * 100;
-                                Log.Information($"Indexed {runningTotal.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
-                                nextProgressAt = (runningTotal / (1024 * 1024 * 1024) + 1) * 1024 * 1024 * 1024;
+                                if (runningTotal >= nextProgressAt)
+                                {
+                                    var m = metadata[item.Seq];
+                                    var percentThroughCompressedSource = (double)(m.EndBit >> 3) / streamLength * 100;
+                                    Log.Information($"Indexed {runningTotal.BytesToString()}. ({percentThroughCompressedSource:N1}% through source file)");
+                                    nextProgressAt = (runningTotal / (1024 * 1024 * 1024) + 1) * 1024 * 1024 * 1024;
+                                }
                             }
                         }
                     }
                 }
+                catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+                {
+                    //another decoder failed; its exception is the one reported
+                }
+                catch
+                {
+                    cancel.Cancel();
+                    throw;
+                }
             })).ToArray();
 
-            Task.WaitAll(consumers);
+            try
+            {
+                Task.WaitAll(consumers);
+            }
+            finally
+            {
+                //a decoder failure has cancelled the finder; let it finish before the error propagates
+                try { producer.Wait(); } catch { }
+            }
             producer.Wait();   //surface any exception from the finder
 
             //stitch the (independently measured) block lengths back into ordered, prefix-summed offsets;
