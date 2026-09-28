@@ -868,6 +868,13 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
   also running). Re-measure before acting. Options if it recurs with the pagefile off E:: count the
   compressed inputs in the reserve (`min(Σ compressed input, 25 % RAM)`), or `--memory-reserve`.
   First data point after the move (golden, 2026-09-26): xz 26.4 and zst 24.1 min, the fastest on record.
+  Second (golden, 2026-09-27): xz 41.7, zst 31.5 - confounded again, the other way. The move left C:\pagefile.sys
+  at 2 GB initial (20 GB max), so the commit limit is RAM + 2 GB = 65.9 GB, and the governor's avail is
+  min(physical available, commit headroom). Other processes held ~39.5 GB of commit (two VirtualBox VMs' guest
+  RAM, 14 GB, is charged to commit but to no process; plus WinDirStat, Claude sessions, VS), so our exe stopped
+  at ~21 GB private - cache ~14.7 GB vs ~28 GB on 09-26 - with ~6 GB of physical memory still unused. Windows
+  never grows the page file, because the governor never lets commit headroom fall below its reserve. Re-measure
+  with a 16-20 GB initial page file and the VMs off; the MEM line should also say which limit binds.
 - [x] **Golden 2026-09-26: bzip2 56.2 min (37.2 on 09-23) was external load, not Batch 2.** Its first 18 min
   ran at exactly the 09-23 decode rate (11–12 k span decodes per 3 min), then collapsed to 1.6–7.5 k from
   16:00 to 16:30 with starvation signatures (every in-flight read slow at once; the harness's own reads in
@@ -875,6 +882,13 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
   cache), then recovered. The `wireshark-ci` VirtualBox VM (8 vCPUs, 12 GB) started at 16:08:54, the run
   having begun 7 min after a reboot. gz/xz/zst in the same run were level or faster than ever.
   **For timed runs:** after a reboot, let the box settle; keep the CI VM and other heavy jobs stopped.
+- [x] **Batch 3 runs, 2026-09-27: all green; the timing changes were environmental.** Golden 141.4 min (133.3 on
+  09-26): xz 26.5 -> 41.7 and zst 24.2 -> 31.5 are the commit cap above (xz leg: 290 GB evicted vs 27 GB, 19 k
+  misses vs 3.5 k, the same 13.5 M reads served); gz level; bzip2 41.6 (37.3 on 09-23). Cold suite (index cache
+  cleared) 188/188 in 292.1 min vs 277.1 for 109 tests: about +10 min is the new tests; about -8 min is F46
+  (compressed partclone/image files now open in-process - the 500 GB LUKS partclone mounts went 3.3 -> 0.5 min,
+  7-Zip worker open 139 s -> 11 s); about +21 min is an outside CPU-contention window, 09:30-10:25, that slowed
+  the gz, xz and drive-image bzip2 index builds (the I/O-bound zst build inside it ran fast; no event-log trace).
 - [x] **(B) Denser gztool checkpoints** — **DONE 2026-07-10 (awaiting suite).** Index span 10 → 4 MiB
   (`gztool -s 4` in `GZipStreamSeekable`): average cold-seek discard ~5 MB → ~2 MB (~2.5× less decode
   per scattered read), compounding with I0's in-process reads. Cost: ~2.5× bigger on-disk index
