@@ -1,5 +1,4 @@
-﻿using libDokan.Processes;
-using libDokan.VFS.Files;
+﻿using libDokan.VFS.Files;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,7 +16,10 @@ namespace libDokan.VFS.Folders
 
         public string MountPoint { get; }
 
-        public FileSystemEntry? GetEntryFromPath(string path, int requestPID, bool createFolderStructure = false)
+        //The entry at `path` (Dokan's "\folder\file" form), or null. The last component may be a folder or a file; every
+        //earlier one must be a folder. (A requesting-PID parameter, read only by commented-out restriction code, and a
+        //create-missing-folders mode, used only by a commented-out method, were removed as dead code.)
+        public FileSystemEntry? GetEntryFromPath(string path)
         {
             var pathComponents = path.Split(@"\", StringSplitOptions.RemoveEmptyEntries);
 
@@ -27,83 +29,18 @@ namespace libDokan.VFS.Folders
             }
 
             Folder currentFolder = this;
-
             for (int i = 0; i < pathComponents.Length; i++)
             {
-                var component = pathComponents[i];
-                var isLatestItem = i == pathComponents.Length - 1;
-
                 //O(1) lookup; GetChild returns the first child with this name (case-insensitive), folder or file
-                var match = currentFolder.GetChild(component);
-                var subFolder = match as Folder;
+                var match = currentFolder.GetChild(pathComponents[i]);
 
-                if (subFolder == null)
-                {
-                    if (isLatestItem && !createFolderStructure)
-                    {
-                        //this is the last item. Perhaps it's a file (match is non-null but not a folder)
-
-                        //Whilst this approach is nice, we could be preventing an antivirus from accessing the file. So let's check the restriction elsewhere
-                        /*
-                        if (file != null && file.IsRestricted(requestPID))
-                        {
-                            file = null;
-                        }
-                        */
-
-                        return match as FileEntry;
-                    }
-                    else
-                    {
-                        //not at the end, and this particular folder was not found
-
-                        if (createFolderStructure)
-                        {
-                            subFolder = new Folder(component, currentFolder);
-                        }
-                        else
-                        {
-                            //folder not found
-                            return null;
-                        }
-                    }
-                }
-
-                if (isLatestItem)
-                {
-                    //we found the subfolder they requested
-
-                    //Whilst this approach is nice, we could be preventing an antivirus from accessing the folder. So let's check the restriction elsewhere
-                    /*
-                    if (subFolder != null && subFolder.IsRestricted(requestPID))
-                    {
-                        subFolder = null;
-                    }
-                    */
-
-                    return subFolder;
-                }
+                if (i == pathComponents.Length - 1) return match;
+                if (match is not Folder subFolder) return null;   //missing, or a file used as a folder
 
                 currentFolder = subFolder;
             }
 
             return null;
         }
-
-        /*
-        public Folder CreateOrRetrieveFolder(string folderPath)
-        {
-            Folder result;
-
-            var entry = GetEntryFromPath(folderPath, true);
-
-            if (entry == null) throw new Exception($"Could not create folder: {folderPath}");
-            if (entry is not Folder folder) throw new Exception($"Retrieved entry is not a folder for path: {folderPath}");
-
-            result = folder;
-
-            return result;
-        }
-        */
     }
 }

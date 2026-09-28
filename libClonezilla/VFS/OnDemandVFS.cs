@@ -2,7 +2,6 @@ using DokanNet;
 using DokanNet.Logging;
 using libCommon;
 using libDokan;
-using libDokan.Processes;
 using libDokan.VFS.Folders;
 using Serilog;
 using System;

@@ -1,6 +1,7 @@
 using DokanNet;
 using Serilog;
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace libDokan.VFS
 {
@@ -23,8 +24,10 @@ namespace libDokan.VFS
     //[StructLayout(Sequential, Pack=4)] with `private long context` as its FIRST field.
     public static class DokanRawContext
     {
-        static Type? cachedType;
-        static FieldInfo? cachedField;
+        //The adapter type and its validated 'ptr' field (null = raw access unavailable for that type), published as
+        //one object so concurrent Dokan threads never see a type paired with another type's field.
+        sealed record FieldCache(Type Type, FieldInfo? Field);
+        static FieldCache? cache;
         static bool failureLogged;
 
         static unsafe long* FieldPointer(IDokanFileInfo info)
@@ -32,19 +35,26 @@ namespace libDokan.VFS
             try
             {
                 var t = info.GetType();
-                if (!ReferenceEquals(t, cachedType))
+                var c = Volatile.Read(ref cache);
+                if (c == null || !ReferenceEquals(c.Type, t))
                 {
-                    cachedField = t.GetField("ptr", BindingFlags.NonPublic | BindingFlags.Instance);
-                    cachedType = t;
-                    if (cachedField == null && !failureLogged)
+                    //published only after validation (a throw lands in the catch and publishes nothing)
+                    var field = t.GetField("ptr", BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (field == null)
                     {
-                        failureLogged = true;
-                        Log.Warning("DokanRawContext: no 'ptr' field on {Type} - raw context access unavailable", t.FullName);
+                        WarnOnce($"DokanRawContext: no 'ptr' field on {t.FullName} - raw context access unavailable");
                     }
+                    else if (!ContextIsFirstField(field.FieldType))
+                    {
+                        WarnOnce($"DokanRawContext: the native struct behind {t.FullName} no longer starts with an 8-byte 'context' field - raw context access disabled");
+                        field = null;
+                    }
+                    c = new FieldCache(t, field);
+                    Volatile.Write(ref cache, c);
                 }
-                if (cachedField == null) return null;
+                if (c.Field == null) return null;
 
-                var boxed = cachedField.GetValue(info);
+                var boxed = c.Field.GetValue(info);
                 if (boxed is not Pointer p) return null;
                 return (long*)Pointer.Unbox(p);
             }
@@ -57,6 +67,25 @@ namespace libDokan.VFS
                 }
                 return null;
             }
+        }
+
+        static void WarnOnce(string message)
+        {
+            if (failureLogged) return;
+            failureLogged = true;
+            Log.Warning(message);
+        }
+
+        //Every access below reads or writes the first 8 bytes of the native struct, which is the context only while
+        //DokanNet lays it out first (true for 2.3.0.3). Checked once per adapter type, so a package bump that moves
+        //the field disables raw access instead of zeroing a different field (gh review F24).
+        static bool ContextIsFirstField(Type ptrFieldType)
+        {
+            var structType = ptrFieldType.IsPointer ? ptrFieldType.GetElementType() : null;
+            var contextField = structType?.GetField("context", BindingFlags.NonPublic | BindingFlags.Instance);
+            return structType != null
+                && contextField?.FieldType == typeof(long)
+                && Marshal.OffsetOf(structType, "context") == IntPtr.Zero;
         }
 
         public static unsafe bool TryRead(IDokanFileInfo info, out long raw)
