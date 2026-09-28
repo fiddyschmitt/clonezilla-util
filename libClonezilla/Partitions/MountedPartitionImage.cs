@@ -203,28 +203,39 @@ namespace libClonezilla.Partitions
 
             folderLookup.Add("", null);
 
+            //A folder the listing never mentions (a handler may list only files) is synthesised, with any missing
+            //ancestors, so its children keep their place. They used to be promoted to the partition root under their
+            //leaf names (gh review F27).
+            var synthesisedFolders = new List<Folder>();
+            Folder? GetOrCreateFolder(string folderPath)
+            {
+                if (folderLookup.TryGetValue(folderPath, out var existing)) return existing;
+
+                var folder = new Folder(Path.GetFileName(folderPath), null);
+                folderLookup[folderPath] = folder;
+                synthesisedFolders.Add(folder);
+                folder.Parent = GetOrCreateFolder(Path.GetDirectoryName(folderPath) ?? "");
+                return folder;
+            }
+
             Log.Debug($"[{containerName}] [{partitionName}] Establishing parent/child relationships.");
             entries
                 .Select(entry => entry.NewEntry)
                 .Cast<FileSystemEntry>()
                 .ForEach(fileSystemEntry =>
                 {
-                    var parentFolder = pathLookup[fileSystemEntry];
-
-                    if (folderLookup.TryGetValue(parentFolder, out Folder? value))
-                    {
-                        fileSystemEntry.Parent = value;
-                    }
-                    else
-                    {
-                        Log.Error($"Error while finding parent of {fileSystemEntry}");
-                        Log.Error($"Could not find {parentFolder} in {nameof(folderLookup)}");
-                    }
+                    fileSystemEntry.Parent = GetOrCreateFolder(pathLookup[fileSystemEntry]);
                 });
+
+            if (synthesisedFolders.Count > 0)
+            {
+                Log.Information($"[{containerName}] [{partitionName}] {synthesisedFolders.Count:N0} folder(s) were missing from the listing; created them so their contents keep their paths.");
+            }
 
             var tree = entries
                             .Select(entry => entry.NewEntry)
                             .Cast<FileSystemEntry>()
+                            .Concat(synthesisedFolders)
                             .Where(entry => entry.Parent == null)
                             .ToList();
 

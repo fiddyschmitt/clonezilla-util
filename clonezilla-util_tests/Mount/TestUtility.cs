@@ -104,7 +104,7 @@ namespace clonezilla_util_tests.Mount
 
                             // 13/04/2024: 40 seconds
                             using var virtualFile = File.OpenRead(expectedFile.FullPath);
-                            using var tempFile = File.Create(TempUtility.GetTempFilename(false), 4096, FileOptions.DeleteOnClose);
+                            using var tempFile = File.Create(Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()), 4096, FileOptions.DeleteOnClose);
 
                             if (expectedFile.LengthForMd5 == null)
                             {

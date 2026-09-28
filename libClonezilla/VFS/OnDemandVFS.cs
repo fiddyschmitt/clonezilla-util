@@ -33,10 +33,10 @@ namespace libClonezilla.VFS
 
                 Log.Logger.Information($"Detected Dokan version {dokan.Version}, Driver version {dokan.DriverVersion}.");
             }
-            catch
+            catch (Exception ex)
             {
-                Log.Fatal("Dokan driver not detected. Please install the version specified here: https://github.com/fiddyschmitt/clonezilla-util/releases/latest");
-                Environment.Exit(1);
+                throw new FatalException(FatalReason.DokanNotInstalled,
+                    $"Dokan driver not detected ({ex.Message}). Please install the version specified here: https://github.com/fiddyschmitt/clonezilla-util/releases/latest");
             }
 
             //requesting the root will trigger the Virtual File System to be created
@@ -64,8 +64,7 @@ namespace libClonezilla.VFS
                     //a user-chosen mount point must not be silently substituted; an auto-chosen one can be
                     if (!AllowMountPointFallback || attempt >= MaxMountAttempts)
                     {
-                        Log.Fatal($"Could not mount the virtual file system at {candidateMountPoint}. Exiting.");
-                        Environment.Exit(1);
+                        throw new FatalException(FatalReason.MountFailed, $"Could not mount the virtual file system at {candidateMountPoint}: {failureReason}");
                     }
 
                     triedMountPoints.Add(candidateMountPoint);
@@ -75,24 +74,8 @@ namespace libClonezilla.VFS
             });
             TempFolderRoot = new Lazy<Folder>(() =>
             {
-                var tempFolderRootName = Path.GetFileNameWithoutExtension(Path.GetFileName(TempUtility.GetTempFilename(false)));
-
-                /*
-                var processesAllowedToAccessTemp = new Func<ProcInfo, bool>(procInfo =>
-                {
-                    var allowed = false;
-
-                    if (procInfo.PID == Environment.ProcessId) return true;
-                    if (procInfo.ExeFilename.Equals("7z.exe")) allowed = true;
-
-                    return allowed;
-                });
-
-                var tempFolderRoot = new RestrictedFolderByPID(tempFolderRootName, RootFolder.Value, processesAllowedToAccessTemp);
-                */
-
+                var tempFolderRootName = Path.GetFileNameWithoutExtension(Path.GetRandomFileName());
                 var tempFolderRoot = new UnlistedFolder(tempFolderRootName, RootFolder.Value);
-                //var tempFolderRoot = new Folder(tempFolderRootName, RootFolder.Value);
 
                 return tempFolderRoot;
             });
@@ -297,7 +280,7 @@ namespace libClonezilla.VFS
 
         public Folder CreateTempFolder()
         {
-            var tempFolderName = Path.GetFileNameWithoutExtension(Path.GetFileName(TempUtility.GetTempFilename(false)));
+            var tempFolderName = Path.GetFileNameWithoutExtension(Path.GetRandomFileName());
             var tempFolder = new Folder(tempFolderName, TempFolderRoot.Value);
 
             return tempFolder;

@@ -43,12 +43,13 @@ namespace libClonezilla.PartitionContainers
             }
             else
             {
-                throw new Exception($"File not found: {path}");
+                //a mistyped path is the user's to fix: a clean message and exit code 1, not a stack trace and code 2 (gh review F56)
+                throw new FatalException(FatalReason.InvalidArguments, $"Input not found: {path}");
             }
 
             if (result == null)
             {
-                throw new Exception($"Could not determine if this is a Clonezilla folder, or a partclone file: {path}");
+                throw new FatalException(FatalReason.InvalidArguments, $"Could not determine if this is a Clonezilla folder, or a partclone file: {path}. A Clonezilla image folder contains a file named 'clonezilla-img'.");
             }
 
             return result;
@@ -88,8 +89,8 @@ namespace libClonezilla.PartitionContainers
             if (invalidPartitionNames.Count > 0)
             {
                 var availableSorted = availablePartitionNames.OrderBy(name => name, StringComparer.OrdinalIgnoreCase);
-                Log.Error($"Invalid partition(s) requested: {string.Join(", ", invalidPartitionNames)}. Valid partitions are: {string.Join(", ", availableSorted)}. Exiting.");
-                Environment.Exit(1);
+                throw new FatalException(FatalReason.InvalidArguments,
+                    $"Invalid partition(s) requested: {string.Join(", ", invalidPartitionNames)}. Valid partitions are: {string.Join(", ", availableSorted)}.");
             }
         }
     }

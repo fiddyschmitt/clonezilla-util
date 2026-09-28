@@ -51,6 +51,8 @@ namespace clonezilla_util
             InvalidArguments = 1,
             GeneralException = 2,
             PartialFailure = 3,   //the verb ran, but some items could not be processed (e.g. extract skipped files)
+            DokanNotInstalled = 4,
+            MountFailed = 5,      //e.g. the mount point is taken by another volume
         }
 
         // Anchored to the real executable's folder (not AppContext.BaseDirectory): with
@@ -92,11 +94,6 @@ namespace clonezilla_util
             //can throw when there is no real console attached.
             try { System.Console.OutputEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false); } catch { }
 
-            AppDomain.CurrentDomain.ProcessExit += (sender, args) =>
-            {
-                TempUtility.Cleanup();
-            };
-
             Log.Logger = new LoggerConfiguration()
                             .MinimumLevel.ControlledBy(LogLevelSwitch)
                             .Filter.With(new SuppressConsecutiveDuplicateFilter())
@@ -108,6 +105,13 @@ namespace clonezilla_util
                             .WriteTo.Debug(restrictedToMinimumLevel: LogEventLevel.Debug)
                             .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day, restrictedToMinimumLevel: LogEventLevel.Information)
                             .CreateLogger();
+
+            //A crash on a worker thread still ends the process, but now it is logged first (gh review F56).
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            {
+                Log.Fatal(e.ExceptionObject as Exception, "Unhandled exception; the process is terminating.");
+                Log.CloseAndFlush();
+            };
 
             Log.Debug("Start");
             PrintProgramVersion();
@@ -121,6 +125,17 @@ namespace clonezilla_util
                                 .MapResult(
                                     obj => Run(obj),
                                     HandleErrors);
+            }
+            catch (libClonezilla.FatalException ex)
+            {
+                //an expected way for a run to end (thrown by library code instead of Environment.Exit - gh review F56)
+                Log.Fatal(ex.Message);
+                returnCode = ex.Reason switch
+                {
+                    libClonezilla.FatalReason.DokanNotInstalled => ReturnCode.DokanNotInstalled,
+                    libClonezilla.FatalReason.MountFailed => ReturnCode.MountFailed,
+                    _ => ReturnCode.InvalidArguments,
+                };
             }
             catch (Exception ex)
             {
@@ -157,7 +172,7 @@ namespace clonezilla_util
 
                 if (baseVerb.TempFolder != null)
                 {
-                    TempUtility.TempRoot = baseVerb.TempFolder;
+                    Log.Warning("--temp-folder is ignored: clonezilla-util keeps decoded data in memory and writes no temporary files.");
                 }
 
                 if (baseVerb.CacheFolder != null)
@@ -230,7 +245,7 @@ namespace clonezilla_util
                                 .OrderBy(container => container.ContainerName)
                                 .ToList();
 
-            libClonezilla.Utility.ExitIfNoPartitions(containers, "list");
+            libClonezilla.Utility.ThrowIfNoPartitions(containers, "list");
 
             containers
                 .ForEach(container =>
@@ -394,7 +409,14 @@ namespace clonezilla_util
             Console.CancelKeyPress += (_, _) => vfs.Unmount();
 
             Console.WriteLine("Running. Press Enter to exit.");
-            Console.ReadLine();
+            if (Console.ReadLine() == null)
+            {
+                //No console input: stdin is at end of file (Task Scheduler, a service wrapper, a redirected launch).
+                //ReadLine returned at once, and the mount used to end straight after mounting with exit code 0. Serve
+                //until Ctrl+C or the process is stopped instead (gh review F54).
+                Log.Information("stdin is at end of file, so Enter cannot end the mount; serving until Ctrl+C or the process is stopped.");
+                Thread.Sleep(Timeout.Infinite);
+            }
 
             vfs.Unmount();
         }
@@ -531,16 +553,39 @@ namespace clonezilla_util
                     //name too when several containers could otherwise collide on the same partition name.
                     var prefix = containers.Count == 1 ? partitionName : $"{containerName}.{partitionName}";
 
+                    List<ArchiveEntry> SelectMatches(IEnumerable<ArchiveEntry> files) => files
+                        .Where(e => !e.IsFolder)
+                        .Where(e => !Path.GetFileName(e.Path).Equals("desktop.ini", StringComparison.OrdinalIgnoreCase))
+                        .Where(e => IsExtractableToFile(e.Path))
+                        .Where(e => filter.Matches(Path.Combine(containerName, partitionName, e.Path)))
+                        .ToList();
+
                     IExtractor? extractor = null;
                     try
                     {
-                        //MountWorkerCount (not ListingWorkerCount): the same pool serves the file list AND
+                        //With the partition's file list already cached, the matches are known before any native
+                        //worker opens: nothing to extract means no extractor at all, and a few files need only a few
+                        //workers. Each worker parses the filesystem on open, and all eight used to open even for a
+                        //single file (gh review F35).
+                        List<ArchiveEntry>? matches = null;
+                        var cachedList = partition.PartitionCache?.GetFileList();
+                        if (cachedList != null)
+                        {
+                            matches = SelectMatches(cachedList);
+                            if (matches.Count == 0)
+                            {
+                                Log.Information($"[{containerName}] [{partitionName}] No files matched.");
+                                return;
+                            }
+                        }
+
+                        //At most MountWorkerCount (not ListingWorkerCount): the same pool serves the file list AND
                         //the parallel content reads below. The workers read through the same lock-free cursors
                         //as the mount path (a SharedStream view here made them decode one file at a time - gh
                         //review F7).
                         extractor = DetermineExtractor.FindExtractor(
                             partition.CreateReaderFactory(),
-                            DetermineExtractor.MountWorkerCount);
+                            Math.Min(DetermineExtractor.MountWorkerCount, matches?.Count ?? int.MaxValue));
 
                         if (extractor is not IFileListProvider fileListProvider)
                         {
@@ -548,12 +593,8 @@ namespace clonezilla_util
                             return;
                         }
 
-                        var matches = fileListProvider.GetFileList()
-                            .Where(e => !e.IsFolder)
-                            .Where(e => !Path.GetFileName(e.Path).Equals("desktop.ini", StringComparison.OrdinalIgnoreCase))
-                            .Where(e => IsExtractableToFile(e.Path))
-                            .Where(e => filter.Matches(Path.Combine(containerName, partitionName, e.Path)))
-                            .ToList();
+                        //not cached: list through the extractor, which also caches the list for next time, as list does
+                        matches ??= SelectMatches(partition.GetFilesInPartition(fileListProvider));
 
                         if (matches.Count == 0)
                         {
@@ -628,6 +669,12 @@ namespace clonezilla_util
                     }
                 });
             });
+
+            //a typo in an --include otherwise just extracts less, silently (gh review F55)
+            foreach (var pattern in filter.UnmatchedIncludes())
+            {
+                Log.Warning($"--include \"{pattern}\" matched no files.");
+            }
 
             Log.Information($"Extracted {totalFiles} file(s), {totalBytes.BytesToString()}, to: {outputRoot}");
             if (failedFiles > 0)

@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Text;
 using System.Linq;
 using libClonezilla.PartitionContainers;
@@ -27,31 +26,17 @@ namespace libClonezilla
         /// bare drive root.</summary>
         public static string ContainerNameFromPath(string path)
         {
-            var trimmed = Path.TrimEndingDirectorySeparator(path);
+            //resolved first, so a relative input is named after the folder it means: "." or ".." used to become the
+            //container's name
+            var trimmed = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
             var name = Path.GetFileName(trimmed);
             return string.IsNullOrEmpty(name) ? trimmed : name;
         }
 
-        public static void LoadAllBinDirectoryAssemblies(string folder)
-        {
-            foreach (string dll in Directory.GetFiles(folder, "*.dll", SearchOption.AllDirectories))
-            {
-                try
-                {
-                    //Assembly loadedAssembly = Assembly.LoadFile(dll);
-                    AppDomain.CurrentDomain.Load(Assembly.LoadFrom(dll).GetName());
-                }
-                catch (FileLoadException)
-                { } // The Assembly has already been loaded.
-                catch (BadImageFormatException)
-                { } // If a BadImageFormatException exception is thrown, the file is not an assembly.
-
-            }
-        }
-
-        /// <summary>Exits (code 1) with a helpful message when the loaded containers hold no partitions to
-        /// <paramref name="action"/> (e.g. "mount", "list"), naming the valid partitions when there are any.</summary>
-        public static void ExitIfNoPartitions(List<PartitionContainer> containers, string action)
+        /// <summary>Ends the run (<see cref="FatalException"/>, invalid arguments) with a helpful message when the
+        /// loaded containers hold no partitions to <paramref name="action"/> (e.g. "mount", "list"), naming the valid
+        /// partitions when there are any.</summary>
+        public static void ThrowIfNoPartitions(List<PartitionContainer> containers, string action)
         {
             var totalPartitions = containers.Sum(container => container.Partitions.Count);
             if (totalPartitions > 0) return;
@@ -62,21 +47,14 @@ namespace libClonezilla
                                             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
                                             .ToList();
 
-            if (availablePartitionNames.Count > 0)
-            {
-                Log.Error($"No partitions to {action}. Valid partitions are: {string.Join(", ", availablePartitionNames)}. Exiting.");
-            }
-            else
-            {
-                Log.Error($"No partitions to {action}. Exiting.");
-            }
-
-            Environment.Exit(1);
+            throw new FatalException(FatalReason.InvalidArguments, availablePartitionNames.Count > 0
+                ? $"No partitions to {action}. Valid partitions are: {string.Join(", ", availablePartitionNames)}."
+                : $"No partitions to {action}.");
         }
 
         public static List<MountedContainer> PopulateVFS(Lazy<IVFS> vfs, Folder containersRoot, List<PartitionContainer> containers, DesiredContent desiredContent)
         {
-            ExitIfNoPartitions(containers, "mount");
+            ThrowIfNoPartitions(containers, "mount");
 
             var result = containers
                             .Select(container =>
@@ -117,22 +95,6 @@ namespace libClonezilla
                 }
                 Thread.Sleep(100);
             }
-        }
-
-        public static bool ConsoleConfirm(string title)
-        {
-            ConsoleKey response;
-            do
-            {
-                Console.Write($"{title} [y/n] ");
-                response = Console.ReadKey(false).Key;
-                if (response != ConsoleKey.Enter)
-                {
-                    Console.WriteLine();
-                }
-            } while (response != ConsoleKey.Y && response != ConsoleKey.N);
-
-            return (response == ConsoleKey.Y);
         }
     }
 }

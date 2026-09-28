@@ -13,7 +13,9 @@ namespace clonezilla_util.CL.Verbs
         [Option("cache-folder", HelpText = "The folder to store cache files. Defaults to the 'cache' folder in the same location as the exe.", Required = false)]
         public string? CacheFolder { get; set; }
 
-        [Option("temp-folder", HelpText = "The folder to store temporary files (if required)", Required = false)]
+        //Ignored: nothing writes temporary files (decoded data stays in memory). Still accepted, hidden, so existing
+        //scripts that pass it keep working; using it logs a warning (gh review F49).
+        [Option("temp-folder", Hidden = true, HelpText = "Ignored. clonezilla-util writes no temporary files.", Required = false)]
         public string? TempFolder { get; set; }
 
         [Option("process-trailing-nulls", HelpText = "By default, the program skips trailing nulls to speed up processing of large files. Use this switch to force them to be processed.", Required = false)]
