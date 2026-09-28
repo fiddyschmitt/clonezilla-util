@@ -49,9 +49,11 @@ namespace libCommon.Streams
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            //if (Position == Length) return 0;
-
             var bytesLeftInVirtualFile = Length - Position;
+
+            //At or past the end (a seek may land beyond it) there is nothing to read. Past the end the count went
+            //negative and reached Array.Clear / BaseStream.Read, which threw instead of returning 0 (gh review F19).
+            if (count <= 0 || bytesLeftInVirtualFile <= 0) return 0;
             //var bytesLeftInBaseStream = BaseStream.Length - BaseStream.Position;
 
             // Position is partition-relative, but BaseStream.Length is absolute - so the

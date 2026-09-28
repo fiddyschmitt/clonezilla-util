@@ -144,7 +144,7 @@ namespace libCommon.Streams
             if (count <= 0 || readPosition >= Length) return 0;
 
             var (spanStart, spanEnd) = ReadSuggestor!.GetRecommendation(readPosition);
-            if (spanEnd <= spanStart) return 0;   //at/after EOF
+            ThrowIfSpanMissesPosition(spanStart, spanEnd, readPosition);   //EOF was handled above, so an empty span is a bug too
 
             while (true)
             {
@@ -259,6 +259,17 @@ namespace libCommon.Streams
                 return toCopy;
             }
             finally { Buffers.BufferPool.Return(buff); }
+        }
+
+        //Every read is served from the span its suggestor recommends, so that span must contain the position.
+        //One that ends before it would be served as a false end-of-file (CopyOut finds no bytes left), and one that
+        //starts after it as an out-of-range copy. Nothing validated this (gh review F38).
+        static void ThrowIfSpanMissesPosition(long spanStart, long spanEnd, long readPosition)
+        {
+            if (readPosition < spanStart || readPosition >= spanEnd)
+            {
+                throw new IOException($"The read suggestor recommended {spanStart:N0}-{spanEnd:N0}, which does not contain position {readPosition:N0}");
+            }
         }
 
         //ReadAt loops until the span is full or the source ends, so fewer bytes than the span means the source
@@ -424,6 +435,7 @@ namespace libCommon.Streams
             }
             if (rec.Start == -1 || rec.End == -1)
                 throw new Exception($"Could not get recommendation for reading {count:N0} bytes from position {readPosition:N0}");
+            ThrowIfSpanMissesPosition(rec.Start, rec.End, readPosition);
 
             //recommendations can exceed what fits in an array - trim toward the read position
             var maxReadSize = Math.Min(int.MaxValue, Array.MaxLength);

@@ -85,84 +85,6 @@ namespace libCommon
             }
         }
 
-        //This achieves 3 things:
-        //1. Processes in parallel
-        //2. Preserves original order
-        //3. Returns items immediately after they are available
-        public static IEnumerable<TOutput> SelectParallelPreserveOrder<TInput, TOutput>(
-            this IEnumerable<TInput> source,
-            Func<TInput, TOutput> selector,
-            int? degree = null)
-        {
-            var dop = Math.Max(degree ?? Environment.ProcessorCount, 1);
-
-            return source
-                .AsParallel()
-                .AsOrdered()                                // preserve source order
-                .WithDegreeOfParallelism(dop)
-                .WithMergeOptions(ParallelMergeOptions.NotBuffered) // stream ASAP
-                .Select(selector)
-                .AsSequential();                            // return as IEnumerable<TOutput>
-        }
-
-        public static IEnumerable<T> Buffer<T>(this IEnumerable<T> input, Action<(int InputDiscovered, bool InputFinished, int OutputProcessed)>? progressCallback = null)
-        {
-            int totalInputDiscovered = 0;
-            int totalOutputProcessed = 0;
-            bool inputFinished = false;
-
-            var blockingCollection = new BlockingCollection<T>();
-
-            //read from the input
-            Task.Factory.StartNew(() =>
-            {
-                foreach (var item in input)
-                {
-                    blockingCollection.Add(item);
-                    totalInputDiscovered++;
-                }
-
-                progressCallback?.Invoke((totalInputDiscovered, inputFinished, totalOutputProcessed));
-
-                blockingCollection.CompleteAdding();
-                inputFinished = true;
-            }, TaskCreationOptions.LongRunning);
-
-            foreach (var item in blockingCollection.GetConsumingEnumerable())
-            {
-                yield return item;
-
-                totalOutputProcessed++;
-                progressCallback?.Invoke((totalInputDiscovered, inputFinished, totalOutputProcessed));
-            }
-        }
-
-        public static string ToPrettyFormat(this TimeSpan span)
-        {
-            if (span == TimeSpan.Zero) return "0 minutes";
-
-            var sb = new StringBuilder();
-            if (span.Days > 0)
-                sb.AppendFormat("{0} day{1} ", span.Days, span.Days > 1 ? "s" : string.Empty);
-            if (span.Hours > 0)
-                sb.AppendFormat("{0} hour{1} ", span.Hours, span.Hours > 1 ? "s" : string.Empty);
-            if (span.Minutes > 0)
-                sb.AppendFormat("{0} minute{1} ", span.Minutes, span.Minutes > 1 ? "s" : string.Empty);
-            return sb.ToString();
-        }
-
-        public static string EnsureEndsInPathSeparator(this string str)
-        {
-            string sepChar = Path.DirectorySeparatorChar.ToString();
-            string altChar = Path.AltDirectorySeparatorChar.ToString();
-
-            if (!str.EndsWith(sepChar) && !str.EndsWith(altChar))
-            {
-                str += sepChar;
-            }
-            return str;
-        }
-
         public static bool IsEqualTo(this byte[] buffer1, byte[] otherBuffer)
         {
             var span1 = new ReadOnlySpan<byte>(buffer1, 0, buffer1.Length);
@@ -185,31 +107,25 @@ namespace libCommon
             return result;
         }
 
-        public static string BytesToString(this int bytes)
-        {
-            var result = BytesToString((ulong)bytes);
-            return result;
-        }
+        public static string BytesToString(this int bytes) => BytesToString((long)bytes);
 
-        public static string BytesToString(this long bytes)
-        {
-            var result = BytesToString((ulong)bytes);
-            return result;
-        }
+        //A negative length used to be cast straight to ulong, which made it an enormous positive number (gh review F18)
+        public static string BytesToString(this long bytes) =>
+            bytes < 0
+                ? "-" + BytesToString((ulong)(-(bytes + 1)) + 1)   //-(bytes + 1) cannot overflow, even for long.MinValue
+                : BytesToString((ulong)bytes);
 
         static readonly string[] ByteUnits = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
 
         public static string BytesToString(this ulong bytes)
         {
-            int c;
-            for (c = 0; c < ByteUnits.Length; c++)
-            {
-                ulong m = (ulong)1 << ((c + 1) * 10);
-                if (bytes < m)
-                    break;
-            }
+            //The largest unit not bigger than the value. EB is the last unit (a ulong tops out at 16 EB), so the index
+            //stays in the array and no shift reaches 64 bits: at >= 1 EB the old loop shifted by 70 (which wraps to 6)
+            //and then indexed past the end (gh review F18).
+            var c = 0;
+            while (c < ByteUnits.Length - 1 && bytes >= 1UL << ((c + 1) * 10)) c++;
 
-            double n = bytes / (double)((ulong)1 << (c * 10));
+            double n = bytes / (double)(1UL << (c * 10));
             return string.Format("{0:0.##} {1}", n, ByteUnits[c]);
         }
 
@@ -221,22 +137,26 @@ namespace libCommon
         public static long CopyTo(this Stream input, Stream output, int bufferSize, Action<(long Read, long TotalRead)>? callBack = null)
         {
             var buffer = Buffers.BufferPool.Rent(bufferSize);
-            int read;
-            var totalRead = 0L;
-            //while ((read = input.Read(buffer, 0, bufferSize)) > 0)
-            while ((read = input.ReadAtLeast(buffer, bufferSize, false)) > 0)
+            try   //return the pooled buffer even when a read or write throws (gh review F20)
             {
-                totalRead += read;
+                int read;
+                var totalRead = 0L;
+                while ((read = input.ReadAtLeast(buffer, bufferSize, false)) > 0)
+                {
+                    totalRead += read;
 
-                output.Write(buffer, 0, read);
+                    output.Write(buffer, 0, read);
 
-                callBack?.Invoke((read, totalRead));
+                    callBack?.Invoke((read, totalRead));
+                }
+                callBack?.Invoke((0, totalRead));
+
+                return totalRead;
             }
-            callBack?.Invoke((0, totalRead));
-
-            Buffers.BufferPool.Return(buffer);
-
-            return totalRead;
+            finally
+            {
+                Buffers.BufferPool.Return(buffer);
+            }
         }
 
         public static long Sparsify(this ISparseAwareReader input, ISparseAwareWriter output, int bufferSize, Action<(long Read, long TotalRead)>? callBack)
@@ -244,37 +164,42 @@ namespace libCommon
             output.Stream.SetLength(input.Stream.Length);
 
             byte[] buffer = Buffers.BufferPool.Rent(bufferSize);
-            long totalRead = 0;
-            while (true)
+            try   //return the pooled buffer even when a read or write throws (gh review F20)
             {
-                int read = input.Stream.Read(buffer, 0, bufferSize);
-
-                if (read == 0)
+                long totalRead = 0;
+                while (true)
                 {
-                    break;
+                    int read = input.Stream.Read(buffer, 0, bufferSize);
+
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    totalRead += read;
+
+                    if (input.LatestReadWasAllNull && !output.ExplicitlyWriteNullBytes)
+                    {
+                        //the input stream told us the entire read was null
+                        //and the output stream doesn't care about writing null bytes (likely because it's writing to a sparse file)
+                        output.Stream.Seek(read, SeekOrigin.Current);
+                    }
+                    else
+                    {
+                        output.Stream.Write(buffer, 0, read);
+                    }
+
+                    callBack?.Invoke((read, totalRead));
                 }
 
-                totalRead += read;
+                callBack?.Invoke((0, output.Stream.Length));
 
-                if (input.LatestReadWasAllNull && !output.ExplicitlyWriteNullBytes)
-                {
-                    //the input stream told us the entire read was null
-                    //and the output stream doesn't care about writing null bytes (likely because it's writing to a sparse file)
-                    output.Stream.Seek(read, SeekOrigin.Current);
-                }
-                else
-                {
-                    output.Stream.Write(buffer, 0, read);
-                }
-
-                callBack?.Invoke((read, totalRead));
+                return totalRead;
             }
-
-            callBack?.Invoke((0, output.Stream.Length));
-
-            Buffers.BufferPool.Return(buffer);
-
-            return totalRead;
+            finally
+            {
+                Buffers.BufferPool.Return(buffer);
+            }
         }
 
         public static void ForEach<T>(this IEnumerable<T> enumeration, Action<T> action)
@@ -288,25 +213,30 @@ namespace libCommon
         public static long CopyTo(this Stream input, Stream output, long count, int bufferSize)
         {
             var buffer = Buffers.BufferPool.Rent(bufferSize);
-            var totalRead = 0L;
-
-            //This has to be in a while loop, because the count that was requested coule be larger than Array.MaxLength
-            while (true)
+            try   //return the pooled buffer even when a read or write throws (gh review F20)
             {
-                if (count == 0) break;
+                var totalRead = 0L;
 
-                var read = input.Read(buffer, 0, (int)Math.Min(bufferSize, count));
+                //This has to be in a while loop, because the count that was requested coule be larger than Array.MaxLength
+                while (true)
+                {
+                    if (count == 0) break;
 
-                if (read == 0) break;
-                totalRead += read;
+                    var read = input.Read(buffer, 0, (int)Math.Min(bufferSize, count));
 
-                output.Write(buffer, 0, read);
-                count -= read;
+                    if (read == 0) break;
+                    totalRead += read;
+
+                    output.Write(buffer, 0, read);
+                    count -= read;
+                }
+
+                return totalRead;
             }
-
-            Buffers.BufferPool.Return(buffer);
-
-            return totalRead;
+            finally
+            {
+                Buffers.BufferPool.Return(buffer);
+            }
         }
 
         public static IEnumerable<(T? Previous, T Current, T? Next)> Sandwich<T>(this IEnumerable<T> source, T? beforeFirst = default, T? afterLast = default)
@@ -345,61 +275,10 @@ namespace libCommon
                     0,
                     &bytesReturned,
                     &lpOverlapped);
+            var error = Marshal.GetLastPInvokeError();
             GC.KeepAlive(fileHandle);
             if (result == false)
-                throw new Exception("Could not mark file as sparse.");
-        }
-
-        public static TRange? BinarySearch<TRange, TValue>(this IList<TRange> ranges,
-                                                   TValue value,
-                                                   IRangeComparer<TRange, TValue> comparer)
-        {
-            var min = 0;
-            int max;
-
-            if (ranges is LazyList<TRange> ll)
-            {
-                //This is a lazy list. We don't want to call .Count on it, because it would force it to evaluate all its items
-                max = ll.CountSoFar - 1;
-            }
-            else
-            {
-                max = ranges.Count - 1;
-            }
-
-            while (min <= max)
-            {
-                var mid = (min + max) / 2;
-                var comparison = comparer.Compare(ranges[mid], value);
-                if (comparison == 0)
-                {
-                    return ranges[mid];
-                }
-                if (comparison < 0)
-                {
-                    min = mid + 1;
-                }
-                else if (comparison > 0)
-                {
-                    max = mid - 1;
-                }
-            }
-
-            //not found during binary search. Let's do a linear search which will force the lazy list to be evaluated until the desired value is found
-            if (ranges is LazyList<TRange> lazyList)
-            {
-                foreach (var range in lazyList)
-                {
-                    var rangeContainsValue = comparer.Compare(range, value) == 0;
-                    if (rangeContainsValue)
-                    {
-                        return range;
-                    }
-                }
-            }
-
-            //not found during binary search (or linear search of lazy list)
-            return default;
+                throw new IOException("Could not mark the output file as sparse.", new System.ComponentModel.Win32Exception(error));   //with the reason (gh review F41)
         }
     }
 }
