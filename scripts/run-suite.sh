@@ -39,7 +39,7 @@ cd "$REPO"
 # any [Timeout] in the chunk so a test's own timeout + [TestCleanup] gets the first chance to clean up
 # (list-small 90m > the bzip2 self-heal test's 60; extract 150m > the per-codec and ext4 extracts' 120).
 CHUNKS=(
-  "unit|60m|FullyQualifiedName~PartcloneContentMapTests|FullyQualifiedName~SparseTests|FullyQualifiedName~clonezilla_util_tests.Memory."
+  "unit|60m|FullyQualifiedName~PartcloneContentMapTests|FullyQualifiedName~SparseTests|FullyQualifiedName~clonezilla_util_tests.Memory.|FullyQualifiedName~clonezilla_util_tests.Ntfs."
   "list-small|90m|FullyQualifiedName~ListContents.SmallPartitionImages|FullyQualifiedName~ListContents.SmallClonezillaPartitions|FullyQualifiedName~ListContents.Partclone|FullyQualifiedName~ListContents.OutputFormat|FullyQualifiedName~clonezilla_util_tests.Cache.|FullyQualifiedName~clonezilla_util_tests.ErrorExits."
   "mount-small|300m|FullyQualifiedName~Mount.AsFiles.SmallPartitionImages|FullyQualifiedName~Mount.AsFiles.SmallClonezillaPartitions|FullyQualifiedName~Mount.AsFiles.Misc|FullyQualifiedName~Mount.AsFiles.Ext4|FullyQualifiedName~Mount.AsFiles.UbuntuFileSystems|FullyQualifiedName~Mount.AsFiles.Partclone|FullyQualifiedName~Mount.AsFiles.SearchPatterns"
   "mount-luks|60m|FullyQualifiedName~Mount.AsFiles.LuksClonezillaImages|FullyQualifiedName~Mount.AsFiles.LuksParcloneImages"

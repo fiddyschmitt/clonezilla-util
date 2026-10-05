@@ -40,7 +40,8 @@ namespace libClonezilla.Partitions
                 imagesFolder = vfs.Value.CreateTempFolder();
             }
 
-            ImageFileEntry = new StreamBackedFileEntry(imageFilename, imagesFolder, partition.FullPartitionImage)
+            //the readers' view of the image (an NTFS volume 7-Zip will open - gh #79), the same one the native workers read
+            ImageFileEntry = new StreamBackedFileEntry(imageFilename, imagesFolder, partition.ImageForReaders!)
             {
                 Created = DateTime.Now,
                 Accessed = DateTime.Now,

@@ -28,8 +28,30 @@ namespace libClonezilla.Partitions
 
         protected Stream? CompressedOrigin = compressedOrigin;
 
+        Stream? imageForReaders;
+        readonly object imageForReadersLock = new();
+
         /// <summary>
-        /// A factory of independent read cursors over <see cref="FullPartitionImage"/>, one per native 7-Zip
+        /// <see cref="FullPartitionImage"/> as its readers see it: the native 7-Zip workers (mount, list, extract)
+        /// and the .img that mount-as-image-files serves. It is an <see cref="NtfsEmptyRecordView"/>, which presents
+        /// an NTFS volume 7-Zip will open even when an unused MFT record carries an update sequence number where
+        /// 7-Zip expects a signature (gh #79); for anything else it is a pass-through. extract-partition-image
+        /// reads <see cref="FullPartitionImage"/> itself, so the image it writes stays byte-for-byte original.
+        /// </summary>
+        public Stream? ImageForReaders
+        {
+            get
+            {
+                if (FullPartitionImage == null) return null;
+                lock (imageForReadersLock)
+                {
+                    return imageForReaders ??= new NtfsEmptyRecordView(FullPartitionImage, $"[{Container.ContainerName}] [{PartitionName}]");
+                }
+            }
+        }
+
+        /// <summary>
+        /// A factory of independent read cursors over <see cref="ImageForReaders"/>, one per native 7-Zip
         /// worker. The mount, list and extract paths all get their cursors here, so they read the same way (gh
         /// review F7: list and extract used gated views while mount read in parallel). A positional image (the
         /// compressed serving path: PartcloneStream over a CachingStream) gets lock-free cursors that each
@@ -38,7 +60,7 @@ namespace libClonezilla.Partitions
         /// </summary>
         public Func<Stream> CreateReaderFactory()
         {
-            var partitionStream = FullPartitionImage
+            var partitionStream = ImageForReaders
                 ?? throw new Exception($"[{Container.ContainerName}] [{PartitionName}] {nameof(FullPartitionImage)} is not initialised.");
 
             if (partitionStream is IPositionalReader positionalPartition)
