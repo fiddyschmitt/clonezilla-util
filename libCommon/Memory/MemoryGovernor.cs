@@ -81,6 +81,10 @@ namespace libCommon.Memory
         /// <summary>Test seam: refresh the memory sample without the shrink/report a full Tick does.</summary>
         internal void ForceSample() => RefreshSample();
 
+        /// <summary>Test seam: the next this-many native allocations under this governor fail as if the machine were
+        /// out of memory.</summary>
+        internal int FailAllocations;
+
         static long DefaultReserve(long total) => Clamp(Math.Max(1L << 30, total * 8 / 100), total);
         static long Clamp(long reserve, long total) => Math.Clamp(reserve, 256L << 20, total * 90 / 100);
 
@@ -185,6 +189,20 @@ namespace libCommon.Memory
         public void CountHit() => Interlocked.Increment(ref hits);
         public void CountMiss() => Interlocked.Increment(ref misses);
         public void CountRedecode() => Interlocked.Increment(ref redecodes);
+
+        long allocFailures, lastAllocWarningTick = -AllocWarningEveryMs;
+        const long AllocWarningEveryMs = 5 * 60_000;
+
+        /// <summary>A decoded span went uncached because its native allocation failed (the machine is out of
+        /// commit); the caller serves the read from its decode buffer instead of failing it. Warns the user at
+        /// most every five minutes: reads still work, but each is decoded again.</summary>
+        public void CountAllocationFailure()
+        {
+            long n = Interlocked.Increment(ref allocFailures);
+            long now = Environment.TickCount64, last = Interlocked.Read(ref lastAllocWarningTick);
+            if (now - last >= AllocWarningEveryMs && Interlocked.CompareExchange(ref lastAllocWarningTick, now, last) == last)
+                Log.Warning($"Out of memory for the decode cache: serving reads without caching them, which is slower ({n:N0} so far). Closing other programs will help.");
+        }
 
         // ---- eviction (under registryLock) -----------------------------------------------------------
 
