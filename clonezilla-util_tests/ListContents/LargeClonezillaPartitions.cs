@@ -52,6 +52,20 @@ namespace clonezilla_util_tests.ListContents
                 ]);
         }
 
+        //Windows 11 with its OS volume (sda3) BitLocker-encrypted and saved encrypted, as partclone.dd. 7-Zip can't browse
+        //BitLocker, so sda3 lists nothing; the partitions around it must still list.
+        [TestMethod, Timeout(TimeoutMs)]
+        public void BitLocker()
+        {
+            TestUtility.ConfirmContainsStrings(
+                Main.ExeUnderTest,
+                """list --input "E:\clonezilla-util-test resources\clonezilla images\2026-10-05-22-img_win11_bitlocker_zst""",
+                [
+                    @"2026-10-05-22-img_win11_bitlocker_zst\sda1\EFI\Microsoft\Boot\bootmgfw.efi",
+                    @"2026-10-05-22-img_win11_bitlocker_zst\sda4\Recovery\WindowsRE\winre.wim"
+                ]);
+        }
+
         [TestMethod, Timeout(TimeoutMs)]
         public void Zst()
         {

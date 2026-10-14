@@ -43,6 +43,9 @@ namespace libCommon.Memory
         /// </summary>
         public static unsafe NativeBlock AllocateReserved(int length, MemoryGovernor governor)
         {
+            if (Volatile.Read(ref governor.FailAllocations) > 0 && Interlocked.Decrement(ref governor.FailAllocations) >= 0)
+                throw new OutOfMemoryException("Injected allocation failure (test)");
+
             // NativeMemory.Alloc throws OutOfMemoryException on failure (it never returns null).
             void* p = NativeMemory.Alloc((nuint)length);
             Interlocked.Increment(ref LiveBlocks);

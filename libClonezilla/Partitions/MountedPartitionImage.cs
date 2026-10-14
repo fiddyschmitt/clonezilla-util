@@ -7,6 +7,7 @@ using libClonezilla.PartitionContainers;
 using libClonezilla.VFS;
 using libCommon;
 using libCommon.Streams;
+using libCommon.Streams.VirtualDisks;
 using libDokan.VFS;
 using libDokan.VFS.Files;
 using libDokan.VFS.Folders;
@@ -40,12 +41,18 @@ namespace libClonezilla.Partitions
                 imagesFolder = vfs.Value.CreateTempFolder();
             }
 
-            ImageFileEntry = new StreamBackedFileEntry(imageFilename, imagesFolder, partition.FullPartitionImage)
+            //the readers' view of the image (an NTFS volume 7-Zip will open - gh #79), the same one the native workers read
+            ImageFileEntry = new StreamBackedFileEntry(imageFilename, imagesFolder, partition.ImageForReaders!)
             {
                 Created = DateTime.Now,
                 Accessed = DateTime.Now,
                 Modified = DateTime.Now
             };
+
+            if (desiredContent == DesiredContent.ImageFiles)
+            {
+                VhdxFileEntry = CreateVhdxFileEntry(partition, imagesFolder);
+            }
 
             if (desiredContent == DesiredContent.Files)
             {
@@ -63,6 +70,50 @@ namespace libClonezilla.Partitions
         public Partition Partition { get; }
 
         public FileEntry ImageFileEntry { get; }
+
+        /// <summary>For a BitLocker partition served by mount-as-image-files: the partition as a .vhdx disk. Null otherwise.</summary>
+        public FileEntry? VhdxFileEntry { get; }
+
+        //7-Zip can't open a BitLocker volume, but Windows can once the partition is a disk it can attach: the .img's bytes
+        //on a GPT disk (see GptPartitionDisk), in a VHDX. Windows then shows the volume locked and offers to unlock it.
+        //Read-only, like everything served. Telling BitLocker apart reads the partition's first sector; by now the
+        //partition's index is built, so that costs one cached span. (FixedVhd can wrap the same disk as a .vhd, up to
+        //2040 GiB; only the .vhdx is served.)
+        static FileEntry? CreateVhdxFileEntry(Partition partition, Folder folder)
+        {
+            var name = $"[{partition.Container.ContainerName}] [{partition.PartitionName}]";
+
+            //the readers' view is positional whatever the source, so these reads go through the same gate as the .img's
+            if (partition.ImageForReaders is not IPositionalReader image) return null;
+
+            try
+            {
+                if (!BitLockerVolume.IsVolume(image)) return null;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"{name} Could not read the partition's first sector to tell whether it is encrypted with BitLocker ({ex.Message}); serving it as an image only.");
+                return null;
+            }
+
+            var identity = $"{partition.Container.ContainerName}\\{partition.PartitionName}";
+            var disk = new GptPartitionDisk(image, identity, partition.PartitionName);
+            if (!FixedVhdx.Fits(disk.Length))
+            {
+                Log.Warning($"{name} The partition is encrypted with BitLocker, but at {image.Length.BytesToString()} it is larger than a VHDX can hold (64 TiB), so it is served as an image only.");
+                return null;
+            }
+
+            var vhdxFilename = $"{partition.PartitionName}.vhdx";
+            Log.Information($"{name} The partition is encrypted with BitLocker, which 7-Zip can't open. Serving it as {vhdxFilename} too, for Windows to attach and unlock.");
+            return new StreamBackedFileEntry(vhdxFilename, folder, new PositionalCursorStream(FixedVhdx.Create(disk, identity)))
+            {
+                Created = DateTime.Now,
+                Accessed = DateTime.Now,
+                Modified = DateTime.Now,
+                ReadOnly = true
+            };
+        }
 
         public List<FileSystemEntry> GetTree()
         {

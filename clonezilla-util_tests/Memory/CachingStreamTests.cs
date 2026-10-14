@@ -100,6 +100,47 @@ namespace clonezilla_util_tests.Memory
             Assert.AreEqual(0, g.LiveNativeBytes, "reservations must balance even when decodes fail");
         }
 
+        //Out of memory for the cache (other processes holding nearly all the commit) must not fail reads: each is
+        //served from its decode buffer, uncached, and its reservation given back (2026-10-01: 17 failed reads)
+        [TestMethod]
+        public void AllocationFailure_ServesTheReadUncached()
+        {
+            var g = Gov(capSpans: 64);
+            var src = new FakePositionalSource(1L << 20);
+            using var s = new CachingStream(src, src, "s", g);
+
+            g.FailAllocations = 2;
+            VerifyConcurrent(s, Span + 1000, 5000);
+            VerifyConcurrent(s, Span + 1000, 5000);
+            Assert.AreEqual(2, src.DecodesPerSpan[Span], "a span that could not be cached is decoded again");
+            Assert.AreEqual(0, g.LiveNativeBytes, "a failed allocation's reservation should be given back");
+            Assert.AreEqual(0, s.CachedBytes);
+
+            VerifyConcurrent(s, Span + 1000, 5000);   //memory again: this decode is cached
+            VerifyConcurrent(s, Span + 1000, 5000);
+            Assert.AreEqual(3, src.DecodesPerSpan[Span]);
+            Assert.AreEqual(Span, g.LiveNativeBytes);
+        }
+
+        [TestMethod]
+        public void LegacyPath_AllocationFailure_ServesTheReadUncached()
+        {
+            var g = Gov(capSpans: 64);
+            var src = new FakeSeekableSource(1L << 20);
+            using var s = new CachingStream(src, src, "legacy", g);
+
+            g.FailAllocations = 1;
+            var buf = new byte[5000];
+            Assert.AreEqual(buf.Length, s.ReadAt(Span + 1000, buf, 0, buf.Length));
+            for (int i = 0; i < buf.Length; i++) Assert.AreEqual(FakePositionalSource.ByteAt(Span + 1000 + i), buf[i]);
+            Assert.AreEqual(0, g.LiveNativeBytes, "a failed allocation's reservation should be given back");
+
+            s.ReadAt(Span + 1000, buf, 0, buf.Length);
+            s.ReadAt(Span + 1000, buf, 0, buf.Length);
+            Assert.AreEqual(2, src.DecodesPerSpan[Span], "the decode after the failure should be cached");
+            Assert.AreEqual(Span, g.LiveNativeBytes);
+        }
+
         [TestMethod]
         public void ShortDecode_Throws_AndIsNotCachedAsEof()
         {

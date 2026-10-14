@@ -56,6 +56,12 @@ You can open them using 7-Zip, and extract individual files:
 
 <img src="https://i.imgur.com/enJhShq.png" width="600">
 
+7-Zip can't open a BitLocker-encrypted partition, so one is also served as a `.vhdx` (eg. `sda3.vhdx`): the partition as a virtual disk that Windows can attach. Windows then shows it as a locked drive and asks for its password or recovery key. Once mounting completes, clonezilla-util prints the command to run from an elevated PowerShell:
+
+`Mount-DiskImage -Access ReadOnly -ImagePath L:\sda3.vhdx`
+
+and `Dismount-DiskImage -ImagePath L:\sda3.vhdx` detaches it when you're done. A VHDX holds up to 64 TiB; a larger partition is served as `.img` only.
+
 <br />
 <br />
 <br />

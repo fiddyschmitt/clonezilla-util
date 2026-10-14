@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using libCommon.Logging;
 using Serilog;
 
 namespace libCommon.Memory
@@ -21,9 +22,10 @@ namespace libCommon.Memory
 
     /// <summary>
     /// Process-wide memory manager for the decoded-span caches. Grows the caches until the machine's
-    /// AVAILABLE physical memory falls to a reserve, and sheds globally-oldest spans when anything else
-    /// (7-Zip MFT parses, another process, a second mount) needs memory. Replaces the old "¼ of total RAM,
-    /// split evenly per partition" budget, which ignored what was actually free and never shrank.
+    /// headroom - available physical memory plus the file cache Windows would give up (see Headroom) - falls
+    /// to a reserve, and sheds globally-oldest spans when anything else (7-Zip MFT parses, another process, a
+    /// second mount) needs memory. Replaces the old "¼ of total RAM, split evenly per partition" budget, which
+    /// ignored what was actually free and never shrank.
     ///
     /// Lock ordering: <c>registryLock &gt; any IGovernedCache instance lock</c>. The governor takes an
     /// instance lock only inside TryEvict, and only while holding registryLock. An instance never calls a
@@ -32,13 +34,14 @@ namespace libCommon.Memory
     /// </summary>
     public sealed class MemoryGovernor
     {
-        public const int FloorSlots = 2;    // every instance keeps at least this many spans (prevents thrash-to-zero)
+        public const int FloorSlots = 2;    // every instance keeps at least this many spans, even under the cap
         const long StaleMs = 3000;          // a sample older than this is refreshed before an admit decision
         const long EvictBatchBytes = 64L * 1024 * 1024;
 
         readonly Func<long, MemorySample?> sampler;
         long reserveBytes;
         long cacheCapBytes;
+        long floorBytes;
         string configSource = "default (8% RAM)";
         bool measured = true;
 
@@ -61,6 +64,15 @@ namespace libCommon.Memory
         public long LiveNativeBytes => Interlocked.Read(ref liveNativeBytes);
         public long OverReserveAdmits => Interlocked.Read(ref overReserveAdmits);
 
+        /// <summary>
+        /// What the caches keep however short memory is: the reserve never sheds them below this. Two spans a stream
+        /// is no floor for concurrent readers - on 2026-10-09 the golden bzip2 leg's 16 readers spent eight hours with
+        /// 16 MB of cache, evicting each other's spans between reads, so nearly every read decoded its span again and
+        /// the leg never finished. A 64th of RAM (1 GiB on a 64 GB box; 64 MiB to 1 GiB) holds two 32 MB zstd spans
+        /// for each of 16 readers, and thousands of bzip2 blocks. Only the explicit cache cap goes below it.
+        /// </summary>
+        public long FloorBytes => floorBytes;
+
         public MemoryGovernor(Func<long, MemorySample?> sampler, long reserveBytes, long cacheCapBytes)
         {
             this.sampler = sampler;
@@ -70,6 +82,7 @@ namespace libCommon.Memory
             this.reserveBytes = reserveBytes > 0 ? Clamp(reserveBytes, total) : DefaultReserve(total);
             this.cacheCapBytes = cacheCapBytes > 0 ? cacheCapBytes : long.MaxValue;
             if (!Environment.Is64BitProcess) this.cacheCapBytes = Math.Min(this.cacheCapBytes, 512L << 20);
+            floorBytes = Floor(total, this.cacheCapBytes);
             lastReportTick = Environment.TickCount64;
             lastGen2 = GC.CollectionCount(2);
         }
@@ -80,8 +93,14 @@ namespace libCommon.Memory
         /// <summary>Test seam: refresh the memory sample without the shrink/report a full Tick does.</summary>
         internal void ForceSample() => RefreshSample();
 
+        /// <summary>Test seam: the next this-many native allocations under this governor fail as if the machine were
+        /// out of memory.</summary>
+        internal int FailAllocations;
+
         static long DefaultReserve(long total) => Clamp(Math.Max(1L << 30, total * 8 / 100), total);
         static long Clamp(long reserve, long total) => Math.Clamp(reserve, 256L << 20, total * 90 / 100);
+        //at most half a cap, so the cap can still make room under itself
+        static long Floor(long total, long cap) => Math.Min(Math.Clamp(total / 64, 64L << 20, 1L << 30), cap / 2);
 
         static MemoryGovernor? theDefault;
         public static MemoryGovernor Default => theDefault ??= new MemoryGovernor(live => Win32MemorySampler.TrySample(live), 0, 0);
@@ -96,7 +115,8 @@ namespace libCommon.Memory
             if (reserveMb is long rmb && rmb > 0) { g.reserveBytes = Clamp(rmb << 20, total); g.configSource = source; }
             if (cacheCapMb is long cmb && cmb > 0) g.cacheCapBytes = cmb << 20;
             if (!Environment.Is64BitProcess) g.cacheCapBytes = Math.Min(g.cacheCapBytes, 512L << 20);
-            Log.Information($"MEM governor: total {Fmt(total)}, reserve {Fmt(g.reserveBytes)} ({g.configSource}), cache cap {(g.cacheCapBytes == long.MaxValue ? "none" : Fmt(g.cacheCapBytes))}, tick 1s");
+            g.floorBytes = Floor(total, g.cacheCapBytes);
+            TelemetryLog.Logger.Information($"MEM governor: total {Fmt(total)}, reserve {Fmt(g.reserveBytes)} ({g.configSource}), cache cap {(g.cacheCapBytes == long.MaxValue ? "none" : Fmt(g.cacheCapBytes))}, floor {Fmt(g.floorBytes)}, tick 1s");
         }
 
         public void Register(IGovernedCache cache)
@@ -131,7 +151,7 @@ namespace libCommon.Memory
                 long live = Interlocked.Read(ref liveNativeBytes);
                 var s = lastSample;
                 if (!measured || Environment.TickCount64 - s.Tick > StaleMs) break;   // stale/unmeasured -> slow path
-                long availEst = s.Avail - (live - s.LiveNativeAtSample);
+                long availEst = Headroom(s) - (live - s.LiveNativeAtSample);
                 bool fits = availEst - bytes >= reserveBytes && live + bytes <= cacheCapBytes;
                 if (!fits) break;
                 if (Interlocked.CompareExchange(ref liveNativeBytes, live + bytes, live) == live) return;
@@ -147,7 +167,9 @@ namespace libCommon.Memory
                 RefreshSampleIfStale();
                 while (!FitsUnderLock(bytes))
                 {
-                    if (!EvictGlobalOldest(Math.Min(DeficitFor(bytes), EvictBatchBytes), out long freed) || freed == 0)
+                    //the cap is the user's hard limit; the reserve sheds only down to the floor
+                    long keep = Interlocked.Read(ref liveNativeBytes) + bytes > cacheCapBytes ? 0 : floorBytes;
+                    if (!EvictGlobalOldest(Math.Min(DeficitFor(bytes), EvictBatchBytes), keep, out long freed) || freed == 0)
                     {
                         Interlocked.Increment(ref overReserveAdmits);
                         break;   // nothing left to evict (all at floor) - admit anyway, never stall a reader
@@ -163,7 +185,7 @@ namespace libCommon.Memory
             if (live + bytes > cacheCapBytes) return false;
             if (!measured) return true;
             var s = lastSample;
-            long availEst = s.Avail - (live - s.LiveNativeAtSample);
+            long availEst = Headroom(s) - (live - s.LiveNativeAtSample);
             return availEst - bytes >= reserveBytes;
         }
 
@@ -171,7 +193,7 @@ namespace libCommon.Memory
         {
             long live = Interlocked.Read(ref liveNativeBytes);
             var s = lastSample;
-            long availDeficit = measured ? reserveBytes - (s.Avail - (live - s.LiveNativeAtSample) - bytes) : 0;
+            long availDeficit = measured ? reserveBytes - (Headroom(s) - (live - s.LiveNativeAtSample) - bytes) : 0;
             long capDeficit = (live + bytes) - cacheCapBytes;
             return Math.Max(Math.Max(availDeficit, capDeficit), 1);
         }
@@ -181,26 +203,62 @@ namespace libCommon.Memory
             if (bytes != 0) Interlocked.Add(ref liveNativeBytes, -bytes);
         }
 
+        /// <summary>
+        /// What the caches may count on: free physical memory, plus Windows' file cache above a floor of the reserve.
+        /// Windows counts its cached file data as in use rather than available, but gives it up first when a process
+        /// needs memory - measured 2026-10-09: 26 GB allocated against a 20 GB stale cache shrank the cache to 8.6 GB,
+        /// a 6 GB block idle for 90 s stayed resident, and nothing went to the pagefile. Counting only free memory, a
+        /// cache full of earlier work's data (an overnight suite run left 31 GB) held the decode cache at its floor and
+        /// the golden bzip2 leg ran nine hours without finishing.
+        ///
+        /// Never more than the commit headroom (cached file data is not commit; our blocks are). And free physical
+        /// memory itself may dip only to half the reserve: Windows starts trimming its cache below about 4.4 GB free on
+        /// a 64 GB box, so that dip is what makes it let go, and if it won't - a cache in active use - the caches shed
+        /// back to that floor. With no file cache above the floor this is the free memory, as before.
+        /// </summary>
+        long Headroom(MemorySample s)
+        {
+            long reclaimableFileCache = Math.Max(0, s.FileCache - reserveBytes);
+            long physicalFloorAllowance = reserveBytes - reserveBytes / 2;
+            return Math.Min(Math.Min(s.AvailPhys + reclaimableFileCache, s.AvailPageFile), s.AvailPhys + physicalFloorAllowance);
+        }
+
         public void CountHit() => Interlocked.Increment(ref hits);
         public void CountMiss() => Interlocked.Increment(ref misses);
         public void CountRedecode() => Interlocked.Increment(ref redecodes);
 
+        long allocFailures, lastAllocWarningTick = -AllocWarningEveryMs;
+        const long AllocWarningEveryMs = 5 * 60_000;
+
+        /// <summary>A decoded span went uncached because its native allocation failed (the machine is out of
+        /// commit); the caller serves the read from its decode buffer instead of failing it. Warns the user at
+        /// most every five minutes: reads still work, but each is decoded again.</summary>
+        public void CountAllocationFailure()
+        {
+            long n = Interlocked.Increment(ref allocFailures);
+            long now = Environment.TickCount64, last = Interlocked.Read(ref lastAllocWarningTick);
+            if (now - last >= AllocWarningEveryMs && Interlocked.CompareExchange(ref lastAllocWarningTick, now, last) == last)
+                Log.Warning($"Out of memory for the decode cache: serving reads without caching them, which is slower ({n:N0} so far). Closing other programs will help.");
+        }
+
         // ---- eviction (under registryLock) -----------------------------------------------------------
 
-        bool EvictGlobalOldest(long want, out long freed)
+        //Evicts from the instance holding the globally-oldest span, leaving the caches at least keepBytes in all.
+        bool EvictGlobalOldest(long want, long keepBytes, out long freed)
         {
             freed = 0;
             IGovernedCache? victim = null;
-            long oldest = long.MaxValue;
+            long oldest = long.MaxValue, cached = 0;
             for (int i = registry.Count - 1; i >= 0; i--)
             {
                 if (!registry[i].TryGetTarget(out var c)) { registry.RemoveAt(i); continue; }
+                cached += c.CachedBytes;
                 if (c.SlotCount <= FloorSlots) continue;
                 long t = c.OldestTouchTick;
                 if (t <= oldest) { oldest = t; victim = c; }
             }
-            if (victim == null) return false;
-            if (victim.TryEvict(want, out freed) && freed > 0)
+            if (victim == null || cached <= keepBytes) return false;
+            if (victim.TryEvict(Math.Min(want, cached - keepBytes), out freed) && freed > 0)
             {
                 Interlocked.Increment(ref evictions);
                 Interlocked.Add(ref evictedBytes, freed);
@@ -211,6 +269,9 @@ namespace libCommon.Memory
 
         // ---- the 1 s tick ----------------------------------------------------------------------------
 
+        long lastShortWarningTick = -ShortWarningEveryMs;   //Tick only (two overlapping ticks could at worst warn twice)
+        const long ShortWarningEveryMs = 30 * 60_000;
+
         internal void Tick()
         {
             RefreshSample();
@@ -218,21 +279,28 @@ namespace libCommon.Memory
             if (measured)
             {
                 var s = lastSample;
+                long headroom = Headroom(s);
                 long slack = Math.Min(128L << 20, reserveBytes / 8);
-                if (s.Avail < reserveBytes - slack)
+                if (headroom < reserveBytes - slack)
                 {
-                    long target = reserveBytes - s.Avail;   // free this much to get back to the reserve
+                    long target = reserveBytes - headroom;   // free this much to get back to the reserve
                     var sw = Stopwatch.StartNew();
                     long totalFreed = 0;
                     lock (registryLock)
                     {
-                        while (totalFreed < target && EvictGlobalOldest(Math.Min(target - totalFreed, 4 * EvictBatchBytes), out long f) && f > 0)
+                        while (totalFreed < target && EvictGlobalOldest(Math.Min(target - totalFreed, 4 * EvictBatchBytes), floorBytes, out long f) && f > 0)
                             totalFreed += f;
                     }
                     if (totalFreed > 0)
+                        TelemetryLog.Logger.Information($"MEM shrink: headroom {Fmt(headroom)} (avail {Fmt(s.AvailPhys)}, file cache {Fmt(s.FileCache)}, commit avail {Fmt(s.AvailPageFile)}) < reserve {Fmt(reserveBytes)}; evicted {Fmt(totalFreed)} in {sw.ElapsedMilliseconds} ms");
+
+                    //held at the floor a gigabyte short: the user is told once in a while, in words (the shrink lines are
+                    //telemetry - at the floor they come every second, 1,018 console warnings in one 2026-10-09 run)
+                    long now = Environment.TickCount64;
+                    if (target - totalFreed > 1L << 30 && now - lastShortWarningTick >= ShortWarningEveryMs)
                     {
-                        var line = $"MEM shrink: avail {Fmt(s.Avail)} < reserve {Fmt(reserveBytes)}; evicted {Fmt(totalFreed)} in {sw.ElapsedMilliseconds} ms";
-                        if (target - totalFreed > 1L << 30) Log.Warning(line); else Log.Information(line);
+                        lastShortWarningTick = now;
+                        Log.Warning($"Memory is short: {Fmt(headroom)} available, under the {Fmt(reserveBytes)} kept free for other programs, so the decode cache is held near its {Fmt(floorBytes)} floor and reads are slower. Closing other programs will help.");
                     }
                 }
             }
@@ -242,7 +310,7 @@ namespace libCommon.Memory
                 lock (registryLock)
                 {
                     long over = Interlocked.Read(ref liveNativeBytes) - cacheCapBytes;
-                    while (over > 0 && EvictGlobalOldest(Math.Min(over, 4 * EvictBatchBytes), out long f) && f > 0) over -= f;
+                    while (over > 0 && EvictGlobalOldest(Math.Min(over, 4 * EvictBatchBytes), 0, out long f) && f > 0) over -= f;
                 }
             }
 
@@ -258,6 +326,7 @@ namespace libCommon.Memory
             {
                 measured = false;
                 cacheCapBytes = Math.Min(cacheCapBytes, Math.Max(1L << 30, lastSample.TotalPhys / 4));
+                floorBytes = Math.Min(floorBytes, cacheCapBytes / 2);
                 Log.Warning($"MEM sampler unavailable; falling back to a fixed cache cap of {Fmt(cacheCapBytes)}");
             }
         }
@@ -271,26 +340,32 @@ namespace libCommon.Memory
 
         void Report()
         {
+            //the report is telemetry for test runs; a user's exe does not even compose it
+            if (!TelemetryLog.Enabled) return;
+
             var s = lastSample;
             long live = Interlocked.Read(ref liveNativeBytes);
             long over = Interlocked.Read(ref overReserveAdmits);
 
-            long cached = 0; int slots = 0; int streams = 0; bool anyAtFloor = false;
+            long cached = 0; int slots = 0; int streams = 0; bool evictable = false;
             lock (registryLock)
             {
                 for (int i = registry.Count - 1; i >= 0; i--)
                 {
                     if (!registry[i].TryGetTarget(out var c)) { registry.RemoveAt(i); continue; }
                     streams++; cached += c.CachedBytes; slots += c.SlotCount;
-                    if (c.SlotCount <= FloorSlots) anyAtFloor = true;
+                    if (c.SlotCount > FloorSlots) evictable = true;
                 }
             }
 
             long slack = Math.Min(128L << 20, reserveBytes / 8);
+            long headroom = Headroom(s);
+            //the reserve can shed nothing more (spans being published ride a little over the floor until the next admit)
+            bool atFloor = !evictable || cached <= floorBytes + Math.Min(EvictBatchBytes, floorBytes / 8);
             string state = !measured ? "Capped"
-                         : anyAtFloor && s.Avail < reserveBytes ? "Floor"
-                         : s.Avail < reserveBytes - slack ? "Shrinking"
-                         : s.Avail <= reserveBytes + slack ? "AtReserve"
+                         : atFloor && headroom < reserveBytes ? "Floor"
+                         : headroom < reserveBytes - slack ? "Shrinking"
+                         : headroom <= reserveBytes + slack ? "AtReserve"
                          : "Growing";
 
             long now = Environment.TickCount64;
@@ -311,8 +386,9 @@ namespace libCommon.Memory
             using var proc = Process.GetCurrentProcess();
             long ws = proc.WorkingSet64, priv = proc.PrivateMemorySize64;
 
-            Log.Information(
-                $"MEM {state}: avail {Fmt(s.Avail)} (reserve {Fmt(reserveBytes)}) | cache {Fmt(cached)} in {streams} stream(s), {slots} slots | " +
+            //telemetry: the test analyses read it from the log file; a user running the exe gets none of it
+            TelemetryLog.Logger.Information(
+                $"MEM {state}: avail {Fmt(s.AvailPhys)}, file cache {Fmt(s.FileCache)}, commit avail {Fmt(s.AvailPageFile)}, headroom {Fmt(headroom)} (reserve {Fmt(reserveBytes)}) | cache {Fmt(cached)} in {streams} stream(s), {slots} slots | " +
                 $"in-flight {Fmt(inFlight)} | pool out {Fmt(Buffers.RentedOutBytes)} | {elapsed / 1000}s: hits {h:N0} misses {m:N0} evicted {ev:N0} ({Fmt(evb)}) " +
                 $"redecodes {rd:N0} over-reserve {over:N0} gen2 {gen2} | ws {Fmt(ws)} private {Fmt(priv)}");
 

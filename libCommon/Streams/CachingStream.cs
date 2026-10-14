@@ -201,7 +201,17 @@ namespace libCommon.Streams
                     Interlocked.Increment(ref DecodeProgress);        //watchdog progress signal
                     ThrowIfShortDecode(spanStart, spanEnd, got);
 
-                    block = NativeBlock.AllocateReserved(got, governor);   //consumes `got` of the reservation
+                    try { block = NativeBlock.AllocateReserved(got, governor); }   //consumes `got` of the reservation
+                    catch (OutOfMemoryException)
+                    {
+                        //No memory to cache it (2026-10-01: 17 reads failed here with other processes holding nearly
+                        //all the commit). Serve this read from the decode buffer instead, uncached.
+                        governor.Release(spanLen);
+                        governor.CountAllocationFailure();
+                        lock (mapLock) { spanMap.Remove(spanStart); }
+                        slot.Ready.Set();   //anyone coalesced on this slot finds it gone and decodes for themselves
+                        return ServeFromBuffer(staging, spanStart, got, readPosition, buffer, offset, count);
+                    }
                     governor.Release(spanLen - got);                       //release the unused tail; block now owns `got`
                     block.CopyFrom(staging, 0, got);
 
@@ -252,13 +262,19 @@ namespace libCommon.Streams
                 int got = ((IPositionalReader)BaseStream).ReadAt(spanStart, buff, 0, spanLen);
                 Interlocked.Increment(ref DecodeProgress);
                 ThrowIfShortDecode(spanStart, spanEnd, got);   //returning 0 here would also read as a false end-of-file
-                long bytesLeft = (spanStart + got) - readPosition;
-                if (bytesLeft <= 0) return 0;
-                int toCopy = (int)Math.Min(count, bytesLeft);
-                Array.Copy(buff, readPosition - spanStart, buffer, offset, toCopy);   //private buffer - no lock needed
-                return toCopy;
+                return ServeFromBuffer(buff, spanStart, got, readPosition, buffer, offset, count);
             }
             finally { Buffers.BufferPool.Return(buff); }
+        }
+
+        //Serves a read from a private decode buffer holding `got` bytes of the span at spanStart - no lock needed.
+        static int ServeFromBuffer(byte[] decoded, long spanStart, int got, long readPosition, byte[] buffer, int offset, int count)
+        {
+            long bytesLeft = (spanStart + got) - readPosition;
+            if (bytesLeft <= 0) return 0;
+            int toCopy = (int)Math.Min(count, bytesLeft);
+            Array.Copy(decoded, readPosition - spanStart, buffer, offset, toCopy);
+            return toCopy;
         }
 
         //Every read is served from the span its suggestor recommends, so that span must contain the position.
@@ -359,7 +375,14 @@ namespace libCommon.Streams
                     Interlocked.Increment(ref DecodeProgress);
                     if (bytesRead == 0) throw new Exception($"No bytes read despite recommendation at {start:N0} (len {toRead:N0})");
 
-                    block = NativeBlock.AllocateReserved(bytesRead, governor);
+                    try { block = NativeBlock.AllocateReserved(bytesRead, governor); }
+                    catch (OutOfMemoryException)
+                    {
+                        //no memory to cache it: serve this read from the decode buffer, uncached (as the concurrent path)
+                        governor.Release(toRead);
+                        governor.CountAllocationFailure();
+                        return ServeFromBuffer(staging, start, bytesRead, readPosition, buffer, offset, count);
+                    }
                     governor.Release(toRead - bytesRead);
                     block.CopyFrom(staging, 0, bytesRead);
 

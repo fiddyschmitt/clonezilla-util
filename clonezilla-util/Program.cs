@@ -14,6 +14,7 @@ using libPartclone;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
+using Serilog.Filters;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -94,14 +95,20 @@ namespace clonezilla_util
             //can throw when there is no real console attached.
             try { System.Console.OutputEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false); } catch { }
 
+            //Telemetry for the test analyses (the memory governor's MEM lines) is written only when the test
+            //harness asks for it; a user sees none of it, on the console or in the log file.
+            TelemetryLog.Enabled = Environment.GetEnvironmentVariable(TelemetryLog.EnvironmentVariable) == "1";
+
             Log.Logger = new LoggerConfiguration()
                             .MinimumLevel.ControlledBy(LogLevelSwitch)
                             .Filter.With(new SuppressConsecutiveDuplicateFilter())
                             //All log output goes to stderr (standardErrorFromLevel at the lowest level) so
                             //that `list` can write clean, machine-readable records to stdout - a redirected
                             //`list > files.txt` must hold only the file identities, never the banner or the
-                            //progress lines (gh review F47).
-                            .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Information, standardErrorFromLevel: LogEventLevel.Verbose)
+                            //progress lines (gh review F47). Telemetry, when enabled, goes to the file only.
+                            .WriteTo.Logger(console => console
+                                .Filter.ByExcluding(Matching.WithProperty<bool>(TelemetryLog.Property, telemetry => telemetry))
+                                .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Information, standardErrorFromLevel: LogEventLevel.Verbose))
                             .WriteTo.Debug(restrictedToMinimumLevel: LogEventLevel.Debug)
                             .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day, restrictedToMinimumLevel: LogEventLevel.Information)
                             .CreateLogger();
@@ -352,11 +359,26 @@ namespace clonezilla_util
                 true,
                 mountAsImageOptions.ProcessTrailingNulls);
 
-            libClonezilla.Utility.PopulateVFS(vfs, vfs.Value.RootFolder.Value, containers, DesiredContent.ImageFiles);
+            var mounted = libClonezilla.Utility.PopulateVFS(vfs, vfs.Value.RootFolder.Value, containers, DesiredContent.ImageFiles);
 
             //the fallback can land the mount on a different letter than requested
             var mountedAt = vfs.Value.RootFolder.Value.MountPoint;
             Log.Information($"Mounting complete. Mounted to: {mountedAt}");
+
+            //Indexing is done by now (each partition built its index as it loaded), so the disks are ready to attach.
+            //Printed, not logged: the command is meant to be copied.
+            foreach (var partition in mounted.SelectMany(container => container.MountedPartitions).Where(partition => partition.VhdxFileEntry != null))
+            {
+                var disk = partition.VhdxFileEntry!.FullPath;
+                Console.WriteLine();
+                Console.WriteLine($"{partition.Partition.PartitionName} is encrypted with BitLocker. To open it, attach it from an elevated PowerShell:");
+                Console.WriteLine();
+                Console.WriteLine($"    Mount-DiskImage -Access ReadOnly -ImagePath \"{disk}\"");
+                Console.WriteLine();
+                Console.WriteLine($"Windows then shows it as a locked drive: open it and enter the password or recovery key. To detach it: Dismount-DiskImage -ImagePath \"{disk}\"");
+                Console.WriteLine();
+            }
+
             if (!mountAsImageOptions.NoExplorer) Process.Start("explorer.exe", mountedAt);
 
             ServeUntilEnter(vfs.Value);
