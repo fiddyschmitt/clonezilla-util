@@ -14,6 +14,7 @@ using libPartclone;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
+using Serilog.Filters;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -94,14 +95,20 @@ namespace clonezilla_util
             //can throw when there is no real console attached.
             try { System.Console.OutputEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false); } catch { }
 
+            //Telemetry for the test analyses (the memory governor's MEM lines) is written only when the test
+            //harness asks for it; a user sees none of it, on the console or in the log file.
+            TelemetryLog.Enabled = Environment.GetEnvironmentVariable(TelemetryLog.EnvironmentVariable) == "1";
+
             Log.Logger = new LoggerConfiguration()
                             .MinimumLevel.ControlledBy(LogLevelSwitch)
                             .Filter.With(new SuppressConsecutiveDuplicateFilter())
                             //All log output goes to stderr (standardErrorFromLevel at the lowest level) so
                             //that `list` can write clean, machine-readable records to stdout - a redirected
                             //`list > files.txt` must hold only the file identities, never the banner or the
-                            //progress lines (gh review F47).
-                            .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Information, standardErrorFromLevel: LogEventLevel.Verbose)
+                            //progress lines (gh review F47). Telemetry, when enabled, goes to the file only.
+                            .WriteTo.Logger(console => console
+                                .Filter.ByExcluding(Matching.WithProperty<bool>(TelemetryLog.Property, telemetry => telemetry))
+                                .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Information, standardErrorFromLevel: LogEventLevel.Verbose))
                             .WriteTo.Debug(restrictedToMinimumLevel: LogEventLevel.Debug)
                             .WriteTo.File(@"logs\clonezilla-util-.log", rollingInterval: RollingInterval.Day, restrictedToMinimumLevel: LogEventLevel.Information)
                             .CreateLogger();

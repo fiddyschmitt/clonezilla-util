@@ -15,6 +15,10 @@ namespace clonezilla_util_tests
         [AssemblyInitialize]
         public static void AssemblyInit(TestContext context)
         {
+            //the exe writes its memory telemetry (the MEM lines the test analyses read) only when asked; every exe
+            //the tests spawn inherits this
+            Environment.SetEnvironmentVariable("CLONEZILLA_TELEMETRY", "1");
+
             Process
                 .GetProcesses()
                 .Where(pr => pr.ProcessName == "clonezilla-util")

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using libCommon.Logging;
 using Serilog;
 
 namespace libCommon.Memory
@@ -96,7 +97,7 @@ namespace libCommon.Memory
             if (reserveMb is long rmb && rmb > 0) { g.reserveBytes = Clamp(rmb << 20, total); g.configSource = source; }
             if (cacheCapMb is long cmb && cmb > 0) g.cacheCapBytes = cmb << 20;
             if (!Environment.Is64BitProcess) g.cacheCapBytes = Math.Min(g.cacheCapBytes, 512L << 20);
-            Log.Information($"MEM governor: total {Fmt(total)}, reserve {Fmt(g.reserveBytes)} ({g.configSource}), cache cap {(g.cacheCapBytes == long.MaxValue ? "none" : Fmt(g.cacheCapBytes))}, tick 1s");
+            TelemetryLog.Logger.Information($"MEM governor: total {Fmt(total)}, reserve {Fmt(g.reserveBytes)} ({g.configSource}), cache cap {(g.cacheCapBytes == long.MaxValue ? "none" : Fmt(g.cacheCapBytes))}, tick 1s");
         }
 
         public void Register(IGovernedCache cache)
@@ -271,6 +272,9 @@ namespace libCommon.Memory
 
         void Report()
         {
+            //the report is telemetry for test runs; a user's exe does not even compose it
+            if (!TelemetryLog.Enabled) return;
+
             var s = lastSample;
             long live = Interlocked.Read(ref liveNativeBytes);
             long over = Interlocked.Read(ref overReserveAdmits);
@@ -311,7 +315,8 @@ namespace libCommon.Memory
             using var proc = Process.GetCurrentProcess();
             long ws = proc.WorkingSet64, priv = proc.PrivateMemorySize64;
 
-            Log.Information(
+            //telemetry: the test analyses read it from the log file; a user running the exe gets none of it
+            TelemetryLog.Logger.Information(
                 $"MEM {state}: avail {Fmt(s.Avail)} (reserve {Fmt(reserveBytes)}) | cache {Fmt(cached)} in {streams} stream(s), {slots} slots | " +
                 $"in-flight {Fmt(inFlight)} | pool out {Fmt(Buffers.RentedOutBytes)} | {elapsed / 1000}s: hits {h:N0} misses {m:N0} evicted {ev:N0} ({Fmt(evb)}) " +
                 $"redecodes {rd:N0} over-reserve {over:N0} gen2 {gen2} | ws {Fmt(ws)} private {Fmt(priv)}");
