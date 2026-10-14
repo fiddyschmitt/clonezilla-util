@@ -9,12 +9,14 @@ using libCommon.Streams;
 
 namespace clonezilla_util_tests.Memory
 {
-    /// <summary>A memory sampler the test drives directly. Change <see cref="Avail"/>, then call
-    /// governor.ForceSample() (or Tick) to make the governor see it.</summary>
+    /// <summary>A memory sampler the test drives directly. Change <see cref="Avail"/> (or the file cache, or the
+    /// commit headroom), then call governor.ForceSample() (or Tick) to make the governor see it.</summary>
     sealed class FakeSampler
     {
         public long Total = 64L * 1024 * 1024 * 1024;
         public long Avail;
+        public long FileCache;
+        public long AvailPageFile = long.MaxValue;
 
         public FakeSampler(long avail) => Avail = avail;
 
@@ -22,9 +24,10 @@ namespace clonezilla_util_tests.Memory
         {
             TotalPhys = Total,
             AvailPhys = Volatile.Read(ref Avail),
-            AvailPageFile = long.MaxValue,
+            AvailPageFile = Volatile.Read(ref AvailPageFile),
             LiveNativeAtSample = liveNative,
             Tick = Environment.TickCount64,
+            FileCache = Volatile.Read(ref FileCache),
         };
     }
 

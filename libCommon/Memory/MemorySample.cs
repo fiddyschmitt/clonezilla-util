@@ -19,19 +19,20 @@ namespace libCommon.Memory
         public required long LiveNativeAtSample { get; init; }
         public required long Tick { get; init; }
 
-        /// <summary>Headroom = the smaller of free physical RAM and free commit. Filling physical RAM past
-        /// the commit limit would force the pagefile to grow (or fail), so both are respected.</summary>
-        public long Avail => Math.Min(AvailPhys, AvailPageFile);
+        /// <summary>The system file cache's working set: Windows' cached file data, which it counts as in use
+        /// rather than available, yet gives up first when a process needs memory. 0 when it can't be read.</summary>
+        public long FileCache { get; init; }
     }
 
     /// <summary>
     /// Samples system-wide memory. <c>GlobalMemoryStatusEx</c> is one cheap syscall that is always current
     /// (unlike <c>GC.GetGCMemoryInfo().MemoryLoadBytes</c>, which only refreshes at a GC). If the syscall
-    /// ever fails it falls back to GC info, which still yields a usable available figure.
+    /// ever fails it falls back to GC info, which still yields a usable available figure. The file cache is
+    /// one more cheap, unprivileged syscall (the figure behind the "System Cache Resident Bytes" counter).
     /// </summary>
     static class Win32MemorySampler
     {
-        static bool warned;
+        static bool warned, fileCacheWarned;
 
         public static MemorySample? TrySample(long liveNativeBytes)
         {
@@ -47,6 +48,7 @@ namespace libCommon.Memory
                         AvailPageFile = (long)status.ullAvailPageFile,
                         LiveNativeAtSample = liveNativeBytes,
                         Tick = Environment.TickCount64,
+                        FileCache = FileCacheWorkingSet(),
                     };
                 }
             }
@@ -73,6 +75,38 @@ namespace libCommon.Memory
                 };
             }
             catch { return null; }
+        }
+
+        //The system file cache's working set, or 0 (none counted as reclaimable: the governor behaves as it did
+        //before it looked at the cache) if it can't be read
+        static long FileCacheWorkingSet()
+        {
+            try
+            {
+                var info = new SYSTEM_FILECACHE_INFORMATION();
+                var status = NtQuerySystemInformation(SystemFileCacheInformation, ref info, Marshal.SizeOf<SYSTEM_FILECACHE_INFORMATION>(), out _);
+                if (status == 0) return (long)info.CurrentSize;
+                if (!fileCacheWarned) { fileCacheWarned = true; Log.Debug($"MEM: could not read the file cache size (NTSTATUS 0x{status:X8}); not counting it as reclaimable."); }
+            }
+            catch (Exception ex)
+            {
+                if (!fileCacheWarned) { fileCacheWarned = true; Log.Debug($"MEM: could not read the file cache size ({ex.Message}); not counting it as reclaimable."); }
+            }
+            return 0;
+        }
+
+        const int SystemFileCacheInformation = 21;
+
+        [DllImport("ntdll.dll")]
+        static extern int NtQuerySystemInformation(int infoClass, ref SYSTEM_FILECACHE_INFORMATION info, int length, out int returnLength);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct SYSTEM_FILECACHE_INFORMATION
+        {
+            public nuint CurrentSize, PeakSize;
+            public uint PageFaultCount;
+            public nuint MinimumWorkingSet, MaximumWorkingSet, CurrentSizeIncludingTransitionInPages, PeakSizeIncludingTransitionInPages;
+            public uint TransitionRePurposeCount, Flags;
         }
     }
 }
