@@ -1,5 +1,6 @@
 ﻿using libCommon;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -105,8 +106,21 @@ namespace clonezilla_util_tests.Mount
             }, timeout);
         }
 
-        /// <summary>The exe while its mount is up: handed to the check a test runs against the live mount.</summary>
-        public sealed record LiveMount(Process Process, Stopwatch SinceLaunch, TimeSpan MaxWait);
+        /// <summary>The exe while its mount is up: handed to the check a test runs against the live mount. <see cref="Output"/>
+        /// collects every line it writes, stdout and stderr, as they arrive.</summary>
+        public sealed record LiveMount(Process Process, Stopwatch SinceLaunch, TimeSpan MaxWait, ConcurrentQueue<string> Output)
+        {
+            /// <summary>Waits for a line containing <paramref name="text"/>; fails the test if none arrives in time.</summary>
+            public void WaitForOutput(string text, TimeSpan timeout)
+            {
+                var waited = Stopwatch.StartNew();
+                while (!Output.Any(line => line.Contains(text)))
+                {
+                    if (waited.Elapsed > timeout) Assert.Fail($"The exe did not print '{text}' within {timeout}.");
+                    Thread.Sleep(250);
+                }
+            }
+        }
 
         /// <summary>
         /// Runs a mount verb (<paramref name="args"/>, plus --no-explorer), waits for the exe's own "Mounting complete",
@@ -126,13 +140,20 @@ namespace clonezilla_util_tests.Mount
                 RedirectStandardInput = true
             };
             var mountingComplete = new ManualResetEventSlim(false);
+            var output = new ConcurrentQueue<string>();
             var process = Process.Start(psi);
             if (process != null)
             {
                 //"Mounting complete" is a log line, which the exe now writes to stderr, so watch BOTH
                 //streams for it. Draining both also stops a full pipe buffer from blocking the exe.
-                process.OutputDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
-                process.ErrorDataReceived += (_, e) => { if (e.Data?.Contains("Mounting complete") == true) mountingComplete.Set(); };
+                void OnLine(string? line)
+                {
+                    if (line == null) return;
+                    output.Enqueue(line);
+                    if (line.Contains("Mounting complete")) mountingComplete.Set();
+                }
+                process.OutputDataReceived += (_, e) => OnLine(e.Data);
+                process.ErrorDataReceived += (_, e) => OnLine(e.Data);
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
             }
@@ -164,7 +185,7 @@ namespace clonezilla_util_tests.Mount
                     Thread.Sleep(1000);
                 }
 
-                whileMounted(new LiveMount(process!, waited, maxWait));
+                whileMounted(new LiveMount(process!, waited, maxWait, output));
             }
             finally
             {

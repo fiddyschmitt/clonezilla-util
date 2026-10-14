@@ -44,6 +44,71 @@ namespace clonezilla_util_tests.Mount.AsImageFiles
                 ]);
         }
 
+        //the .vhdx is for BitLocker partitions only - 7-Zip opens the rest from the .img - and nothing tells the user to
+        //attach one
+        [TestMethod]
+        public void NoVirtualDisks_ForAnUnencryptedPartition()
+        {
+            TestUtility.WhileMounted(
+                Main.ExeUnderTest,
+                """mount-as-image-files --input "E:\clonezilla-util-test resources\clonezilla images\2022-07-17-16-img_pb-devops1_gz" -p sda1 -m L:\ """,
+                @"L:\",
+                mount =>
+                {
+                    WaitForFile(@"L:\sda1.img");
+                    Assert.IsFalse(File.Exists(@"L:\sda1.vhdx"), "no .vhdx for an NTFS partition");
+                    Assert.IsFalse(File.Exists(@"L:\sda1.vhd"), "no .vhd for an NTFS partition");
+
+                    //printed after any attach command, so by then there would have been one
+                    mount.WaitForOutput("Running. Press Enter to exit.", TimeSpan.FromSeconds(60));
+                    Assert.IsFalse(mount.Output.Any(line => line.Contains("Mount-DiskImage")), "no attach command for an NTFS partition");
+                });
+        }
+
+        //sda3 is a BitLocker volume (Windows 11, saved encrypted). Beside its .img it is served as sda3.vhdx - a GPT disk
+        //holding the partition, which Windows attaches and then offers to unlock - and the exe prints the command that
+        //attaches it. Pins the disk's first 64 MiB (the VHDX structures, the GPT, the volume's start) rather than reading
+        //all 56 GiB. No .vhd: FixedVhd is kept but not served.
+        [TestMethod]
+        public void BitLocker_ServedAsVhdx()
+        {
+            TestUtility.WhileMounted(
+                Main.ExeUnderTest,
+                """mount-as-image-files --input "E:\clonezilla-util-test resources\clonezilla images\2026-10-05-22-img_win11_bitlocker_zst" -p sda3 -m L:\ """,
+                @"L:\",
+                mount =>
+                {
+                    WaitForFile(@"L:\sda3.vhdx");
+                    Assert.AreEqual("b4bf12b89ecc8c12e3a656bc0ce15693", Md5OfStart(@"L:\sda3.vhdx", 64 * 1024 * 1024), "sda3.vhdx");
+                    Assert.IsTrue(File.GetAttributes(@"L:\sda3.vhdx").HasFlag(FileAttributes.ReadOnly), "served read-only");
+                    Assert.IsFalse(File.Exists(@"L:\sda3.vhd"), "no .vhd");
+
+                    mount.WaitForOutput("Running. Press Enter to exit.", TimeSpan.FromSeconds(60));
+                    Assert.IsTrue(mount.Output.Any(line => line.Contains("Mount-DiskImage -Access ReadOnly -ImagePath \"L:\\sda3.vhdx\"")),
+                        $"the attach command. Output:{Environment.NewLine}{string.Join(Environment.NewLine, mount.Output)}");
+                },
+                TimeSpan.FromMinutes(50));
+        }
+
+        //the files appear once the exe reports "Mounting complete" - give Dokan a moment to expose them
+        static void WaitForFile(string path)
+        {
+            var waited = System.Diagnostics.Stopwatch.StartNew();
+            while (!File.Exists(path))
+            {
+                if (waited.Elapsed > TimeSpan.FromSeconds(60)) Assert.Fail($"{path} did not appear within 60 s of 'Mounting complete'.");
+                Thread.Sleep(500);
+            }
+        }
+
+        static string Md5OfStart(string path, int length)
+        {
+            using var file = File.OpenRead(path);
+            var buffer = new byte[length];
+            file.ReadExactly(buffer);
+            return Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(buffer));
+        }
+
         [TestMethod]
         public void Partclone()
         {

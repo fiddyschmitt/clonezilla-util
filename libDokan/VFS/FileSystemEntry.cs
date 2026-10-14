@@ -30,6 +30,7 @@ namespace libDokan.VFS
         }
         public bool Hidden { get; set; } = false;
         public bool System { get; set; } = false;
+        public bool ReadOnly { get; set; } = false;
 
         public FileSystemEntry(string name, Folder? parent)
         {
@@ -89,6 +90,7 @@ namespace libDokan.VFS
 
             if (Hidden) result.Attributes |= FileAttributes.Hidden;
             if (System) result.Attributes |= FileAttributes.System;
+            if (ReadOnly) result.Attributes |= FileAttributes.ReadOnly;
 
             result.FileName = Name;
             result.CreationTime = Created;
