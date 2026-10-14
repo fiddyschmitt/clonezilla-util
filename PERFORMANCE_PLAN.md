@@ -830,7 +830,13 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
   longer stalls a hit or the governor. Knobs: `--memory-reserve` / `CLONEZILLA_MEMORY_RESERVE_MB`,
   `--cache-max` / `CLONEZILLA_CACHE_MAX_MB`. Telemetry: a `MEM …` log line (state change / 30 s / 10 min)
   with avail, cache size, in-flight, pool-out, hit/miss/evict/redecode counts — the memory instrumentation
-  the earlier `[diag]` snapshots used to provide. GC `System.GC.HighMemoryPercent=95` so the 8% reserve
+  the earlier `[diag]` snapshots used to provide. Since 2026-10-06 the MEM status lines are telemetry for
+  the test analyses only (`TelemetryLog`): written to the log file when `CLONEZILLA_TELEMETRY=1` (the test
+  harness sets it; spawned exes inherit it), never to the console, and not at all for a user. Since
+  2026-10-09 the shrink lines are telemetry too (held at the floor they came every second: 1,018 console
+  warnings in one run); a user sees only "Memory is short ..." (at most every 30 min, while the cache is held
+  at its floor a GiB or more short), "Out of memory for the decode cache ..." (at most every 5 min) and the
+  sampler fallback. GC `System.GC.HighMemoryPercent=95` so the 8% reserve
   (≈92% load) does not trip the GC's aggressive high-memory mode (the managed heap is small once slots are
   native). Fixed-cost trims shipped alongside: `Buffers.BufferPool` bucket cap 50→16, restart-seek skip
   buffer 50 MB→1 MB, and `PartcloneImageInfo.Bitmap` released after packing (−64 MiB per 2 TB partition).
@@ -856,6 +862,18 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
   So the 09-18 figure was most likely the VAD grower over 8 days plus cache metadata from the golden runs'
   millions of file opens; neither is in this product. For clean measurements, reboot before a golden run, and
   snapshot pool tags before and after a run to see what grows.
+  **2026-10-10: the VAD grower is now ~20x faster.** Two days after the 10-08 22:05 boot, nonpaged pool was 8.2 GB,
+  7.4 GB of it tag `Vad ` (48.7 M outstanding), growing ~270/s (+24.5 k in 90 s) with no clonezilla-util process
+  running - ~3.5 GB/day, the same rate across that day's suite and golden runs and the idle evening. No process
+  shows the address space 48 M VADs would need (all sit at the ~2 TB CFG baseline), so the owner is still unnamed
+  unelevated. It is commit no product code can use: others' commit was ~45 GB in the 10-10 golden run (~35 GB the
+  night before), capping the decode cache at 8-12 GB, and the quartet took 322 min. **Root-caused 2026-10-11
+  (elevated xperf pool trace): not VirtualBox, the first suspect, and not this product.** On Windows 10.0.28000,
+  `GetAdaptersAddresses` asking for gateways and prefixes leaks ~4.8 `Vad ` allocations per call: the ALPC section
+  views it maps to talk to the DNS and DHCP clients are unmapped, but their VADs are never freed, not even when the
+  caller exits. An offline Tailscale made ~40 such calls a second. With Tailscale uninstalled (10-11) the golden
+  quartet ran in 109.2 min that evening, level with the record. Other callers still leak ~0.1-0.2 GB a day, so
+  reboot before timed runs.
 - [ ] **Watch: the governor vs the OS file cache (2026-09-24).** In the Batch 2 suite run the zst bleed-stress leg
   took 17.4 min (6.1 on 09-23, 7.6 on 08-26; the other three legs were 17–34 % slower than 09-23). Measured
   mid-leg: decoded cache 19 GB and growing, 6.1 GB available, 6.2 GB standby cache, so the 18.5 GB zst image
@@ -867,6 +885,35 @@ copy, but it trends toward memory exhaustion and a few fragmented files are path
   established either (that run's free RAM wasn't recorded; on 09-24 two VMs and an unrelated 3.3 GB job were
   also running). Re-measure before acting. Options if it recurs with the pagefile off E:: count the
   compressed inputs in the reserve (`min(Σ compressed input, 25 % RAM)`), or `--memory-reserve`.
+  **Resolved 2026-10-09 (a different face of it):** the golden bzip2 leg ran nine hours without finishing,
+  twice. Windows' file cache working set ("System Cache Resident Bytes") held 31 GB of stale data from the
+  overnight cold suite's random reads; Windows counts that as in use, not available, and doesn't trim it
+  without pressure, while the governor, holding 5.1 GB available, never created any. The decode cache sat
+  at its floor (16 MB) from the start, later reaching only 2-9 GB (record run: 36-38 GB). Probes: 26 GB
+  allocated against a 20 GB stale cache - Windows trimmed the cache to 8.6 GB, keeping 4-5 GB free; a 6 GB
+  block idle for 90 s stayed resident; nothing went to the pagefile. So the governor's headroom is now free
+  memory plus the file cache above a floor of the reserve (NtQuerySystemInformation class 21, unprivileged),
+  still capped by commit headroom, with free physical memory allowed to dip to half the reserve (that dip is
+  what makes Windows let go; below it the caches shed as before). The MEM line now shows avail, file cache,
+  commit avail and headroom. Sequential reads (`copy`) go to standby instead and never caused this.
+  The morning run also showed why starving was fatal rather than slow: at the old floor (2 spans a stream, 6
+  in all) the 16 readers evicted each other's spans between reads - ~6,500 misses and 15-200 hits per 30 s
+  for eight hours, every read decoding its ~0.5 MB span again, re-reading the 20.7 GB compressed image at
+  random (which itself grew the file cache that starved it). So the reserve now sheds only down to a byte
+  floor of a 64th of RAM (64 MiB - 1 GiB; at most half an explicit cap, which can still go below it). And a
+  span whose native allocation fails (out of commit; 2026-10-01 failed 17 reads that way) is served from its
+  decode buffer, uncached, instead of failing the read. Worst case rehearsed the same evening: the golden bzip2
+  leg with `CLONEZILLA_MEMORY_RESERVE_MB=60000`, so the cache sat at the 1 GiB floor throughout - **passed in
+  71 min** (record 35.8), 97.9% hits, ~91 GB decoded for the ~36 GB a big cache decodes once, 69 SLOWREADs
+  (max 41 s, the setupcln logs as in every run), no errors. Then the whole quartet at defaults, 2026-10-09
+  20:37: **all four passed, 3.70 h** - bzip2 54.4, gz 35.4, xz 48.6, zst 83 min; no errors, no memory warnings,
+  1,389 SLOWREADs (max ~86 s, nearly all zst). Slower than the record for the 09-27 reason: commit-bound (the two
+  VMs' 14 GB of commit, 2 GB page file) at an ~18-20 GB cache, and with physical memory full (others ~29 GB:
+  VMs, 4.9 GB nonpaged pool) no standby was left for the compressed images, so re-decodes read E: (~75 MB/s
+  page-ins in zst). zst suffers most: its 32 MB spans need ~38 GB to decode once (record: 1,390 misses); at
+  18 GB it made 11 k+ misses at ~80 MB/s, where 09-27 (14.7 GB cache) made 21.9 k at ~360 MB/s with its image
+  evidently still in standby. The headroom change did not bind in any leg (commit did); this is the (A′)
+  decode-cache vs file-cache trade-off, unchanged.
   First data point after the move (golden, 2026-09-26): xz 26.4 and zst 24.1 min, the fastest on record.
   Second (golden, 2026-09-27): xz 41.7, zst 31.5 - confounded again, the other way. The move left C:\pagefile.sys
   at 2 GB initial (20 GB max), so the commit limit is RAM + 2 GB = 65.9 GB, and the governor's avail is
